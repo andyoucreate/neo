@@ -33,3 +33,6 @@ locks/
 
 # Events journal (runtime)
 events/
+
+# Dispatch service build output
+dispatch-service/dist/
