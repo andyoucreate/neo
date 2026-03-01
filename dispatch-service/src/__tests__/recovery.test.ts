@@ -41,12 +41,12 @@ function createMockSuccessStream(sessionId = "test-session"): AsyncIterable<SDKM
   };
 }
 
-function _createMockStreamWithoutResult(): AsyncIterable<SDKMessage> {
+function createMockStreamWithoutResult(sessionId = "test-session"): AsyncIterable<SDKMessage> {
   const messages: SDKMessage[] = [
     {
       type: "system",
       subtype: "init",
-      session_id: "test-session",
+      session_id: sessionId,
       cwd: "/tmp",
       tools: [],
       model: "opus",
@@ -72,10 +72,12 @@ describe("runWithRecovery", () => {
   };
 
   beforeEach(() => {
+    vi.useFakeTimers();
     vi.clearAllMocks();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.resetAllMocks();
   });
 
@@ -108,33 +110,114 @@ describe("runWithRecovery", () => {
     expect(onCostRecord.mock.calls[0]?.[0]?.total_cost_usd).toBe(10.00);
   });
 
-  // Note: These tests use maxRetries=1 to avoid actual backoff delays
-  // The retry logic is tested via the "should respect custom maxRetries" test
+  it("should retry on stream ending without result", async () => {
+    mockQuery
+      .mockReturnValueOnce(createMockStreamWithoutResult())
+      .mockReturnValueOnce(createMockSuccessStream());
 
-  it.skip("should retry on stream ending without result", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
-    // The retry mechanism is verified in other tests
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+
+    // Advance past the first backoff: attempt 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const result = await promise;
+
+    expect(result.subtype).toBe("success");
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
-  it.skip("should retry on SDK error", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
-    // The retry mechanism is verified in other tests
+  it("should retry on SDK error", async () => {
+    mockQuery
+      .mockImplementationOnce(() => { throw new Error("SDK connection lost"); })
+      .mockReturnValueOnce(createMockSuccessStream());
+
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+
+    // Advance past the first backoff: attempt 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    const result = await promise;
+
+    expect(result.subtype).toBe("success");
+    expect(mockQuery).toHaveBeenCalledTimes(2);
   });
 
-  it.skip("should use resume option on retry (attempt 2)", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
+  it("should use resume option on retry (attempt 2)", async () => {
+    mockQuery
+      .mockReturnValueOnce(createMockStreamWithoutResult("session-to-resume"))
+      .mockReturnValueOnce(createMockSuccessStream("session-to-resume"));
+
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+
+    // Advance past the first backoff: attempt 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await promise;
+
+    // Attempt 2 should resume the session from attempt 1
+    expect(mockQuery).toHaveBeenCalledTimes(2);
+    const secondCallOptions = mockQuery.mock.calls[1]?.[0]?.options;
+    expect(secondCallOptions).toHaveProperty("resume", "session-to-resume");
   });
 
-  it.skip("should use fresh session on attempt 3+", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
+  it("should use fresh session on attempt 3+", async () => {
+    mockQuery
+      .mockReturnValueOnce(createMockStreamWithoutResult("session-1"))
+      .mockReturnValueOnce(createMockStreamWithoutResult("session-2"))
+      .mockReturnValueOnce(createMockSuccessStream("session-3"));
+
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+
+    // Advance past first backoff: attempt 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+    // Advance past second backoff: attempt 2 * 30_000 = 60s
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await promise;
+
+    expect(mockQuery).toHaveBeenCalledTimes(3);
+
+    // Attempt 2 should resume session from attempt 1
+    const secondCallOptions = mockQuery.mock.calls[1]?.[0]?.options;
+    expect(secondCallOptions).toHaveProperty("resume", "session-1");
+
+    // Attempt 3 should use fresh session (no resume)
+    const thirdCallOptions = mockQuery.mock.calls[2]?.[0]?.options;
+    expect(thirdCallOptions).not.toHaveProperty("resume");
   });
 
-  it.skip("should throw after max retries exhausted", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
+  it("should throw after max retries exhausted", async () => {
+    mockQuery.mockReturnValue(createMockStreamWithoutResult());
+
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+    // Prevent unhandled rejection warning while we advance timers
+    const assertion = expect(promise).rejects.toThrow("test failed after 3 attempts");
+
+    // Advance past first backoff: 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+    // Advance past second backoff: 2 * 30_000 = 60s
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await assertion;
+    expect(mockQuery).toHaveBeenCalledTimes(3);
   });
 
-  it.skip("should include error message in final error", async () => {
-    // Skipped: requires real backoff waiting which causes timeout
+  it("should include error message in final error", async () => {
+    mockQuery.mockImplementation(() => {
+      throw new Error("Network timeout");
+    });
+
+    const promise = runWithRecovery("test", "Do something", defaultOptions, undefined, 3);
+    // Prevent unhandled rejection warning while we advance timers
+    const assertion = expect(promise).rejects.toThrow("Last error: Network timeout");
+
+    // Advance past first backoff: 1 * 30_000 = 30s
+    await vi.advanceTimersByTimeAsync(30_000);
+    // Advance past second backoff: 2 * 30_000 = 60s
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    await assertion;
+    expect(mockQuery).toHaveBeenCalledTimes(3);
   });
 
   it("should respect custom maxRetries", async () => {
