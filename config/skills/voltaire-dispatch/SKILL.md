@@ -179,6 +179,58 @@ npx acpx --agent claude-code -s "review-pr-{PR_NUMBER}-coverage" --no-wait \
   --approve-reads "Review PR #{PR_NUMBER} on {REPOSITORY} for test coverage. Post findings as PR comment."
 ```
 
+## Review Sizing
+
+Not all PRs need 4 parallel review sessions. Size the review based on the diff:
+
+### Sizing Rules
+
+1. **XS/S PR** (< 50 changed lines): Single combined review session
+   - One session covers quality + security together
+   - Uses Opus model (security needs it)
+   - Template: use the combined review template below
+
+2. **M PR** (50-300 changed lines): Two review sessions
+   - Session 1: quality + performance (Sonnet)
+   - Session 2: security + coverage (Opus)
+
+3. **L/XL PR** (> 300 changed lines): Full 4-lens review
+   - All 4 sessions as documented in the Review Pipeline templates above
+
+### How to determine PR size
+
+Before spawning review sessions, run:
+```
+gh pr diff {PR_NUMBER} --stat
+```
+Count total changed lines (insertions + deletions). Apply the sizing rules above.
+
+### Combined Review Template (XS/S)
+
+```bash
+npx acpx --agent claude-code -s "review-pr-{PR_NUMBER}-combined" \
+  --approve-reads \
+  "Review PR #{PR_NUMBER} on {REPOSITORY} for code quality AND security. \
+   Check: DRY violations, naming, complexity, injection attacks, auth gaps, \
+   secrets exposure, input validation. Post findings as PR comment."
+```
+
+### Two-Lens Review Templates (M)
+
+```bash
+npx acpx --agent claude-code -s "review-pr-{PR_NUMBER}-quality-perf" --no-wait \
+  --approve-reads \
+  "Review PR #{PR_NUMBER} on {REPOSITORY} for code quality AND performance. \
+   Check: DRY, naming, complexity, N+1 queries, re-renders, bundle size. \
+   Post findings as PR comment."
+
+npx acpx --agent claude-code -s "review-pr-{PR_NUMBER}-security-coverage" --no-wait \
+  --approve-reads \
+  "Review PR #{PR_NUMBER} on {REPOSITORY} for security AND test coverage. \
+   Check: injections, auth gaps, secrets, missing tests, edge cases. \
+   Post findings as PR comment."
+```
+
 ### QA Pipeline
 
 ```bash
@@ -222,3 +274,50 @@ Every ACPX session must produce a JSON result conforming to this schema:
 ```
 
 Fields are nullable — only relevant fields are populated per pipeline type. The `status` field is always required.
+
+## ACPX Session Recovery
+
+ACPX sessions can fail (OOM, timeout, network error, API rate limit). The dispatcher must handle this.
+
+### Recovery Protocol
+
+After dispatching an ACPX session, poll for completion:
+
+1. **Poll interval**: 30 seconds
+2. **Max wait**: 60 minutes (feature), 30 minutes (review/QA)
+3. **Check method**: `npx acpx --agent claude-code -s "{SESSION_NAME}" --status`
+
+### On Session Failure
+
+If a session exits with error or times out:
+
+1. **Retry once** — relaunch the same ACPX command with the same session name
+   - ACPX sessions are resumable: using the same `-s` name picks up where it left off
+   - Wait for the retry to complete (same poll interval)
+
+2. **If retry fails** — attempt one final retry with a fresh session name
+   - New session: `{original-name}-retry`
+   - This avoids corrupted session state
+
+3. **If all retries fail** (3 total attempts):
+   - Update Notion ticket status: "In Progress" → "Blocked"
+   - Set Notion "Agent" field to: "FAILED: {error summary}"
+   - Store failure record in memory: `failed:{TICKET_ID}` → {error, attempts, timestamp}
+   - Alert Slack #alerts: "FAILED: Ticket {TICKET_ID} after 3 attempts. Error: {summary}. Manual intervention required."
+   - Do NOT retry again automatically — wait for human investigation
+
+### Rate Limit Handling
+
+If the failure is an Anthropic API rate limit (429 error):
+- Do NOT retry immediately
+- Wait 60 seconds before first retry
+- Wait 120 seconds before second retry
+- If still failing, reduce `maxConcurrentSessions` by 1 and alert Slack
+
+### Session Timeout Prevention
+
+To avoid runaway sessions:
+- Feature sessions: `--max-turns 200` (hard limit)
+- Review sessions: `--max-turns 50`
+- QA sessions: `--max-turns 100`
+- Hotfix sessions: `--max-turns 100`
