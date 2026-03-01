@@ -3,6 +3,7 @@
 # Runs as a PreToolUse hook before git commit to ensure
 # the current branch can merge cleanly into the base branch.
 
+# shellcheck disable=SC2034 # INPUT is consumed from stdin per Claude Code hook protocol
 INPUT=$(cat)
 BASE_BRANCH="origin/develop"
 
@@ -14,6 +15,7 @@ if git diff --check "$BASE_BRANCH"...HEAD 2>/dev/null | grep -q "conflict"; then
 fi
 
 # Guarantee cleanup even if the script is interrupted (kill, OOM, etc.)
+# shellcheck disable=SC2329 # cleanup is invoked via trap
 cleanup() {
   git merge --abort 2>/dev/null || true
 }

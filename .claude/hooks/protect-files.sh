@@ -24,6 +24,7 @@ PROTECTED=(
 BASENAME=$(basename "$FILE_PATH")
 
 for pattern in "${PROTECTED[@]}"; do
+  # shellcheck disable=SC2053 # Unquoted $pattern is intentional for glob matching
   if [[ "$FILE_PATH" == $pattern ]] || \
      [[ "$BASENAME" == $pattern ]] || \
      [[ "$FILE_PATH" == */$pattern ]]; then
