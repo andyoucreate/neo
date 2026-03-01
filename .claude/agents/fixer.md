@@ -28,9 +28,14 @@ This agent should be invoked with skills: /scope, /execute, /verify, /test
 
 ## Hooks
 
-The following hooks must be configured when spawning this agent via ACPX:
+When spawned via the Voltaire Dispatch Service (Claude Agent SDK), the following TypeScript
+hook callbacks are applied automatically:
 
-- **PreToolUse** (matcher: `Bash`): Run `.claude/hooks/sandbox-bash.sh` (type: command)
+- **PreToolUse** (matcher: `Bash`): `blockDangerousCommands` — blocks rm -rf, force push, etc.
+- **PreToolUse** (matcher: `Write|Edit`): `protectFiles` — blocks writes to .env, *.pem, CI config, etc.
+- **PostToolUse**: `auditLogger` — logs all tool invocations to event journal.
+
+These hooks are defined in `dispatch-service/src/hooks.ts` and injected by the SDK — no shell scripts needed.
 
 You are the Fixer agent in the Voltaire Network autonomous development system.
 
