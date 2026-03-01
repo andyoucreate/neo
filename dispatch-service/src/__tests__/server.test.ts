@@ -102,4 +102,31 @@ describe("HTTP Server", () => {
       expect(res.body).toHaveProperty("status", "resumed");
     });
   });
+
+  describe("GET /health", () => {
+    it("should return healthy status when not paused", async () => {
+      const res = await request(app).get("/health");
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty("status", "healthy");
+      expect(res.body).toHaveProperty("paused", false);
+      expect(res.body).toHaveProperty("activeSessions");
+      expect(res.body).toHaveProperty("queueDepth");
+      expect(res.body).toHaveProperty("uptime");
+      expect(res.body).toHaveProperty("timestamp");
+    });
+
+    it("should return degraded status with 503 when paused", async () => {
+      await request(app).post("/pause");
+
+      const res = await request(app).get("/health");
+
+      expect(res.status).toBe(503);
+      expect(res.body).toHaveProperty("status", "degraded");
+      expect(res.body).toHaveProperty("paused", true);
+
+      // Cleanup
+      await request(app).post("/resume");
+    });
+  });
 });

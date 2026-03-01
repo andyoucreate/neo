@@ -84,6 +84,52 @@ export class CostJournal {
     }
   }
 
+  /**
+   * Get cost breakdown by pipeline type for current month.
+   */
+  async getCostByPipeline(): Promise<Record<string, number>> {
+    const entries = await this.readCurrentMonth();
+    const breakdown: Record<string, number> = {};
+
+    for (const entry of entries) {
+      breakdown[entry.pipeline] = (breakdown[entry.pipeline] ?? 0) + entry.costUsd;
+    }
+
+    return breakdown;
+  }
+
+  /**
+   * Get cost breakdown by model for current month.
+   */
+  async getCostByModel(): Promise<Record<string, number>> {
+    const entries = await this.readCurrentMonth();
+    const breakdown: Record<string, number> = {};
+
+    for (const entry of entries) {
+      for (const [model, cost] of Object.entries(entry.models)) {
+        breakdown[model] = (breakdown[model] ?? 0) + cost;
+      }
+    }
+
+    return breakdown;
+  }
+
+  /**
+   * Read all entries from the current month's journal.
+   */
+  private async readCurrentMonth(): Promise<CostEntry[]> {
+    const { readFile } = await import("node:fs/promises");
+    const filePath = join(this.baseDir, this.getFileName());
+
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      return lines.map((line) => JSON.parse(line) as CostEntry);
+    } catch {
+      return [];
+    }
+  }
+
   private getFileName(): string {
     const now = new Date();
     const year = now.getFullYear();

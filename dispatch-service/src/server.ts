@@ -1,25 +1,30 @@
+import crypto from "node:crypto";
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { z } from "zod";
 import { Semaphore } from "./concurrency.js";
+import { CONCURRENCY_LIMITS, COST_JOURNAL_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
+import { appendEvent } from "./event-journal.js";
+import { logger } from "./logger.js";
+import { RateLimiter } from "./rate-limiter.js";
 import { sanitize } from "./sanitize.js";
+import { notifyPipelineComplete } from "./slack.js";
 import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runReviewPipeline } from "./pipelines/review.js";
 import { runQaPipeline } from "./pipelines/qa.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
-import { COST_JOURNAL_DIR } from "./config.js";
-import { logger } from "./logger.js";
 import type {
-  FeatureRequest,
-  ReviewRequest,
-  QaRequest,
-  HotfixRequest,
-  FixerRequest,
   ActiveSession,
-  ServiceStatus,
+  FeatureRequest,
+  FixerRequest,
+  HotfixRequest,
   PipelineResult,
+  PipelineType,
+  QaRequest,
+  ReviewRequest,
+  ServiceStatus,
 } from "./types.js";
 
 // ─── Zod schemas for request validation ────────────────────────
@@ -73,6 +78,7 @@ const fixerSchema = z.object({
 // ─── Server state ──────────────────────────────────────────────
 const semaphore = new Semaphore();
 const costJournal = new CostJournal(COST_JOURNAL_DIR);
+const rateLimiter = new RateLimiter();
 const activeSessions = new Map<string, ActiveSession>();
 const startedAt = Date.now();
 let paused = false;
@@ -80,11 +86,15 @@ let paused = false;
 // Track dispatched ticket IDs for idempotency
 const dispatchedTickets = new Set<string>();
 
+// Session watchdog instance
+let watchdog: import("./watchdog.js").SessionWatchdog | null = null;
+
+// Auth token is read at request time so it can be changed without restart
+
 /**
  * Resolve the local repo directory from a repository identifier.
  */
 function resolveRepoDir(repository: string): string {
-  // Convention: repos are cloned to /home/voltaire/repos/{org}/{name}
   const parts = repository.replace("github.com/", "").split("/");
   return `/home/voltaire/repos/${parts.join("/")}`;
 }
@@ -97,7 +107,23 @@ export function createServer(): express.Express {
 
   app.use(express.json({ limit: "100kb" }));
 
-  // ─── Middleware: pause check ────────────────────────────────
+  // ─── Middleware: request ID ───────────────────────────────────
+  app.use((_req: Request, res: Response, next: NextFunction) => {
+    res.setHeader("X-Request-Id", crypto.randomUUID());
+    next();
+  });
+
+  // ─── Middleware: auth token check ─────────────────────────────
+  app.use("/dispatch", (req: Request, res: Response, next: NextFunction) => {
+    const authToken = process.env.DISPATCH_AUTH_TOKEN;
+    if (authToken && req.headers.authorization !== `Bearer ${authToken}`) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    next();
+  });
+
+  // ─── Middleware: pause check ──────────────────────────────────
   app.use("/dispatch", (_req: Request, res: Response, next: NextFunction) => {
     if (paused) {
       res.status(503).json({ error: "Dispatch service paused" });
@@ -106,7 +132,21 @@ export function createServer(): express.Express {
     next();
   });
 
-  // ─── POST /dispatch/feature ────────────────────────────────
+  // ─── Middleware: rate limit check ─────────────────────────────
+  app.use("/dispatch", (_req: Request, res: Response, next: NextFunction) => {
+    if (
+      rateLimiter.shouldThrottle(
+        semaphore.activeCount,
+        CONCURRENCY_LIMITS.maxConcurrentSessions,
+      )
+    ) {
+      res.status(429).json({ error: "Rate limited — try again later" });
+      return;
+    }
+    next();
+  });
+
+  // ─── POST /dispatch/feature ──────────────────────────────────
   app.post("/dispatch/feature", async (req: Request, res: Response) => {
     const parsed = featureSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -116,51 +156,32 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    // Idempotency check
     if (dispatchedTickets.has(data.ticketId)) {
       res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
       return;
     }
 
-    // Input sanitization
     const sanitized = sanitize(data);
     if (sanitized === "quarantined") {
+      appendEvent("dispatch.quarantined", {
+        pipeline: "feature",
+        ticketId: data.ticketId,
+        repository: data.repository,
+      }).catch(() => {});
       res.status(422).json({ error: "Content quarantined — suspicious input detected" });
       return;
     }
 
-    try {
-      const sessionId = await semaphore.acquire(data.repository);
-      dispatchedTickets.add(data.ticketId);
-
-      const session: ActiveSession = {
-        sessionId,
-        pipeline: "feature",
-        repository: data.repository,
-        ticketId: data.ticketId,
-        startedAt: new Date().toISOString(),
-        status: "running",
-      };
-      activeSessions.set(sessionId, session);
-
-      res.status(200).json({
-        status: "dispatched",
-        sessionId,
-        pipeline: "feature",
-      });
-
-      // Run pipeline in background
-      runFeaturePipelineBackground(data as FeatureRequest, sessionId);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Queue full")) {
-        res.status(429).json({ error: "Queue full" });
-      } else {
-        res.status(500).json({ error: "Internal error" });
-      }
-    }
+    await dispatchPipeline(
+      "feature",
+      data.repository,
+      res,
+      { ticketId: data.ticketId },
+      (sessionId) => runFeaturePipelineBackground(data as FeatureRequest, sessionId),
+    );
   });
 
-  // ─── POST /dispatch/review ─────────────────────────────────
+  // ─── POST /dispatch/review ───────────────────────────────────
   app.post("/dispatch/review", async (req: Request, res: Response) => {
     const parsed = reviewSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -170,36 +191,16 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    try {
-      const sessionId = await semaphore.acquire(data.repository);
-
-      const session: ActiveSession = {
-        sessionId,
-        pipeline: "review",
-        repository: data.repository,
-        prNumber: data.prNumber,
-        startedAt: new Date().toISOString(),
-        status: "running",
-      };
-      activeSessions.set(sessionId, session);
-
-      res.status(200).json({
-        status: "dispatched",
-        sessionId,
-        pipeline: "review",
-      });
-
-      runReviewPipelineBackground(data as ReviewRequest, sessionId);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Queue full")) {
-        res.status(429).json({ error: "Queue full" });
-      } else {
-        res.status(500).json({ error: "Internal error" });
-      }
-    }
+    await dispatchPipeline(
+      "review",
+      data.repository,
+      res,
+      { prNumber: data.prNumber },
+      (sessionId) => runReviewPipelineBackground(data as ReviewRequest, sessionId),
+    );
   });
 
-  // ─── POST /dispatch/qa ─────────────────────────────────────
+  // ─── POST /dispatch/qa ───────────────────────────────────────
   app.post("/dispatch/qa", async (req: Request, res: Response) => {
     const parsed = qaSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -209,36 +210,16 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    try {
-      const sessionId = await semaphore.acquire(data.repository);
-
-      const session: ActiveSession = {
-        sessionId,
-        pipeline: "qa",
-        repository: data.repository,
-        prNumber: data.prNumber,
-        startedAt: new Date().toISOString(),
-        status: "running",
-      };
-      activeSessions.set(sessionId, session);
-
-      res.status(200).json({
-        status: "dispatched",
-        sessionId,
-        pipeline: "qa",
-      });
-
-      runQaPipelineBackground(data as QaRequest, sessionId);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Queue full")) {
-        res.status(429).json({ error: "Queue full" });
-      } else {
-        res.status(500).json({ error: "Internal error" });
-      }
-    }
+    await dispatchPipeline(
+      "qa",
+      data.repository,
+      res,
+      { prNumber: data.prNumber },
+      (sessionId) => runQaPipelineBackground(data as QaRequest, sessionId),
+    );
   });
 
-  // ─── POST /dispatch/hotfix ─────────────────────────────────
+  // ─── POST /dispatch/hotfix ───────────────────────────────────
   app.post("/dispatch/hotfix", async (req: Request, res: Response) => {
     const parsed = hotfixSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -253,37 +234,16 @@ export function createServer(): express.Express {
       return;
     }
 
-    try {
-      const sessionId = await semaphore.acquire(data.repository);
-      dispatchedTickets.add(data.ticketId);
-
-      const session: ActiveSession = {
-        sessionId,
-        pipeline: "hotfix",
-        repository: data.repository,
-        ticketId: data.ticketId,
-        startedAt: new Date().toISOString(),
-        status: "running",
-      };
-      activeSessions.set(sessionId, session);
-
-      res.status(200).json({
-        status: "dispatched",
-        sessionId,
-        pipeline: "hotfix",
-      });
-
-      runHotfixPipelineBackground(data as HotfixRequest, sessionId);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Queue full")) {
-        res.status(429).json({ error: "Queue full" });
-      } else {
-        res.status(500).json({ error: "Internal error" });
-      }
-    }
+    await dispatchPipeline(
+      "hotfix",
+      data.repository,
+      res,
+      { ticketId: data.ticketId },
+      (sessionId) => runHotfixPipelineBackground(data as HotfixRequest, sessionId),
+    );
   });
 
-  // ─── POST /dispatch/fixer ──────────────────────────────────
+  // ─── POST /dispatch/fixer ────────────────────────────────────
   app.post("/dispatch/fixer", async (req: Request, res: Response) => {
     const parsed = fixerSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -293,36 +253,16 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    try {
-      const sessionId = await semaphore.acquire(data.repository);
-
-      const session: ActiveSession = {
-        sessionId,
-        pipeline: "fixer",
-        repository: data.repository,
-        prNumber: data.prNumber,
-        startedAt: new Date().toISOString(),
-        status: "running",
-      };
-      activeSessions.set(sessionId, session);
-
-      res.status(200).json({
-        status: "dispatched",
-        sessionId,
-        pipeline: "fixer",
-      });
-
-      runFixerPipelineBackground(data as FixerRequest, sessionId);
-    } catch (error) {
-      if (error instanceof Error && error.message.includes("Queue full")) {
-        res.status(429).json({ error: "Queue full" });
-      } else {
-        res.status(500).json({ error: "Internal error" });
-      }
-    }
+    await dispatchPipeline(
+      "fixer",
+      data.repository,
+      res,
+      { prNumber: data.prNumber },
+      (sessionId) => runFixerPipelineBackground(data as FixerRequest, sessionId),
+    );
   });
 
-  // ─── GET /status ───────────────────────────────────────────
+  // ─── GET /status ─────────────────────────────────────────────
   app.get("/status", async (_req: Request, res: Response) => {
     const todayCost = await costJournal.getTodayCost();
     const status: ServiceStatus = {
@@ -335,7 +275,7 @@ export function createServer(): express.Express {
     res.json(status);
   });
 
-  // ─── POST /kill/:sessionId ─────────────────────────────────
+  // ─── POST /kill/:sessionId ───────────────────────────────────
   app.post("/kill/:sessionId", (req: Request, res: Response) => {
     const sessionId = String(req.params.sessionId);
     const session = activeSessions.get(sessionId);
@@ -349,24 +289,46 @@ export function createServer(): express.Express {
     activeSessions.delete(sessionId);
     logger.warn(`Killed session ${sessionId}`);
 
+    appendEvent("session.killed", {
+      sessionId,
+      pipeline: session.pipeline,
+      repository: session.repository,
+    }).catch(() => {});
+
     res.json({ status: "killed", sessionId });
   });
 
-  // ─── POST /pause ───────────────────────────────────────────
+  // ─── POST /pause ─────────────────────────────────────────────
   app.post("/pause", (_req: Request, res: Response) => {
     paused = true;
     logger.warn("Dispatch service PAUSED");
+    appendEvent("service.paused").catch(() => {});
     res.json({ status: "paused" });
   });
 
-  // ─── POST /resume ──────────────────────────────────────────
+  // ─── POST /resume ────────────────────────────────────────────
   app.post("/resume", (_req: Request, res: Response) => {
     paused = false;
     logger.info("Dispatch service RESUMED");
+    appendEvent("service.resumed").catch(() => {});
     res.json({ status: "resumed" });
   });
 
-  // ─── Error handler ─────────────────────────────────────────
+  // ─── GET /health ─────────────────────────────────────────────
+  app.get("/health", (_req: Request, res: Response) => {
+    const health = {
+      status: paused ? "degraded" : "healthy",
+      paused,
+      activeSessions: activeSessions.size,
+      queueDepth: semaphore.queueDepth,
+      uptime: Date.now() - startedAt,
+      timestamp: new Date().toISOString(),
+      version: process.env.npm_package_version || "0.1.0",
+    };
+    res.status(paused ? 503 : 200).json(health);
+  });
+
+  // ─── Error handler ───────────────────────────────────────────
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
     logger.error("Unhandled error", err);
     res.status(500).json({ error: "Internal server error" });
@@ -375,75 +337,105 @@ export function createServer(): express.Express {
   return app;
 }
 
+// ─── Generic dispatch helper ──────────────────────────────────
+async function dispatchPipeline(
+  pipeline: PipelineType,
+  repository: string,
+  res: Response,
+  meta: { ticketId?: string; prNumber?: number },
+  runBackground: (sessionId: string) => void,
+): Promise<void> {
+  try {
+    const sessionId = await semaphore.acquire(repository);
+
+    if (meta.ticketId) {
+      dispatchedTickets.add(meta.ticketId);
+    }
+
+    const session: ActiveSession = {
+      sessionId,
+      pipeline,
+      repository,
+      ticketId: meta.ticketId,
+      prNumber: meta.prNumber,
+      startedAt: new Date().toISOString(),
+      status: "running",
+    };
+    activeSessions.set(sessionId, session);
+
+    appendEvent("dispatch.started", {
+      pipeline,
+      sessionId,
+      repository,
+      ticketId: meta.ticketId,
+      prNumber: meta.prNumber,
+    }).catch(() => {});
+
+    res.status(200).json({
+      status: "dispatched",
+      sessionId,
+      pipeline,
+    });
+
+    runBackground(sessionId);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("Queue full")) {
+      res.status(429).json({ error: "Queue full" });
+    } else {
+      res.status(500).json({ error: "Internal error" });
+    }
+  }
+}
+
 // ─── Background pipeline runners ───────────────────────────────
-async function runFeaturePipelineBackground(
-  request: FeatureRequest,
+async function runPipelineInBackground(
+  pipeline: PipelineType,
   sessionId: string,
+  runner: () => Promise<PipelineResult>,
 ): Promise<void> {
-  const repoDir = resolveRepoDir(request.repository);
   try {
-    const result = await runFeaturePipeline(request, repoDir);
+    const result = await runner();
     await recordResult(sessionId, result);
   } catch (error) {
-    logger.error(`Background feature pipeline error`, error);
+    logger.error(`Background ${pipeline} pipeline error`, error);
+    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
     cleanupSession(sessionId);
   }
 }
 
-async function runReviewPipelineBackground(
-  request: ReviewRequest,
-  sessionId: string,
-): Promise<void> {
+function runFeaturePipelineBackground(request: FeatureRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  try {
-    const result = await runReviewPipeline(request, repoDir);
-    await recordResult(sessionId, result);
-  } catch (error) {
-    logger.error(`Background review pipeline error`, error);
-    cleanupSession(sessionId);
-  }
+  runPipelineInBackground("feature", sessionId, () =>
+    runFeaturePipeline(request, repoDir),
+  );
 }
 
-async function runQaPipelineBackground(
-  request: QaRequest,
-  sessionId: string,
-): Promise<void> {
+function runReviewPipelineBackground(request: ReviewRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  try {
-    const result = await runQaPipeline(request, repoDir);
-    await recordResult(sessionId, result);
-  } catch (error) {
-    logger.error(`Background QA pipeline error`, error);
-    cleanupSession(sessionId);
-  }
+  runPipelineInBackground("review", sessionId, () =>
+    runReviewPipeline(request, repoDir),
+  );
 }
 
-async function runHotfixPipelineBackground(
-  request: HotfixRequest,
-  sessionId: string,
-): Promise<void> {
+function runQaPipelineBackground(request: QaRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  try {
-    const result = await runHotfixPipeline(request, repoDir);
-    await recordResult(sessionId, result);
-  } catch (error) {
-    logger.error(`Background hotfix pipeline error`, error);
-    cleanupSession(sessionId);
-  }
+  runPipelineInBackground("qa", sessionId, () =>
+    runQaPipeline(request, repoDir),
+  );
 }
 
-async function runFixerPipelineBackground(
-  request: FixerRequest,
-  sessionId: string,
-): Promise<void> {
+function runHotfixPipelineBackground(request: HotfixRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  try {
-    const result = await runFixerPipeline(request, repoDir);
-    await recordResult(sessionId, result);
-  } catch (error) {
-    logger.error(`Background fixer pipeline error`, error);
-    cleanupSession(sessionId);
-  }
+  runPipelineInBackground("hotfix", sessionId, () =>
+    runHotfixPipeline(request, repoDir),
+  );
+}
+
+function runFixerPipelineBackground(request: FixerRequest, sessionId: string): void {
+  const repoDir = resolveRepoDir(request.repository);
+  runPipelineInBackground("fixer", sessionId, () =>
+    runFixerPipeline(request, repoDir),
+  );
 }
 
 async function recordResult(
@@ -459,6 +451,28 @@ async function recordResult(
     durationMs: result.durationMs,
   });
 
+  await appendEvent("dispatch.completed", {
+    pipeline: result.pipeline,
+    sessionId: result.sessionId,
+    ticketId: result.ticketId,
+    prNumber: result.prNumber,
+    metadata: {
+      status: result.status,
+      costUsd: result.costUsd,
+      durationMs: result.durationMs,
+    },
+  }).catch(() => {});
+
+  notifyPipelineComplete({
+    pipeline: result.pipeline,
+    sessionId: result.sessionId,
+    status: result.status,
+    costUsd: result.costUsd,
+    durationMs: result.durationMs,
+    ticketId: result.ticketId,
+    prNumber: result.prNumber,
+  }).catch(() => {});
+
   cleanupSession(sessionId);
 
   logger.info(
@@ -471,5 +485,44 @@ function cleanupSession(sessionId: string): void {
   semaphore.release(sessionId);
 }
 
+/**
+ * Kill a session by ID (used by watchdog and /kill endpoint).
+ */
+function killSession(sessionId: string): void {
+  const session = activeSessions.get(sessionId);
+  if (session) {
+    activeSessions.delete(sessionId);
+    semaphore.release(sessionId);
+    logger.warn(`Killed session ${sessionId}`);
+  }
+}
+
+/**
+ * Start the session timeout watchdog.
+ */
+export async function startWatchdog(): Promise<void> {
+  const { SessionWatchdog } = await import("./watchdog.js");
+  watchdog = new SessionWatchdog({
+    getActiveSessions: () => activeSessions,
+    killSession,
+  });
+  watchdog.start();
+}
+
+/**
+ * Stop the session timeout watchdog.
+ */
+export function stopWatchdog(): void {
+  watchdog?.stop();
+  watchdog = null;
+}
+
+/**
+ * Get the watchdog instance (for testing).
+ */
+export function getWatchdog(): import("./watchdog.js").SessionWatchdog | null {
+  return watchdog;
+}
+
 // Export for testing
-export { semaphore, costJournal, activeSessions, dispatchedTickets };
+export { semaphore, costJournal, rateLimiter, activeSessions, dispatchedTickets };

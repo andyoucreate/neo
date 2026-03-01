@@ -1,10 +1,10 @@
-import type { Options, AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, Options } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
-import { createSandboxConfig } from "../sandbox.js";
-import { runWithRecovery } from "../recovery.js";
-import type { FeatureRequest, PipelineResult } from "../types.js";
-import { logger } from "../logger.js";
 import { hooks } from "../hooks.js";
+import { logger } from "../logger.js";
+import { runWithRecovery } from "../recovery.js";
+import { createSandboxConfig } from "../sandbox.js";
+import type { FeatureRequest, PipelineResult } from "../types.js";
 
 /**
  * Build the prompt for a feature pipeline.
