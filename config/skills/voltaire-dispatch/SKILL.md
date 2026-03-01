@@ -64,7 +64,41 @@ Read `review.approval` from the project `.voltaire.yml` to determine merge behav
 
 The approval policy is applied after the review pipeline and QA pipeline complete. The dispatcher must read and respect this setting for every dispatch cycle.
 
+## Project-Specific Skills
+
+Before dispatching, read the project's `.voltaire.yml` → `project.skills` array.
+If the project defines skills (e.g., `typescript-best-practices`, `tailwind-css-patterns`),
+append them to the ACPX prompt so the Claude Code agent loads them automatically.
+
+```
+# Example: if .voltaire.yml has:
+#   project.skills: [typescript-best-practices, vercel-react-best-practices]
+#
+# Then append to every ACPX prompt:
+#   "Load these skills for this project: /typescript-best-practices, /vercel-react-best-practices."
+```
+
+Available project skills (only include if listed in .voltaire.yml):
+- typescript-best-practices — TypeScript patterns, type safety, strict mode
+- tailwind-css-patterns — Tailwind utility-first styling
+- shadcn-ui — shadcn/ui component library
+- nestjs-best-practices — NestJS architecture patterns
+- nestjs-testing-expert — NestJS testing with Jest
+- supabase-postgres-best-practices — Postgres optimization
+- vercel-react-best-practices — React/Next.js performance
+- vercel-composition-patterns — React composition patterns
+- frontend-design — Production-grade frontend UI
+- web-design-guidelines — Web Interface Guidelines compliance
+- dnd-kit-implementation — Drag-and-drop with dnd-kit
+- remotion-best-practices — Video creation with Remotion
+- rilaykit — RilayKit forms and workflows
+- stndrds-schema, stndrds-react, stndrds-ui, stndrds-backend — @stndrds/* libraries
+
 ## ACPX Command Templates
+
+In all templates below, `{SKILLS_CLAUSE}` is replaced by:
+- Empty string if no project skills defined
+- `"Load these project skills: /skill1, /skill2."` if skills are defined in .voltaire.yml
 
 ### Feature Pipeline (M/L/XL)
 
@@ -75,6 +109,7 @@ npx acpx --agent claude-code -s "ticket-{TICKET_ID}" \
    Type: {TYPE}. Priority: {PRIORITY}. \
    Repository: {REPOSITORY}. \
    Acceptance criteria: {CRITERIA}. \
+   {SKILLS_CLAUSE} \
    Use /oneshot to implement this feature end-to-end. \
    Create a PR when done. Report the PR URL."
 ```
@@ -88,6 +123,7 @@ npx acpx --agent claude-code -s "ticket-{TICKET_ID}" \
    Type: {TYPE}. Priority: {PRIORITY}. \
    Repository: {REPOSITORY}. \
    Acceptance criteria: {CRITERIA}. \
+   {SKILLS_CLAUSE} \
    Implement this directly (small scope, no team needed). \
    Create a PR when done. Report the PR URL."
 ```
@@ -101,6 +137,7 @@ npx acpx --agent claude-code -s "hotfix-{TICKET_ID}" \
    Priority: {PRIORITY}. \
    Repository: {REPOSITORY}. \
    Description: {DESCRIPTION}. \
+   {SKILLS_CLAUSE} \
    Create PR with fix + regression test. Report the PR URL."
 ```
 

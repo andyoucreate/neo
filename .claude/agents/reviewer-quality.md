@@ -7,6 +7,9 @@ tools:
   - Glob
   - Grep
 permissionMode: default
+skills:
+  - criticize
+  - candid-review
 ---
 
 # Code Quality Reviewer — Voltaire Network

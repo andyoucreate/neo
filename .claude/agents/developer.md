@@ -16,6 +16,7 @@ skills:
   - scope
   - execute
   - verify
+  - test
 hooks:
   PreToolUse:
     - matcher: Bash

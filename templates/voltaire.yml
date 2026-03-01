@@ -11,6 +11,21 @@ project:
   name: "my-app"
   repository: "github.com/org/my-app"
 
+  # Project-specific skills to load for agents working on this repo.
+  # These are added ON TOP of the default skills each agent already has.
+  # Only list skills relevant to this project's stack.
+  # Available skills: typescript-best-practices, tailwind-css-patterns, shadcn-ui,
+  #   nestjs-best-practices, nestjs-testing-expert, supabase-postgres-best-practices,
+  #   vercel-react-best-practices, vercel-composition-patterns, frontend-design,
+  #   web-design-guidelines, dnd-kit-implementation, remotion-best-practices,
+  #   rilaykit, stndrds-schema, stndrds-react, stndrds-ui, stndrds-backend
+  skills:
+    - typescript-best-practices
+    # - tailwind-css-patterns
+    # - shadcn-ui
+    # - nestjs-best-practices
+    # - vercel-react-best-practices
+
 # ---------------------------------------------------------------------------
 # Notion integration
 # ---------------------------------------------------------------------------

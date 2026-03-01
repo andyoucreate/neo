@@ -608,6 +608,35 @@ claude mcp add --transport http notion https://mcp.notion.com/mcp
 claude mcp add --scope user --transport http context7 https://mcp.context7.com/mcp
 ```
 
+### Skills System
+
+Skills are loaded at two levels:
+
+**Agent-level skills** (always loaded, defined in `.claude/agents/*.md`):
+
+| Agent | Built-in Skills |
+|-------|----------------|
+| architect | roadmap, design, decompose |
+| developer | scope, execute, verify, test |
+| reviewer-quality | criticize, candid-review |
+| reviewer-perf | optimize |
+| fixer | scope, execute, verify, test |
+
+**Project-level skills** (loaded per project, defined in `.voltaire.yml` → `project.skills`):
+
+These are appended to ACPX prompts when dispatching. Example:
+
+```yaml
+# .voltaire.yml
+project:
+  skills:
+    - typescript-best-practices
+    - vercel-react-best-practices
+    - tailwind-css-patterns
+```
+
+Available project skills: `typescript-best-practices`, `tailwind-css-patterns`, `shadcn-ui`, `nestjs-best-practices`, `nestjs-testing-expert`, `supabase-postgres-best-practices`, `vercel-react-best-practices`, `vercel-composition-patterns`, `frontend-design`, `web-design-guidelines`, `dnd-kit-implementation`, `remotion-best-practices`, `rilaykit`, `stndrds-schema`, `stndrds-react`, `stndrds-ui`, `stndrds-backend`.
+
 ### Agent Teams Fallback Plan
 
 Claude Code Agent Teams is **experimental**. If teams prove unstable or unreliable:

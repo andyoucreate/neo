@@ -7,6 +7,8 @@ tools:
   - Glob
   - Grep
 permissionMode: default
+skills:
+  - optimize
 ---
 
 # Performance Reviewer — Voltaire Network
