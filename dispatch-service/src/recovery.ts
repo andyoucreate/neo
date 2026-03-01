@@ -63,6 +63,7 @@ export async function runWithRecovery(
       if (attempt === maxRetries) {
         throw new Error(
           `${pipeline} failed after ${maxRetries} attempts. Last error: ${errMsg}`,
+          { cause: error },
         );
       }
 

@@ -192,7 +192,7 @@ describe("Review Pipeline", () => {
       expect(callOptions?.sandbox).toBeDefined();
       // Read-only sandbox should have empty allowWrite
       const sandbox = callOptions?.sandbox as { filesystem?: { allowWrite?: string[] } };
-      expect(sandbox?.filesystem?.allowWrite).toEqual([]);
+      expect(sandbox.filesystem?.allowWrite).toEqual([]);
     });
   });
 

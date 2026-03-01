@@ -54,7 +54,7 @@ export class RateLimiter {
       this.state.consecutiveHits - 1,
       this.backoffSchedule.length - 1,
     );
-    const backoffMs = this.backoffSchedule[backoffIndex]!;
+    const backoffMs = this.backoffSchedule[backoffIndex];
 
     this.state.isThrottled = true;
     this.state.throttledUntil = now + backoffMs;

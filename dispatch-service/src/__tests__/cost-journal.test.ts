@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { CostJournal } from "../cost-journal.js";
 import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -67,8 +67,8 @@ describe("CostJournal", () => {
       const lines = readFileSync(filePath, "utf-8").trim().split("\n");
 
       expect(lines).toHaveLength(2);
-      expect(JSON.parse(lines[0]!).pipeline).toBe("feature");
-      expect(JSON.parse(lines[1]!).pipeline).toBe("review");
+      expect(JSON.parse(lines[0]).pipeline).toBe("feature");
+      expect(JSON.parse(lines[1]).pipeline).toBe("review");
     });
   });
 

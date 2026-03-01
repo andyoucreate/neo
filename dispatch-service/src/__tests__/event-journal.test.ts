@@ -1,7 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { rmSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join, dirname } from "node:path";
+import { dirname } from "node:path";
 
 // Fixed test paths - vi.mock is hoisted so we use a predictable path
 const TEST_DIR = "/tmp/vitest-event-journal-test";
@@ -58,9 +57,9 @@ describe("Event Journal", () => {
       const lines = content.trim().split("\n");
 
       expect(lines).toHaveLength(3);
-      expect(JSON.parse(lines[0]!).event).toBe("dispatch.started");
-      expect(JSON.parse(lines[1]!).event).toBe("dispatch.completed");
-      expect(JSON.parse(lines[2]!).event).toBe("dispatch.started");
+      expect(JSON.parse(lines[0]).event).toBe("dispatch.started");
+      expect(JSON.parse(lines[1]).event).toBe("dispatch.completed");
+      expect(JSON.parse(lines[2]).event).toBe("dispatch.started");
     });
 
     it("should handle service events without data", async () => {
@@ -70,8 +69,8 @@ describe("Event Journal", () => {
       const content = readFileSync(JOURNAL_PATH, "utf-8");
       const lines = content.trim().split("\n");
 
-      expect(JSON.parse(lines[0]!).event).toBe("service.paused");
-      expect(JSON.parse(lines[1]!).event).toBe("service.resumed");
+      expect(JSON.parse(lines[0]).event).toBe("service.paused");
+      expect(JSON.parse(lines[1]).event).toBe("service.resumed");
     });
   });
 
@@ -92,8 +91,8 @@ describe("Event Journal", () => {
       const entries = await readJournal();
 
       expect(entries).toHaveLength(2);
-      expect(entries[0]!.event).toBe("dispatch.started");
-      expect(entries[1]!.event).toBe("dispatch.completed");
+      expect(entries[0].event).toBe("dispatch.started");
+      expect(entries[1].event).toBe("dispatch.completed");
     });
   });
 
@@ -122,8 +121,8 @@ describe("Event Journal", () => {
       const pending = await replayJournal();
 
       expect(pending).toHaveLength(1);
-      expect(pending[0]!.sessionId).toBe("s2");
-      expect(pending[0]!.pipeline).toBe("review");
+      expect(pending[0].sessionId).toBe("s2");
+      expect(pending[0].pipeline).toBe("review");
     });
 
     it("should handle killed sessions as completed", async () => {

@@ -41,7 +41,7 @@ function createMockSuccessStream(sessionId = "test-session"): AsyncIterable<SDKM
   };
 }
 
-function createMockStreamWithoutResult(): AsyncIterable<SDKMessage> {
+function _createMockStreamWithoutResult(): AsyncIterable<SDKMessage> {
   const messages: SDKMessage[] = [
     {
       type: "system",

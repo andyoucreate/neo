@@ -405,35 +405,35 @@ async function runPipelineInBackground(
 
 function runFeaturePipelineBackground(request: FeatureRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  runPipelineInBackground("feature", sessionId, () =>
+  void runPipelineInBackground("feature", sessionId, () =>
     runFeaturePipeline(request, repoDir),
   );
 }
 
 function runReviewPipelineBackground(request: ReviewRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  runPipelineInBackground("review", sessionId, () =>
+  void runPipelineInBackground("review", sessionId, () =>
     runReviewPipeline(request, repoDir),
   );
 }
 
 function runQaPipelineBackground(request: QaRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  runPipelineInBackground("qa", sessionId, () =>
+  void runPipelineInBackground("qa", sessionId, () =>
     runQaPipeline(request, repoDir),
   );
 }
 
 function runHotfixPipelineBackground(request: HotfixRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  runPipelineInBackground("hotfix", sessionId, () =>
+  void runPipelineInBackground("hotfix", sessionId, () =>
     runHotfixPipeline(request, repoDir),
   );
 }
 
 function runFixerPipelineBackground(request: FixerRequest, sessionId: string): void {
   const repoDir = resolveRepoDir(request.repository);
-  runPipelineInBackground("fixer", sessionId, () =>
+  void runPipelineInBackground("fixer", sessionId, () =>
     runFixerPipeline(request, repoDir),
   );
 }

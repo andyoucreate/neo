@@ -36,7 +36,7 @@ describe("Semaphore", () => {
 
       // Cleanup: release to unblock the queued entry
       const sessions = semaphore.getActiveSessions();
-      semaphore.release(sessions[0]!.sessionId);
+      semaphore.release(sessions[0].sessionId);
       await promise;
     });
 

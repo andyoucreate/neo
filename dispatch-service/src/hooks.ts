@@ -3,20 +3,18 @@ import type {
   HookCallbackMatcher,
   HookEvent,
   HookJSONOutput,
-  PreToolUseHookInput,
-  NotificationHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { appendToAuditLog } from "./audit.js";
 import { logger } from "./logger.js";
 
 // ─── Dangerous command blocker (defense-in-depth) ──────────────
 const BLOCKED_COMMANDS =
-  /rm\s+-rf\s+[\/~]|mkfs|fdisk|shutdown|reboot|poweroff|npm\s+publish|pnpm\s+publish|git\s+push\s+--force|git\s+push\s+-f\b|drop\s+table|drop\s+database/i;
+  /rm\s+-rf\s+[/~]|mkfs|fdisk|shutdown|reboot|poweroff|npm\s+publish|pnpm\s+publish|git\s+push\s+--force|git\s+push\s+-f\b|drop\s+table|drop\s+database/i;
 
 const blockDangerousCommands: HookCallback = async (input) => {
   if (input.hook_event_name !== "PreToolUse") return {};
 
-  const hookInput = input as PreToolUseHookInput;
+  const hookInput = input;
   const cmd =
     typeof hookInput.tool_input === "object" && hookInput.tool_input !== null
       ? (hookInput.tool_input as Record<string, unknown>).command
@@ -55,7 +53,7 @@ const PROTECTED_PATTERNS = [
 const protectFiles: HookCallback = async (input) => {
   if (input.hook_event_name !== "PreToolUse") return {};
 
-  const hookInput = input as PreToolUseHookInput;
+  const hookInput = input;
   const filePath =
     typeof hookInput.tool_input === "object" && hookInput.tool_input !== null
       ? (hookInput.tool_input as Record<string, unknown>).file_path
@@ -95,7 +93,7 @@ const protectFiles: HookCallback = async (input) => {
 
 // ─── Audit logger (async, non-blocking) ────────────────────────
 const auditLogger: HookCallback = async (input): Promise<HookJSONOutput> => {
-  appendToAuditLog(input).catch((err) =>
+  appendToAuditLog(input).catch((err: unknown) =>
     logger.error("Failed to write audit log", err),
   );
   return { async: true as const, asyncTimeout: 5_000 };
@@ -104,7 +102,7 @@ const auditLogger: HookCallback = async (input): Promise<HookJSONOutput> => {
 // ─── Notification forwarder (Slack) ────────────────────────────
 const slackNotifier: HookCallback = async (input): Promise<HookJSONOutput> => {
   if (input.hook_event_name !== "Notification") return {};
-  const notifInput = input as NotificationHookInput;
+  const notifInput = input;
   // Slack integration is implemented in a separate module
   // This hook just logs for now — Slack posting is wired in Phase 3
   logger.info(`Agent notification: ${notifInput.message}`);

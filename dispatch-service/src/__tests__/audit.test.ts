@@ -4,7 +4,7 @@ import type { PreToolUseHookInput, PostToolUseHookInput } from "@anthropic-ai/cl
 
 // vi.hoisted runs before vi.mock hoisting
 const { tempDir, auditPath } = vi.hoisted(() => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
+   
   const fs = require("node:fs") as typeof import("node:fs");
   const os = require("node:os") as typeof import("node:os");
   const path = require("node:path") as typeof import("node:path");
@@ -18,10 +18,6 @@ vi.mock("../config.js", async () => {
 });
 
 import { appendToAuditLog } from "../audit.js";
-
-// Reset the dirEnsured flag between tests
-// audit.ts has module-level state — we need to force re-init
-let resetDirFlag: () => void;
 
 describe("Audit Log", () => {
   beforeEach(async () => {

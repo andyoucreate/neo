@@ -137,7 +137,7 @@ export class Semaphore {
 
   private processQueue(): void {
     for (let i = 0; i < this.queue.length; i++) {
-      const entry = this.queue[i]!;
+      const entry = this.queue[i];
       if (this.canRun(entry.repository)) {
         this.queue.splice(i, 1);
         const sessionId = this.allocate(entry.repository);
