@@ -1,141 +1,77 @@
 {
-  // ============================================================
-  // Voltaire Network — OpenClaw Configuration
-  // ============================================================
-
-  // --- Multi-Agent Routing ---
-  agents: {
-    list: [
+  "agents": {
+    "list": [
       {
-        id: "dispatcher",
-        name: "Dispatcher",
-        workspace: "~/.openclaw/workspace-dispatcher",
-        model: "anthropic/claude-sonnet-4-6",
-        // Triage tickets, dispatch to Claude Code, update status
+        "id": "dispatcher",
+        "name": "Dispatcher",
+        "workspace": "~/.openclaw/workspace-dispatcher",
+        "model": "anthropic/claude-sonnet-4-6"
       },
       {
-        id: "reporter",
-        name: "Reporter",
-        workspace: "~/.openclaw/workspace-reporter",
-        model: "anthropic/claude-haiku-4-5",
-        // Generate reports, summaries, daily briefs
+        "id": "reporter",
+        "name": "Reporter",
+        "workspace": "~/.openclaw/workspace-reporter",
+        "model": "anthropic/claude-haiku-4-5"
       },
       {
-        id: "watcher",
-        name: "Watcher",
-        workspace: "~/.openclaw/workspace-watcher",
-        model: "anthropic/claude-haiku-4-5",
-        // Monitor agent health, alert on failures, kill stuck processes
+        "id": "watcher",
+        "name": "Watcher",
+        "workspace": "~/.openclaw/workspace-watcher",
+        "model": "anthropic/claude-haiku-4-5"
       }
     ]
   },
-
-  // --- Event Bindings ---
-  bindings: [
-    // Notion webhooks -> dispatcher
-    { agentId: "dispatcher", match: { path: "notion-*" } },
-    // GitHub webhooks -> dispatcher
-    { agentId: "dispatcher", match: { path: "github-*" } },
-    // Slack dev channel -> dispatcher
-    { agentId: "dispatcher", match: { channel: "slack", peer: { kind: "channel", id: "C_DEV" } } },
-    // Slack alerts channel -> watcher
-    { agentId: "watcher", match: { channel: "slack", peer: { kind: "channel", id: "C_ALERTS" } } }
+  "bindings": [
+    { "agentId": "dispatcher", "match": { "path": "notion-*" } },
+    { "agentId": "dispatcher", "match": { "path": "github-*" } },
+    { "agentId": "dispatcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_DEV" } } },
+    { "agentId": "watcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_ALERTS" } } }
   ],
-
-  // --- Concurrency & Rate Limits ---
-  limits: {
-    // Max concurrent ACPX sessions (prevents CPU/RAM/API exhaustion)
-    maxConcurrentSessions: 5,
-    // Max concurrent sessions per project
-    maxConcurrentPerProject: 2,
-    // Queue overflow: tickets wait in FIFO queue
-    queueMaxSize: 50,
-    // Session timeout: kill sessions exceeding this duration
-    sessionTimeoutMs: 3600000, // 60 min
-    // Cooldown between dispatches (prevent burst)
-    dispatchCooldownMs: 10000  // 10 sec
+  "limits": {
+    "maxConcurrentSessions": 5,
+    "maxConcurrentPerProject": 2,
+    "queueMaxSize": 50,
+    "sessionTimeoutMs": 3600000,
+    "dispatchCooldownMs": 10000
   },
-
-  // --- Webhook Hooks ---
-  hooks: {
-    enabled: true,
-    // Per-source tokens (if compromised, only one source is affected)
-    tokens: {
-      notion: "${OPENCLAW_HOOKS_TOKEN_NOTION}",
-      github: "${OPENCLAW_HOOKS_TOKEN_GITHUB}",
-      slack: "${OPENCLAW_HOOKS_TOKEN_SLACK}"
+  "hooks": {
+    "enabled": true,
+    "tokens": {
+      "notion": "${OPENCLAW_HOOKS_TOKEN_NOTION}",
+      "github": "${OPENCLAW_HOOKS_TOKEN_GITHUB}",
+      "slack": "${OPENCLAW_HOOKS_TOKEN_SLACK}"
     },
-    defaultSessionKey: "hook:ingress",
-    mappings: [
+    "defaultSessionKey": "hook:ingress",
+    "mappings": [
       {
-        id: "notion-ticket",
-        match: { path: "notion-ticket" },
-        action: "agent",
-        messageTemplate: "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and dispatch to Claude Code via ACPX."
+        "id": "notion-ticket",
+        "match": { "path": "notion-ticket" },
+        "action": "agent",
+        "messageTemplate": "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and dispatch to Claude Code via ACPX."
       },
       {
-        id: "github-pr-opened",
-        match: { path: "github-pr" },
-        action: "agent",
-        messageTemplate: "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Trigger the review pipeline: spawn 4 Claude Code review sessions via ACPX."
+        "id": "github-pr-opened",
+        "match": { "path": "github-pr" },
+        "action": "agent",
+        "messageTemplate": "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Trigger the review pipeline: spawn 4 Claude Code review sessions via ACPX."
       },
       {
-        id: "github-pr-review-done",
-        match: { path: "github-review-done" },
-        action: "agent",
-        messageTemplate: "PR #{{body.pull_request.number}} review completed. If all checks pass, trigger QA pipeline via ACPX."
+        "id": "github-pr-review-done",
+        "match": { "path": "github-review-done" },
+        "action": "agent",
+        "messageTemplate": "PR #{{body.pull_request.number}} review completed. If all checks pass, trigger QA pipeline via ACPX."
       }
     ]
   },
-
-  // --- Cron Jobs ---
-  // Registered via CLI: openclaw cron add ...
-  // Documented here for reference only — NOT parsed from config.
-  //
-  // 1. Notion ticket scanner — every 10 minutes
-  //    openclaw cron add notion-scanner \
-  //      --every 600000 --session-target isolated \
-  //      --model anthropic/claude-sonnet-4-6 \
-  //      --message "Scan the Notion tickets database for new tickets in 'Backlog' status with 'auto' label. For each, classify and dispatch to Claude Code. Skip tickets already being processed (check memory)."
-  //
-  // 2. Morning brief — weekdays 9:00 Paris time
-  //    openclaw cron add morning-brief \
-  //      --cron "0 9 * * 1-5" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Generate morning brief: open PRs, in-progress tickets, agent activity last 24h, API costs yesterday. Format as clean Slack message." \
-  //      --delivery announce --channel slack --to channel:C_DEV_AGENTS
-  //
-  // 3. Health check — every 5 minutes
-  //    openclaw cron add health-check \
-  //      --every 300000 --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Check: (1) Are any ACPX sessions stuck >30min? (2) Are any Notion tickets in 'In Progress' >4h without PR? (3) Disk usage >80%? (4) Any process using >90% CPU? Report issues only." \
-  //      --delivery announce --channel slack --to channel:C_ALERTS --best-effort
-  //
-  // 4. Weekly cost report — Friday 17:00
-  //    openclaw cron add weekly-cost-report \
-  //      --cron "0 17 * * 5" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Generate weekly cost report: API tokens used per project, per pipeline, per agent type. Compare with last week. Write report to Notion 'Reports' database." \
-  //      --delivery announce --channel slack --to channel:C_DEV_AGENTS
-  //
-  // 5. End-to-end smoke test — daily 6:00
-  //    openclaw cron add e2e-smoke-test \
-  //      --cron "0 6 * * *" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Run Voltaire e2e smoke test: (1) Create a test ticket in Notion, (2) Verify it gets dispatched, (3) Verify ACPX session starts, (4) Cancel the session, (5) Clean up test ticket. Report pass/fail." \
-  //      --delivery announce --channel slack --to channel:C_ALERTS
-
-  // --- MCP Servers ---
-  mcpServers: {
-    notion: {
-      command: "npx",
-      args: ["-y", "@notionhq/notion-mcp-server"],
-      env: { NOTION_TOKEN: "${NOTION_API_TOKEN}" }
+  "mcpServers": {
+    "notion": {
+      "command": "npx",
+      "args": ["-y", "@notionhq/notion-mcp-server"],
+      "env": { "NOTION_TOKEN": "${NOTION_API_TOKEN}" }
     },
-    playwright: {
-      command: "npx",
-      args: ["@playwright/mcp@latest", "--headless"]
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest", "--headless"]
     }
   }
 }
