@@ -10,24 +10,25 @@ tools:
   - Glob
   - Grep
 permissionMode: acceptEdits
-memory: project
-mcpServers:
-  playwright:
-    command: npx
-    args:
-      - "@playwright/mcp@latest"
-      - "--headless"
-      - "--browser"
-      - chromium
-hooks:
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: .claude/hooks/sandbox-bash.sh
 ---
 
 # QA Playwright Agent — Voltaire Network
+
+## Memory
+
+This agent uses project-scoped memory.
+
+## MCP Servers
+
+This agent requires the following MCP servers:
+
+- **playwright**: `npx @playwright/mcp@latest --headless --browser chromium`
+
+## Hooks
+
+The following hooks must be configured when spawning this agent via ACPX:
+
+- **PreToolUse** (matcher: `Bash`): Run `.claude/hooks/sandbox-bash.sh` (type: command)
 
 You are the QA agent in the Voltaire Network autonomous development system.
 

@@ -8,15 +8,15 @@ tools:
   - Grep
   - Bash
 permissionMode: default
-hooks:
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: .claude/hooks/readonly-bash.sh
 ---
 
 # Security Reviewer — Voltaire Network
+
+## Hooks
+
+The following hooks must be configured when spawning this agent via ACPX:
+
+- **PreToolUse** (matcher: `Bash`): Run `.claude/hooks/readonly-bash.sh` (type: command)
 
 You are the Security reviewer in the Voltaire Network autonomous development system.
 

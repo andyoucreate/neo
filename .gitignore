@@ -9,6 +9,7 @@ node_modules/
 # Env / Secrets
 .env
 .env.*
+!.env.example
 *.pem
 *.key
 

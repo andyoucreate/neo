@@ -14,8 +14,51 @@ if echo "$CMD" | grep -qiE "$OBVIOUS_BLOCKS"; then
   exit 2
 fi
 
+# Write command to a temp file to avoid shell injection via bash -c
+TMPSCRIPT=$(mktemp /tmp/sandbox-cmd.XXXXXX)
+trap 'rm -f "$TMPSCRIPT"' EXIT
+echo "$CMD" > "$TMPSCRIPT"
+chmod +x "$TMPSCRIPT"
+
 # Resolve the repository root directory
 REPO_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+
+# Build bwrap arguments
+BWRAP_ARGS=(
+  --ro-bind /usr /usr
+  --ro-bind /lib /lib
+)
+
+# Conditionally bind /lib64 only if it exists
+if [ -d /lib64 ]; then
+  BWRAP_ARGS+=(--ro-bind /lib64 /lib64)
+fi
+
+BWRAP_ARGS+=(
+  --ro-bind /bin /bin
+  --ro-bind /sbin /sbin
+  --proc /proc
+  --dev /dev
+  --tmpfs /tmp
+  --bind "$REPO_DIR" "$REPO_DIR"
+)
+
+# Conditionally bind npm/node caches only if they exist
+if [ -d /home/voltaire/.npm ]; then
+  BWRAP_ARGS+=(--ro-bind /home/voltaire/.npm /home/voltaire/.npm)
+fi
+if [ -d /home/voltaire/.node ]; then
+  BWRAP_ARGS+=(--ro-bind /home/voltaire/.node /home/voltaire/.node)
+fi
+
+BWRAP_ARGS+=(
+  --unshare-pid
+  --die-with-parent
+)
+
+# Copy the temp script into the sandbox /tmp before exec replaces this process
+# Since /tmp is a tmpfs, we bind the script into the sandbox explicitly
+BWRAP_ARGS+=(--bind "$TMPSCRIPT" "$TMPSCRIPT")
 
 # OS sandbox via bubblewrap:
 #   - System dirs: read-only (/usr, /lib, /lib64, /bin, /sbin)
@@ -25,18 +68,4 @@ REPO_DIR=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 #   - npm/node caches: read-only
 #   - PID namespace isolated, child dies with parent
 #   - Network: allowed (needed for npm install, API calls)
-exec bwrap \
-  --ro-bind /usr /usr \
-  --ro-bind /lib /lib \
-  --ro-bind /lib64 /lib64 2>/dev/null \
-  --ro-bind /bin /bin \
-  --ro-bind /sbin /sbin \
-  --proc /proc \
-  --dev /dev \
-  --tmpfs /tmp \
-  --bind "$REPO_DIR" "$REPO_DIR" \
-  --ro-bind /home/voltaire/.npm /home/voltaire/.npm 2>/dev/null \
-  --ro-bind /home/voltaire/.node /home/voltaire/.node 2>/dev/null \
-  --unshare-pid \
-  --die-with-parent \
-  -- /bin/bash -c "$CMD"
+exec bwrap "${BWRAP_ARGS[@]}" -- /bin/bash "$TMPSCRIPT"

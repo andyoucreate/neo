@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install ShellCheck
+        run: sudo apt-get install -y shellcheck
+      - name: Run ShellCheck on scripts
+        run: shellcheck scripts/*.sh
+      - name: Run ShellCheck on hooks
+        run: shellcheck .claude/hooks/*.sh
+
+  validate-configs:
+    name: Validate Configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install validators
+        run: |
+          sudo apt-get install -y python3-yaml
+          npm install -g jsonlint
+      - name: Validate YAML
+        run: python3 -c "import yaml; yaml.safe_load(open('templates/voltaire.yml'))"
+      - name: Validate JSON
+        run: jsonlint config/openclaw.json
