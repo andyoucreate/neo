@@ -1,0 +1,16 @@
+# /etc/systemd/system/openclaw.service
+[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=voltaire
+WorkingDirectory=/home/voltaire
+ExecStart=/usr/bin/openclaw gateway
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/voltaire/.env
+
+[Install]
+WantedBy=multi-user.target

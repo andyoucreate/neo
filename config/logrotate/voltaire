@@ -1,0 +1,14 @@
+# Voltaire Network — Logrotate configuration
+# Rotates OpenClaw logs and event journal daily, keeps 30 days
+
+/home/voltaire/.openclaw/logs/*.log
+/opt/voltaire/events/*.jsonl
+{
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}

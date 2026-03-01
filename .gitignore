@@ -1,0 +1,34 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+.npm/
+
+# Env / Secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Playwright artifacts
+tests/visual/current/
+tests/visual/diffs/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+
+# Backups (local)
+backups/
+
+# Lock files (runtime)
+locks/
+
+# Events journal (runtime)
+events/

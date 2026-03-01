@@ -1,0 +1,168 @@
+# =============================================================================
+# .voltaire.yml — Per-project configuration for the Voltaire Network
+# =============================================================================
+# Place this file at the root of your repository. The dispatcher reads it
+# to know how to orchestrate agents for this project.
+
+# ---------------------------------------------------------------------------
+# Project identity
+# ---------------------------------------------------------------------------
+project:
+  name: "my-app"
+  repository: "github.com/org/my-app"
+
+# ---------------------------------------------------------------------------
+# Notion integration
+# ---------------------------------------------------------------------------
+notion:
+  # ID of the Notion database that holds tickets for this project
+  database_id: "abc123..."
+  # Properties the dispatcher expects to find in the database.
+  # The Notion MCP server uses these to read/update ticket status.
+  required_properties:
+    - { name: "Status", type: "status" }
+    - { name: "Type", type: "select" }       # Feature, Bug, Hotfix, Chore
+    - { name: "Priority", type: "select" }    # Critical, High, Medium, Low
+    - { name: "Auto", type: "checkbox" }      # true = eligible for agent work
+    - { name: "Repository", type: "url" }
+
+# ---------------------------------------------------------------------------
+# Feature pipeline
+# ---------------------------------------------------------------------------
+feature:
+  # Number of parallel sub-agents per feature (architect + N workers)
+  team_size: 3
+
+  # Automatically open a PR when the feature branch is ready
+  auto_pr: true
+
+  # Git branch prefix for feature branches
+  branch_prefix: "feat/"
+
+  # Commit message convention: "conventional" (feat:, fix:, etc.)
+  commit_convention: "conventional"
+
+  # How the dispatcher runs feature work:
+  #   "team"       — launch a /oneshot with internal sub-agent teams (parallel)
+  #   "sequential" — one ACPX session per task (no parallelism, lower cost)
+  execution_mode: "team"
+
+# ---------------------------------------------------------------------------
+# Code review pipeline
+# ---------------------------------------------------------------------------
+review:
+  # Review lenses — each lens is an independent review pass
+  # Available: quality, security, performance, coverage
+  lenses: [quality, security, performance, coverage]
+
+  # Automatically apply fixes for issues found during review
+  auto_fix: true
+
+  # Max retry rounds for auto-fix before escalating to human
+  max_fix_retries: 3
+
+  # Who approves PRs before merge?
+  #   "human"  — agents review but YOU approve/merge (Slack notification with PR link)
+  #   "agent"  — agents approve + auto-merge to develop (human still required for main)
+  #   "hybrid" — agents auto-approve if 0 CRITICAL issues, else human review
+  approval: "human"
+
+# ---------------------------------------------------------------------------
+# QA pipeline
+# ---------------------------------------------------------------------------
+qa:
+  # Enable/disable the QA pipeline entirely
+  enabled: true
+
+  # How to obtain a preview URL for testing:
+  #   "vercel"  — read deployment URL from PR status checks (Vercel)
+  #   "netlify" — read deployment URL from PR status checks (Netlify)
+  #   "local"   — run preview_command on the server (port allocated dynamically)
+  #   "custom"  — run the command specified in preview_command
+  preview_strategy: "vercel"
+
+  # Command to start a local/custom preview (only used with "local" or "custom")
+  # $PORT is replaced with a dynamically allocated port number.
+  preview_command: "pnpm build && pnpm preview --port $PORT"
+
+  # Health check URL to confirm the preview is ready before running tests
+  # preview_health_check: "http://localhost:$PORT/health"
+
+  # Max time (ms) to wait for the preview to become ready
+  # preview_timeout_ms: 60000
+
+  # Base URL for the running preview deployment
+  base_url: "https://preview.my-app.com"
+
+  # Playwright configuration
+  playwright:
+    # Browsers to test against
+    browsers: ["chromium"]
+
+    # Viewport sizes for responsive testing
+    viewports:
+      - { width: 1920, height: 1080, name: "desktop" }
+      - { width: 375, height: 812, name: "mobile" }
+
+    # Visual regression settings
+    visual_regression:
+      enabled: true
+      # Percentage threshold — diffs above this trigger a failure
+      threshold: 0.5
+      # Comparison algorithm: "perceptual" or "pixel"
+      comparison: "perceptual"
+      # Directory where baseline screenshots are stored
+      baseline_dir: "tests/visual/baselines"
+
+    # Selectors to mask during visual comparison (dynamic content)
+    masks:
+      - selector: "[data-testid='timestamp']"
+      - selector: "[data-testid='avatar']"
+
+  # Critical user paths to validate on every PR
+  # Each path is a sequence of Playwright actions
+  critical_paths:
+    - name: "Login flow"
+      steps:
+        - goto: "/login"
+        - fill: { selector: "[data-testid=email]", value: "test@test.com" }
+        - fill: { selector: "[data-testid=password]", value: "password" }
+        - click: "[data-testid=submit]"
+        - expect: { url: "/dashboard" }
+
+# ---------------------------------------------------------------------------
+# Hotfix pipeline
+# ---------------------------------------------------------------------------
+hotfix:
+  # Auto-merge hotfix PRs after review passes (skips human approval)
+  auto_merge: false
+
+  # Use a fast single-lens review instead of full multi-lens review
+  fast_review: true
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
+notifications:
+  # Slack channel for routine agent updates (PR opened, review done, etc.)
+  slack_channel: "#dev-agents"
+
+  # Slack channel for alerts (failures, cost overruns, blocked tickets)
+  alert_channel: "#alerts"
+
+# ---------------------------------------------------------------------------
+# Cost management
+# ---------------------------------------------------------------------------
+costs:
+  # Alert threshold in cents — notify if a single ticket exceeds this amount
+  alert_per_ticket: 200
+
+  # Preferred Claude model per agent role
+  # Available: "opus" (most capable), "sonnet" (balanced), "haiku" (fastest/cheapest)
+  model_preference:
+    architecture: "opus"
+    development: "opus"
+    review: "sonnet"
+    security_review: "opus"
+    qa: "sonnet"
+    reporting: "haiku"

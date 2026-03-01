@@ -1,0 +1,92 @@
+#!/bin/bash
+# bootstrap.sh — OVH Advance-5, Ubuntu 24.04 LTS
+set -euo pipefail
+
+echo "=== Voltaire Network Bootstrap ==="
+
+# 1. Non-root user
+useradd -m -s /bin/bash voltaire
+
+# 2. System updates + essentials
+apt update && apt upgrade -y
+apt install -y git curl wget jq unzip build-essential \
+  nginx certbot python3-certbot-nginx \
+  sqlite3 bubblewrap
+
+# 3. Node.js 22 LTS (official APT repo — no curl|bash)
+curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
+  gpg --dearmor -o /usr/share/keyrings/nodesource.gpg
+echo "deb [signed-by=/usr/share/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" | \
+  tee /etc/apt/sources.list.d/nodesource.list > /dev/null
+apt update && apt install -y nodejs
+
+# 4. Claude Code CLI
+npm install -g @anthropic-ai/claude-code
+
+# 5. OpenClaw
+npm install -g openclaw@latest
+
+# 6. ACPX
+npm install -g acpx@latest
+
+# 7. Mail utilities (for watchdog alerts independent of Slack)
+apt install -y mailutils
+
+# 8. Playwright browsers
+su - voltaire -c "npx playwright install --with-deps chromium"
+
+# 9. GitHub CLI
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | \
+  dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | \
+  tee /etc/apt/sources.list.d/github-cli.list > /dev/null
+apt update && apt install -y gh
+
+# 10. Firewall
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp   # SSH
+ufw allow 80/tcp   # HTTP (redirect to HTTPS)
+ufw allow 443/tcp  # HTTPS
+ufw --force enable
+
+# 11. Directory structure
+mkdir -p /opt/voltaire/{backups,scripts,events,locks}
+chown -R voltaire:voltaire /opt/voltaire
+
+# 12. .env file with correct permissions (readable by voltaire via group)
+touch /opt/voltaire/.env
+chown root:voltaire /opt/voltaire/.env
+chmod 640 /opt/voltaire/.env
+
+# 13. Logrotate config
+cat > /etc/logrotate.d/voltaire << 'LOGROTATE'
+/home/voltaire/.openclaw/logs/*.log
+/opt/voltaire/events/*.jsonl {
+    daily
+    rotate 30
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+}
+LOGROTATE
+
+# 14. Systemd service for OpenClaw
+cp /opt/voltaire/scripts/openclaw.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable openclaw
+
+# 15. System watchdog + backup cron
+(echo "*/5 * * * * /opt/voltaire/scripts/watchdog.sh"; echo "0 3 * * * /opt/voltaire/scripts/backup.sh") | crontab -u voltaire -
+
+# 16. TLS via Let's Encrypt
+# certbot --nginx -d voltaire.yourdomain.com
+
+echo "=== Bootstrap complete ==="
+echo "Next steps:"
+echo "1. Fill /opt/voltaire/.env with API keys (separate tokens per service)"
+echo "2. Configure /home/voltaire/.openclaw/openclaw.json"
+echo "3. Create GitHub bot account (voltaire-bot) and add SSH key"
+echo "4. Start: systemctl start openclaw"
