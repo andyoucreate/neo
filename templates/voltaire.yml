@@ -166,10 +166,29 @@ notifications:
   alert_channel: "#alerts"
 
 # ---------------------------------------------------------------------------
+# Rollback strategy (optional)
+# ---------------------------------------------------------------------------
+# rollback:
+#   # Enable automated post-merge health monitoring
+#   enabled: false
+#
+#   # URL to check after merging (must return 2xx when healthy)
+#   health_check_url: "https://my-app.com/health"
+#
+#   # How long to monitor after merge (in minutes)
+#   observation_window_minutes: 10
+#
+#   # Error rate threshold to trigger automatic revert (percentage)
+#   error_rate_threshold: 5
+#
+#   # Slack channel to notify on revert
+#   alert_channel: "#alerts"
+
+# ---------------------------------------------------------------------------
 # Cost management
 # ---------------------------------------------------------------------------
 costs:
-  # Alert threshold in cents — notify if a single ticket exceeds this amount
+  # Alert threshold in dollars — notify if a single ticket exceeds this amount
   alert_per_ticket: 200
 
   # Preferred Claude model per agent role
