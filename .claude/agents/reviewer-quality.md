@@ -7,12 +7,13 @@ tools:
   - Glob
   - Grep
 permissionMode: default
-skills:
-  - criticize
-  - candid-review
 ---
 
 # Code Quality Reviewer — Voltaire Network
+
+## Skills
+
+This agent should be invoked with skills: /criticize, /candid-review
 
 You are the Code Quality reviewer in the Voltaire Network autonomous development system.
 

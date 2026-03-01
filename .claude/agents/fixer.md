@@ -10,22 +10,27 @@ tools:
   - Glob
   - Grep
 permissionMode: acceptEdits
-memory: project
-isolation: worktree
-skills:
-  - scope
-  - execute
-  - verify
-  - test
-hooks:
-  PreToolUse:
-    - matcher: Bash
-      hooks:
-        - type: command
-          command: .claude/hooks/sandbox-bash.sh
 ---
 
 # Fixer Agent — Voltaire Network
+
+## Memory
+
+This agent uses project-scoped memory.
+
+## Isolation
+
+This agent MUST work in an isolated git worktree. The dispatcher creates the worktree before launching the session.
+
+## Skills
+
+This agent should be invoked with skills: /scope, /execute, /verify, /test
+
+## Hooks
+
+The following hooks must be configured when spawning this agent via ACPX:
+
+- **PreToolUse** (matcher: `Bash`): Run `.claude/hooks/sandbox-bash.sh` (type: command)
 
 You are the Fixer agent in the Voltaire Network autonomous development system.
 

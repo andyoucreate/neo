@@ -21,9 +21,12 @@ PROTECTED=(
   ".claude/hooks/*"
 )
 
+BASENAME=$(basename "$FILE_PATH")
+
 for pattern in "${PROTECTED[@]}"; do
-  # Use bash pattern matching: unquoted $pattern enables glob expansion
-  if [[ "$FILE_PATH" == $pattern ]]; then
+  if [[ "$FILE_PATH" == $pattern ]] || \
+     [[ "$BASENAME" == $pattern ]] || \
+     [[ "$FILE_PATH" == */$pattern ]]; then
     echo "BLOCKED: Protected file: $FILE_PATH" >&2
     exit 2
   fi
