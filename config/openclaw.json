@@ -47,19 +47,19 @@
         "id": "notion-ticket",
         "match": { "path": "notion-ticket" },
         "action": "agent",
-        "messageTemplate": "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and dispatch to Claude Code via ACPX."
+        "messageTemplate": "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and call the Voltaire Dispatch Service HTTP API to dispatch the appropriate pipeline."
       },
       {
         "id": "github-pr-opened",
         "match": { "path": "github-pr" },
         "action": "agent",
-        "messageTemplate": "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Trigger the review pipeline: spawn 4 Claude Code review sessions via ACPX."
+        "messageTemplate": "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Call the Dispatch Service /dispatch/review endpoint to trigger the review pipeline."
       },
       {
         "id": "github-pr-review-done",
         "match": { "path": "github-review-done" },
         "action": "agent",
-        "messageTemplate": "PR #{{body.pull_request.number}} review completed. If all checks pass, trigger QA pipeline via ACPX."
+        "messageTemplate": "PR #{{body.pull_request.number}} review completed. If all checks pass, call the Dispatch Service /dispatch/qa endpoint to trigger QA pipeline."
       }
     ]
   },
