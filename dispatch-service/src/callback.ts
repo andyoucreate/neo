@@ -8,6 +8,7 @@ import type {
 const CALLBACK_URL =
   process.env.CALLBACK_URL ||
   "http://127.0.0.1:18789/hooks/dispatch-result";
+const CALLBACK_TOKEN = process.env.OPENCLAW_HOOKS_TOKEN_DISPATCH || "";
 const CALLBACK_TIMEOUT_MS = 10_000;
 const RETRY_DELAY_MS = 5_000;
 const MAX_RETRIES = 1;
@@ -26,9 +27,16 @@ export async function sendCallback(
 ): Promise<boolean> {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (CALLBACK_TOKEN) {
+        headers["Authorization"] = `Bearer ${CALLBACK_TOKEN}`;
+      }
+
       const response = await fetch(CALLBACK_URL, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS),
       });

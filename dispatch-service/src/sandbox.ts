@@ -14,7 +14,11 @@ export function createSandboxConfig(repoDir: string): SandboxSettings {
         "/tmp/**", // temp files
       ],
       denyWrite: [
-        "/opt/voltaire/**", // system config
+        "/opt/voltaire/.env", // secrets
+        "/opt/voltaire/dispatch-service/**", // dispatch service code
+        "/opt/voltaire/costs/**", // cost journal
+        "/opt/voltaire/events/**", // event journal
+        "/opt/voltaire/logs/**", // logs
         "/etc/**", // system files
         "/home/voltaire/.openclaw/**", // openclaw data
       ],

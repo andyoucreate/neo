@@ -3,6 +3,8 @@ Description=Voltaire Dispatch Service
 Documentation=https://github.com/andyoucreate/voltaire-network
 After=network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -12,8 +14,6 @@ WorkingDirectory=/opt/voltaire/dispatch-service
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=10
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # Environment
 EnvironmentFile=/opt/voltaire/.env
@@ -21,8 +21,10 @@ EnvironmentFile=/opt/voltaire/.env
 # Security hardening
 NoNewPrivileges=true
 ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/voltaire/costs /opt/voltaire/logs /opt/voltaire/events /tmp/voltaire-worktrees
+# ProtectHome disabled: Claude Code needs write access to ~/.claude.json and ~/.claude/
+# Security maintained via ProtectSystem=strict + ReadWritePaths + SDK sandbox
+ProtectHome=false
+ReadWritePaths=/opt/voltaire/costs /opt/voltaire/logs /opt/voltaire/events /tmp /home/voltaire
 PrivateTmp=false
 ProtectKernelTunables=true
 ProtectKernelModules=true

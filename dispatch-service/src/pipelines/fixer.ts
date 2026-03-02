@@ -1,5 +1,6 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
+import { CLAUDE_CODE_PATH } from "../config.js";
 import { createSandboxConfig } from "../sandbox.js";
 import { runWithRecovery } from "../recovery.js";
 import type { FixerRequest, PipelineResult } from "../types.js";
@@ -37,6 +38,7 @@ ${issuesJson}
 Report what was fixed and what was not, in structured JSON.`;
 
   const options: Options = {
+    pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code" },

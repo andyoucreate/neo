@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import { z } from "zod";
 import { notifyPipelineResult } from "./callback.js";
 import { Semaphore } from "./concurrency.js";
-import { CONCURRENCY_LIMITS, COST_JOURNAL_DIR } from "./config.js";
+import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { logger } from "./logger.js";
@@ -13,7 +13,6 @@ import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
 import { runQaPipeline } from "./pipelines/qa.js";
 import { runReviewPipeline } from "./pipelines/review.js";
-import { RateLimiter } from "./rate-limiter.js";
 import { sanitize } from "./sanitize.js";
 import type {
   ActiveSession,
@@ -78,7 +77,6 @@ const fixerSchema = z.object({
 // ─── Server state ──────────────────────────────────────────────
 const semaphore = new Semaphore();
 const costJournal = new CostJournal(COST_JOURNAL_DIR);
-const rateLimiter = new RateLimiter();
 const activeSessions = new Map<string, ActiveSession>();
 const startedAt = Date.now();
 let paused = false;
@@ -86,17 +84,12 @@ let paused = false;
 // Track dispatched ticket IDs for idempotency
 const dispatchedTickets = new Set<string>();
 
-// Session watchdog instance
-let watchdog: import("./watchdog.js").SessionWatchdog | null = null;
-
-// Auth token is read at request time so it can be changed without restart
-
 /**
  * Resolve the local repo directory from a repository identifier.
  */
 function resolveRepoDir(repository: string): string {
   const parts = repository.replace("github.com/", "").split("/");
-  return `/home/voltaire/repos/${parts.join("/")}`;
+  return `${REPOS_BASE_DIR}/${parts.join("/")}`;
 }
 
 /**
@@ -132,20 +125,6 @@ export function createServer(): express.Express {
     next();
   });
 
-  // ─── Middleware: rate limit check ─────────────────────────────
-  app.use("/dispatch", (_req: Request, res: Response, next: NextFunction) => {
-    if (
-      rateLimiter.shouldThrottle(
-        semaphore.activeCount,
-        CONCURRENCY_LIMITS.maxConcurrentSessions,
-      )
-    ) {
-      res.status(429).json({ error: "Rate limited — try again later" });
-      return;
-    }
-    next();
-  });
-
   // ─── POST /dispatch/feature ──────────────────────────────────
   app.post("/dispatch/feature", async (req: Request, res: Response) => {
     const parsed = featureSchema.safeParse(req.body);
@@ -168,7 +147,7 @@ export function createServer(): express.Express {
         ticketId: data.ticketId,
         repository: data.repository,
       }).catch(() => {});
-      res.status(422).json({ error: "Content quarantined — suspicious input detected" });
+      res.status(422).json({ error: "Content quarantined — invalid input" });
       return;
     }
 
@@ -285,8 +264,8 @@ export function createServer(): express.Express {
       return;
     }
 
-    semaphore.release(sessionId);
     activeSessions.delete(sessionId);
+    semaphore.release(sessionId);
     logger.warn(`Killed session ${sessionId}`);
 
     appendEvent("session.killed", {
@@ -477,45 +456,5 @@ function cleanupSession(sessionId: string): void {
   semaphore.release(sessionId);
 }
 
-/**
- * Kill a session by ID (used by watchdog and /kill endpoint).
- */
-function killSession(sessionId: string): void {
-  const session = activeSessions.get(sessionId);
-  if (session) {
-    activeSessions.delete(sessionId);
-    semaphore.release(sessionId);
-    logger.warn(`Killed session ${sessionId}`);
-  }
-}
-
-/**
- * Start the session timeout watchdog.
- */
-export async function startWatchdog(): Promise<void> {
-  const { SessionWatchdog } = await import("./watchdog.js");
-  watchdog = new SessionWatchdog({
-    getActiveSessions: () => activeSessions,
-    killSession,
-  });
-  watchdog.start();
-}
-
-/**
- * Stop the session timeout watchdog.
- */
-export function stopWatchdog(): void {
-  watchdog?.stop();
-  watchdog = null;
-}
-
-/**
- * Get the watchdog instance (for testing).
- */
-export function getWatchdog(): import("./watchdog.js").SessionWatchdog | null {
-  return watchdog;
-}
-
 // Export for testing
-export { activeSessions, costJournal, dispatchedTickets, rateLimiter, semaphore };
-
+export { activeSessions, costJournal, dispatchedTickets, semaphore };

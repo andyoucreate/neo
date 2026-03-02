@@ -1,5 +1,6 @@
 import type { Options, AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
+import { CLAUDE_CODE_PATH } from "../config.js";
 import { createReadonlySandboxConfig } from "../sandbox.js";
 import { runWithRecovery } from "../recovery.js";
 import type { ReviewRequest, PipelineResult } from "../types.js";
@@ -120,6 +121,7 @@ Output a structured JSON review report with:
 - stats (files_reviewed, critical, high, medium, low counts)`;
 
   const options: Options = {
+    pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code" },
