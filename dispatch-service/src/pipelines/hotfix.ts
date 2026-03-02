@@ -1,10 +1,11 @@
 import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
-import { createSandboxConfig } from "../sandbox.js";
-import { runWithRecovery } from "../recovery.js";
-import type { HotfixRequest, PipelineResult } from "../types.js";
-import { logger } from "../logger.js";
+import { CLAUDE_CODE_PATH } from "../config.js";
 import { hooks } from "../hooks.js";
+import { logger } from "../logger.js";
+import { runWithRecovery } from "../recovery.js";
+import { createSandboxConfig } from "../sandbox.js";
+import type { HotfixRequest, PipelineResult } from "../types.js";
 
 /**
  * Run the hotfix pipeline for critical/high bugs.
@@ -35,6 +36,7 @@ This is a hotfix — speed is critical but correctness is paramount.
 6. Create a PR targeting the main branch`;
 
   const options: Options = {
+    pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
     settingSources: ["project"],
     systemPrompt: { type: "preset", preset: "claude_code" },

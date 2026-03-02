@@ -46,7 +46,28 @@ describe("sendCallback", () => {
       expect.stringContaining("dispatch-result"),
       expect.objectContaining({
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: expect.objectContaining({ "Content-Type": "application/json" }),
+      }),
+    );
+  });
+
+  it("should include Authorization header when OPENCLAW_HOOKS_TOKEN_DISPATCH is set", async () => {
+    vi.stubEnv("OPENCLAW_HOOKS_TOKEN_DISPATCH", "test-token-123");
+    mockFetch.mockResolvedValueOnce({ ok: true });
+
+    const { sendCallback } = await import("../callback.js");
+    await sendCallback({
+      event: "pipeline.completed",
+      timestamp: new Date().toISOString(),
+      data: makePipelineResult(),
+    });
+
+    expect(mockFetch).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer test-token-123",
+        }),
       }),
     );
   });

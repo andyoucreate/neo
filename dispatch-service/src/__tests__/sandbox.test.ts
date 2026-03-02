@@ -30,7 +30,8 @@ describe("Sandbox Configuration", () => {
 
     it("should deny writes to system directories", () => {
       const config = createSandboxConfig("/any/path");
-      expect(config.filesystem?.denyWrite).toContain("/opt/voltaire/**");
+      expect(config.filesystem?.denyWrite).toContain("/opt/voltaire/.env");
+      expect(config.filesystem?.denyWrite).toContain("/opt/voltaire/dispatch-service/**");
       expect(config.filesystem?.denyWrite).toContain("/etc/**");
     });
 

@@ -138,7 +138,6 @@ export interface ConcurrencyLimits {
   maxConcurrentSessions: number;
   maxConcurrentPerProject: number;
   queueMaxSize: number;
-  sessionTimeoutMs: number;
   dispatchCooldownMs: number;
 }
 

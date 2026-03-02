@@ -3,6 +3,7 @@ import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 export const agents: Record<string, AgentDefinition> = {
   // ─── architect ───────────────────────────────────────────────
   architect: {
+    
     description:
       "Strategic planner and decomposer. Analyzes features, designs architecture, creates roadmaps, and decomposes work into atomic tasks. Never writes code.",
     prompt: `You are the Architect agent in Voltaire Network.

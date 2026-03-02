@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import { createServer, startWatchdog, stopWatchdog, activeSessions } from "./server.js";
+import { createServer, activeSessions } from "./server.js";
 import { SERVER_PORT, SERVER_HOST } from "./config.js";
 import { appendEvent, replayJournal } from "./event-journal.js";
 import { logger } from "./logger.js";
@@ -29,9 +29,6 @@ async function start(): Promise<void> {
     );
   });
 
-  // Start session timeout watchdog
-  await startWatchdog();
-
   // Record startup event
   await appendEvent("service.started");
   notifyServiceLifecycle("started", {
@@ -52,9 +49,6 @@ async function shutdown(signal: string): Promise<void> {
       logger.info("HTTP server closed");
     });
   }
-
-  // Stop watchdog
-  stopWatchdog();
 
   // Wait for active sessions to complete (up to timeout)
   if (activeSessions.size > 0) {
