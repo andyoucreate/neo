@@ -141,3 +141,29 @@ export interface ConcurrencyLimits {
   sessionTimeoutMs: number;
   dispatchCooldownMs: number;
 }
+
+// ─── Callback to OpenClaw ─────────────────────────────────────
+export type CallbackEvent =
+  | "pipeline.completed"
+  | "pipeline.failed"
+  | "service.started"
+  | "service.stopped"
+  | "agent.notification";
+
+export interface CallbackPayload {
+  event: CallbackEvent;
+  timestamp: string;
+  data: PipelineResult | ServiceEventData | AgentNotificationData;
+}
+
+export interface ServiceEventData {
+  action: "started" | "stopped";
+  version: string;
+  host: string;
+  signal?: string;
+}
+
+export interface AgentNotificationData {
+  sessionId: string;
+  message: string;
+}

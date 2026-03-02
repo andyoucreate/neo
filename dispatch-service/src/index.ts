@@ -3,7 +3,7 @@ import { createServer, startWatchdog, stopWatchdog, activeSessions } from "./ser
 import { SERVER_PORT, SERVER_HOST } from "./config.js";
 import { appendEvent, replayJournal } from "./event-journal.js";
 import { logger } from "./logger.js";
-import { notifyServiceEvent } from "./slack.js";
+import { notifyServiceLifecycle } from "./callback.js";
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 let server: Server | null = null;
@@ -34,7 +34,7 @@ async function start(): Promise<void> {
 
   // Record startup event
   await appendEvent("service.started");
-  void notifyServiceEvent("started", {
+  notifyServiceLifecycle("started", {
     version: process.env.npm_package_version ?? "0.1.0",
     host: `${SERVER_HOST}:${String(SERVER_PORT)}`,
   });
@@ -76,7 +76,11 @@ async function shutdown(signal: string): Promise<void> {
 
   // Record shutdown event
   await appendEvent("service.stopped").catch(() => {});
-  void notifyServiceEvent("stopped", { signal });
+  notifyServiceLifecycle("stopped", {
+    version: process.env.npm_package_version ?? "0.1.0",
+    host: `${SERVER_HOST}:${String(SERVER_PORT)}`,
+    signal,
+  });
 
   logger.info("Shutdown complete");
   process.exit(0);

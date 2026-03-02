@@ -112,7 +112,8 @@ Voltaire Network is a **multi-project, highly autonomous** developer agent netwo
 - **Dispatcher agent** → Classifies tickets, calls the Voltaire Dispatch Service HTTP API
 - **Dispatch Service** → Runs `query()` calls via the Claude Agent SDK (feature, review, QA, hotfix pipelines)
 - **Agent SDK** → Executes agents with tools, hooks, sandbox, MCP servers — streams results back
-- **Dispatch Service** → Reports results to OpenClaw memory, updates Notion, posts to Slack
+- **Dispatch Service** → Sends callback to OpenClaw with pipeline results (HTTP POST to `/hooks/dispatch-result`)
+- **OpenClaw dispatcher** → Updates Notion status, posts to Slack, writes reports
 - **Memory** → State tracking (SQLite WAL + Markdown) in OpenClaw
 
 ### Event Journal (webhook resilience)
@@ -619,10 +620,10 @@ const auditLogger: HookCallback = async (input) => {
   return { async: true, asyncTimeout: 5000 };
 };
 
-// ─── Notification forwarder (Slack) ────────────────────────────
-const slackNotifier: HookCallback = async (input) => {
+// ─── Notification forwarder (→ OpenClaw via callback) ─────────
+const notificationForwarder: HookCallback = async (input) => {
   if (input.hook_event_name !== "Notification") return {};
-  postToSlack(input.message).catch(console.error);
+  forwardAgentNotification(input.session_id, input.message);
   return { async: true, asyncTimeout: 10000 };
 };
 
@@ -636,7 +637,7 @@ export const hooks = {
     { hooks: [auditLogger] },
   ] as HookCallbackMatcher[],
   Notification: [
-    { hooks: [slackNotifier] },
+    { hooks: [notificationForwarder] },
   ] as HookCallbackMatcher[],
 };
 ```
@@ -1376,7 +1377,7 @@ The weekly cost report script (`scripts/cost-report.sh`) simply aggregates this 
 | Rate limit events | `SDKRateLimitEvent` count | Real-time |
 | Agent uptime | System watchdog (`scripts/watchdog.sh`) | Every 5 minutes (cron) |
 
-### Alerting (via dispatch service → Slack)
+### Alerting (via dispatch service → OpenClaw → Slack)
 
 | Alert | Condition | Severity |
 |-------|-----------|----------|
@@ -1429,7 +1430,8 @@ Slack commands (via OpenClaw):
 | **Dispatch Service** | No new agent sessions | Systemd auto-restart. Resume pending sessions via `resume: sessionId`. |
 | **Notion API** | Can't read tickets, can't update status | Continue active pipelines. Queue status updates. Retry with backoff. |
 | **GitHub API** | Can't create PRs, can't post reviews | Agent commits locally, creates PR when API returns. Reviews saved to file, posted later. |
-| **Slack** | No notifications | Fallback to Discord. If both down, log to file. |
+| **Slack** | No notifications | Handled by OpenClaw — fallback to Discord. If both down, log to file. |
+| **OpenClaw (callback)** | Pipeline results not forwarded to Slack/Notion | Dispatch Service logs results to event journal. On OpenClaw recovery, events are replayable. |
 | **Disk full** | Everything stops | Alert at 80%. Auto-cleanup old sessions, screenshots, logs at 90%. |
 | **SDK session crash** | Single pipeline fails | Auto-resume via `resume: sessionId` (built-in). If repeated crash, escalate. |
 

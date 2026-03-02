@@ -5,6 +5,7 @@ import type {
   HookJSONOutput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { appendToAuditLog } from "./audit.js";
+import { forwardAgentNotification } from "./callback.js";
 import { logger } from "./logger.js";
 
 // ─── Dangerous command blocker (defense-in-depth) ──────────────
@@ -99,13 +100,11 @@ const auditLogger: HookCallback = async (input): Promise<HookJSONOutput> => {
   return { async: true as const, asyncTimeout: 5_000 };
 };
 
-// ─── Notification forwarder (Slack) ────────────────────────────
-const slackNotifier: HookCallback = async (input): Promise<HookJSONOutput> => {
+// ─── Notification forwarder (→ OpenClaw via callback) ─────────
+const notificationForwarder: HookCallback = async (input): Promise<HookJSONOutput> => {
   if (input.hook_event_name !== "Notification") return {};
-  const notifInput = input;
-  // Slack integration is implemented in a separate module
-  // This hook just logs for now — Slack posting is wired in Phase 3
-  logger.info(`Agent notification: ${notifInput.message}`);
+  logger.info(`Agent notification: ${input.message}`);
+  forwardAgentNotification(input.session_id, input.message);
   return { async: true as const, asyncTimeout: 10_000 };
 };
 
@@ -117,15 +116,11 @@ export const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
     { hooks: [auditLogger] },
   ],
   PostToolUse: [{ hooks: [auditLogger] }],
-  Notification: [{ hooks: [slackNotifier] }],
+  Notification: [{ hooks: [notificationForwarder] }],
 };
 
 // Re-export individual hooks for testing
 export {
-  blockDangerousCommands,
-  protectFiles,
-  auditLogger,
-  slackNotifier,
-  BLOCKED_COMMANDS,
-  PROTECTED_PATTERNS,
+  auditLogger, blockDangerousCommands, BLOCKED_COMMANDS, notificationForwarder, PROTECTED_PATTERNS, protectFiles
 };
+

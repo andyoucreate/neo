@@ -1,20 +1,20 @@
-import crypto from "node:crypto";
+import type { NextFunction, Request, Response } from "express";
 import express from "express";
-import type { Request, Response, NextFunction } from "express";
+import crypto from "node:crypto";
 import { z } from "zod";
+import { notifyPipelineResult } from "./callback.js";
 import { Semaphore } from "./concurrency.js";
 import { CONCURRENCY_LIMITS, COST_JOURNAL_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { logger } from "./logger.js";
+import { runFeaturePipeline } from "./pipelines/feature.js";
+import { runFixerPipeline } from "./pipelines/fixer.js";
+import { runHotfixPipeline } from "./pipelines/hotfix.js";
+import { runQaPipeline } from "./pipelines/qa.js";
+import { runReviewPipeline } from "./pipelines/review.js";
 import { RateLimiter } from "./rate-limiter.js";
 import { sanitize } from "./sanitize.js";
-import { notifyPipelineComplete } from "./slack.js";
-import { runFeaturePipeline } from "./pipelines/feature.js";
-import { runReviewPipeline } from "./pipelines/review.js";
-import { runQaPipeline } from "./pipelines/qa.js";
-import { runHotfixPipeline } from "./pipelines/hotfix.js";
-import { runFixerPipeline } from "./pipelines/fixer.js";
 import type {
   ActiveSession,
   FeatureRequest,
@@ -463,15 +463,7 @@ async function recordResult(
     },
   }).catch(() => {});
 
-  notifyPipelineComplete({
-    pipeline: result.pipeline,
-    sessionId: result.sessionId,
-    status: result.status,
-    costUsd: result.costUsd,
-    durationMs: result.durationMs,
-    ticketId: result.ticketId,
-    prNumber: result.prNumber,
-  }).catch(() => {});
+  notifyPipelineResult(result);
 
   cleanupSession(sessionId);
 
@@ -525,4 +517,5 @@ export function getWatchdog(): import("./watchdog.js").SessionWatchdog | null {
 }
 
 // Export for testing
-export { semaphore, costJournal, rateLimiter, activeSessions, dispatchedTickets };
+export { activeSessions, costJournal, dispatchedTickets, rateLimiter, semaphore };
+

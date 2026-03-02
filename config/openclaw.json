@@ -24,6 +24,7 @@
   "bindings": [
     { "agentId": "dispatcher", "match": { "path": "notion-*" } },
     { "agentId": "dispatcher", "match": { "path": "github-*" } },
+    { "agentId": "dispatcher", "match": { "path": "dispatch-*" } },
     { "agentId": "dispatcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_DEV" } } },
     { "agentId": "watcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_ALERTS" } } }
   ],
@@ -39,7 +40,8 @@
     "tokens": {
       "notion": "${OPENCLAW_HOOKS_TOKEN_NOTION}",
       "github": "${OPENCLAW_HOOKS_TOKEN_GITHUB}",
-      "slack": "${OPENCLAW_HOOKS_TOKEN_SLACK}"
+      "slack": "${OPENCLAW_HOOKS_TOKEN_SLACK}",
+      "dispatch": "${OPENCLAW_HOOKS_TOKEN_DISPATCH}"
     },
     "defaultSessionKey": "hook:ingress",
     "mappings": [
@@ -60,6 +62,12 @@
         "match": { "path": "github-review-done" },
         "action": "agent",
         "messageTemplate": "PR #{{body.pull_request.number}} review completed. If all checks pass, call the Dispatch Service /dispatch/qa endpoint to trigger QA pipeline."
+      },
+      {
+        "id": "dispatch-result",
+        "match": { "path": "dispatch-result" },
+        "action": "agent",
+        "messageTemplate": "Dispatch Service callback: {{body.event}}. Pipeline: {{body.data.pipeline}}, status: {{body.data.status}}, cost: ${{body.data.costUsd}}, session: {{body.data.sessionId}}. Ticket: {{body.data.ticketId}}, PR: {{body.data.prNumber}}. Update the Notion ticket status accordingly and post a notification to the appropriate Slack channel (#dev-agents for success, #alerts for failures)."
       }
     ]
   },

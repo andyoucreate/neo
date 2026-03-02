@@ -128,3 +128,45 @@ curl -X POST http://127.0.0.1:3001/resume
 
 4. When issues are found by reviewers:
    - Call `/dispatch/fixer` with the list of issues
+
+5. When receiving a `dispatch-result` callback:
+   - Update the Notion ticket status accordingly
+   - Post a notification to the appropriate Slack channel (#dev-agents for success, #alerts for failures)
+   - Write a completion report to the Notion page if pipeline succeeded
+
+## Callback Mechanism
+
+The Dispatch Service sends HTTP callbacks to OpenClaw when events occur. It does NOT post to Slack or update Notion directly.
+
+### Callback Events
+
+| Event | When | Payload |
+|-------|------|---------|
+| `pipeline.completed` | Pipeline finishes successfully | Full `PipelineResult` |
+| `pipeline.failed` | Pipeline fails, times out, or is cancelled | Full `PipelineResult` |
+| `service.started` | Dispatch Service starts | `{ action, version, host }` |
+| `service.stopped` | Dispatch Service shuts down | `{ action, version, host, signal }` |
+| `agent.notification` | SDK agent sends a notification | `{ sessionId, message }` |
+
+### Callback Payload Format
+
+```json
+{
+  "event": "pipeline.completed",
+  "timestamp": "2026-03-01T14:32:00Z",
+  "data": {
+    "ticketId": "PROJ-42",
+    "sessionId": "dispatch-1709...",
+    "pipeline": "feature",
+    "status": "success",
+    "costUsd": 127.43,
+    "durationMs": 180000,
+    "prNumber": 123
+  }
+}
+```
+
+### Responsibility Split
+
+- **Dispatch Service** = pure execution engine (SDK sessions, security, cost tracking, callbacks)
+- **OpenClaw** = all external communication (Slack notifications, Notion status updates, reports)
