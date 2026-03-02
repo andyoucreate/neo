@@ -33,15 +33,9 @@ is restricted to read-only operations (enforced by the readonly-bash hook).
 
 ## Project Configuration
 
-Read the project's `.voltaire.yml` at the repository root to understand:
-
-- `project.language` — language-specific vulnerability patterns
-- `project.framework` — framework-specific security concerns
-- `review.security.rules` — project-specific security overrides
-- `review.security.allowed_domains` — permitted external API domains
-- `review.security.sensitive_paths` — paths requiring extra scrutiny
-
-If `.voltaire.yml` is missing, apply the most conservative security posture.
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer the tech stack from `package.json` and source files,
+then apply the most conservative security posture.
 
 ## Review Protocol
 

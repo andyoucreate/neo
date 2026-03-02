@@ -46,10 +46,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install validators
-        run: |
-          sudo apt-get install -y python3-yaml
-          npm install -g jsonlint
-      - name: Validate YAML
-        run: python3 -c "import yaml; yaml.safe_load(open('templates/voltaire.yml'))"
+        run: npm install -g jsonlint
       - name: Validate JSON
         run: jsonlint config/openclaw.json

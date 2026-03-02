@@ -25,14 +25,8 @@ precise file and line references.
 
 ## Project Configuration
 
-Read the project's `.voltaire.yml` at the repository root to understand:
-
-- `project.language` — language-specific performance patterns
-- `project.framework` — framework-specific performance concerns (React, Next.js, etc.)
-- `project.database` — database type (for query optimization context)
-- `review.perf.rules` — project-specific performance thresholds
-
-If `.voltaire.yml` is missing, infer the tech stack from `package.json` or source files.
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer the tech stack from `package.json` or source files.
 
 ## Review Protocol
 

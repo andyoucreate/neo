@@ -47,18 +47,14 @@ You work in an isolated git worktree.
 
 ## Project Configuration
 
-Before starting work, read the project's `.voltaire.yml` at the repository root.
-Extract relevant fields:
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer from the codebase:
 
-- `project.name` — project identifier
-- `project.language` — primary language/framework
-- `project.package_manager` — pnpm, npm, yarn, or bun
-- `project.test_command` — how to run tests
-- `project.lint_command` — how to run linting
-- `project.typecheck_command` — how to run type checking
+- Read `package.json` for language, framework, package manager, and scripts
+- Detect test/lint/typecheck commands from `package.json` scripts
+- Check for common config files (tsconfig.json, .eslintrc, vitest.config.ts, etc.)
 
-If `.voltaire.yml` is missing, check for `package.json` scripts as fallback.
-If neither exists, STOP and escalate.
+If neither the dispatcher context nor `package.json` provides enough info, STOP and escalate.
 
 ## Pre-Flight Checks
 
@@ -112,7 +108,7 @@ Run the project's verification commands:
 
 ```bash
 # Type checking (if TypeScript)
-pnpm typecheck    # or the command from .voltaire.yml
+pnpm typecheck
 
 # Tests — run the specific test file first, then full suite
 pnpm test -- {specific-test-file}

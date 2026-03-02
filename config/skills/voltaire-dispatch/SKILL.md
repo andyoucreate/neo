@@ -131,7 +131,6 @@ curl -X POST http://127.0.0.1:3001/resume
 
 5. When receiving a `dispatch-result` callback:
    - Update the Notion ticket status accordingly
-   - Post a notification to the appropriate Slack channel (#dev-agents for success, #alerts for failures)
    - Write a completion report to the Notion page if pipeline succeeded
 
 ## Callback Mechanism
@@ -169,4 +168,4 @@ The Dispatch Service sends HTTP callbacks to OpenClaw when events occur. It does
 ### Responsibility Split
 
 - **Dispatch Service** = pure execution engine (SDK sessions, security, cost tracking, callbacks)
-- **OpenClaw** = all external communication (Slack notifications, Notion status updates, reports)
+- **OpenClaw** = all external communication (Notion status updates, reports)

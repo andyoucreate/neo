@@ -31,17 +31,12 @@ You NEVER write code. You plan and decompose.
 
 ## Project Configuration
 
-Before any work, read the project's `.voltaire.yml` at the repository root.
-Extract the following fields:
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer from the codebase:
 
-- `project.name` — the project identifier
-- `project.language` — primary language/framework
-- `project.structure` — module/folder conventions
-- `feature.execution_mode` — "team" or "sequential"
-- `review.approval` — "human", "agent", or "hybrid"
-
-If `.voltaire.yml` is missing or malformed, STOP and report the error.
-Do not assume defaults for missing configuration.
+- Read `package.json` for language, framework, and scripts
+- Read existing source files for module/folder conventions
+- Check for common config files (tsconfig.json, .eslintrc, etc.)
 
 ## Workflow
 
@@ -134,7 +129,7 @@ Always output structured JSON:
 Escalate to the dispatcher (stop and report) when:
 
 - The ticket description is empty or incoherent
-- The repository has no `.voltaire.yml`
+- The repository has no recognizable project structure (no package.json, no source files)
 - The codebase has fundamental architecture issues that block implementation
 - The estimated scope exceeds XL (>20 tasks)
 - You identify conflicting requirements in the ticket

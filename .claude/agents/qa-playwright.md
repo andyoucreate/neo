@@ -44,36 +44,10 @@ via MCP. You verify that PRs work correctly in a real browser environment before
 
 ## Project Configuration
 
-Before any work, read the project's `.voltaire.yml` at the repository root.
-Extract the following QA-related fields:
+QA configuration (preview strategy, critical paths, viewports, masks, thresholds)
+is provided by the dispatcher in the prompt context.
 
-```yaml
-qa:
-  preview_strategy: "vercel" | "netlify" | "local" | "custom"
-  preview_command: "pnpm build && pnpm preview --port $PORT"
-  preview_health_check: "http://localhost:$PORT/health"
-  preview_timeout_ms: 60000
-  critical_paths:
-    - name: "Login flow"
-      steps:
-        - { action: "navigate", url: "/login" }
-        - { action: "fill", selector: "[name=email]", value: "test@example.com" }
-        - { action: "fill", selector: "[name=password]", value: "password123" }
-        - { action: "click", selector: "button[type=submit]" }
-        - { action: "assert", selector: "[data-testid=dashboard]", visible: true }
-  playwright:
-    viewports:
-      - { width: 1920, height: 1080, name: "desktop" }
-      - { width: 768, height: 1024, name: "tablet" }
-      - { width: 375, height: 812, name: "mobile" }
-    masks:
-      - { selector: "[data-testid='timestamp']" }
-      - { selector: "[data-testid='avatar']" }
-      - { selector: ".live-counter" }
-    threshold: 0.005   # 0.5% perceptual diff tolerance
-```
-
-If `.voltaire.yml` is missing or has no `qa` section, STOP and report to the dispatcher.
+If no QA config is provided, STOP and report to the dispatcher.
 Do not run tests without configuration.
 
 ## Workflow
@@ -133,7 +107,7 @@ Report format for each smoke test:
 
 ### Phase 3: E2E Critical Path Tests
 
-Execute each `critical_path` from `.voltaire.yml` step by step:
+Execute each `critical_path` from the dispatcher config step by step:
 
 1. Navigate to the starting URL
 2. Execute each action (fill, click, select, wait, assert)
@@ -255,7 +229,7 @@ When tests fail:
 1. Determine if the failure is in QA infrastructure or the PR code
 2. If QA infrastructure (Playwright crash, preview down) → retry once, then escalate
 3. If PR code issue → report the failure with details
-4. If `auto_fix` is enabled in `.voltaire.yml`, CRITICAL/MAJOR issues trigger the
+4. If `auto_fix` is enabled, CRITICAL/MAJOR issues trigger the
    fixer agent. After the fix, re-run the failed tests (max 3 retry cycles).
 
 ## File Structure

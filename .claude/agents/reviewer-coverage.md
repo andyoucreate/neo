@@ -33,15 +33,9 @@ read-only operations — you can run tests and check coverage, but never modify 
 
 ## Project Configuration
 
-Read the project's `.voltaire.yml` at the repository root to understand:
-
-- `project.language` — language/framework for testing patterns
-- `project.test_command` — how to run the test suite
-- `project.test_framework` — vitest, jest, pytest, etc.
-- `review.coverage.threshold` — minimum coverage percentage
-- `review.coverage.rules` — project-specific testing requirements
-
-If `.voltaire.yml` is missing, detect the test framework from `package.json` or config files.
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, detect the test framework and commands from
+`package.json`, config files (vitest.config.ts, jest.config.js, etc.).
 
 ## Review Protocol
 
@@ -68,7 +62,7 @@ pnpm test -- --coverage {changed-files} 2>&1
 ```
 
 Parse the coverage output. Note files with low coverage (<80% by default,
-or the threshold from `.voltaire.yml`).
+or the threshold from the dispatcher config).
 
 ### Step 3: Coverage Checklist
 

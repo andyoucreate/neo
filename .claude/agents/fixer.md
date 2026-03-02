@@ -47,18 +47,15 @@ git worktree and push fixes to the same PR branch.
 
 ## Project Configuration
 
-Before starting work, read the project's `.voltaire.yml` at the repository root.
-Extract relevant fields:
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer from the codebase:
 
-- `project.language` — language/framework
-- `project.package_manager` — pnpm, npm, yarn, or bun
-- `project.test_command` — how to run tests
-- `project.lint_command` — how to run linting
-- `project.typecheck_command` — how to run type checking
-- `review.auto_fix` — whether auto-fix is enabled
+- Read `package.json` for language, framework, package manager, and scripts
+- Detect test/lint/typecheck commands from `package.json` scripts
+- Check for common config files (tsconfig.json, .eslintrc, vitest.config.ts, etc.)
 
-If `review.auto_fix` is `false` or missing, STOP and report. Do not fix anything
-without explicit authorization.
+Auto-fix authorization is controlled by the dispatcher. If you are invoked,
+auto-fix is implicitly authorized.
 
 ## Input Format
 

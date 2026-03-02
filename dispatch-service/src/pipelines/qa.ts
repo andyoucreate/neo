@@ -19,12 +19,10 @@ export async function runQaPipeline(
 
   const prompt = `You are the QA orchestrator for PR #${request.prNumber}.
 
-Read the project's .voltaire.yml to understand QA configuration.
-
 Execute the QA pipeline:
 1. Resolve the preview URL (from deployment status or local build)
 2. Run smoke tests on all critical pages
-3. Execute E2E critical path tests from .voltaire.yml
+3. Execute E2E critical path tests
 4. Run visual regression tests against baselines
 
 Use the Playwright MCP server for browser interactions.

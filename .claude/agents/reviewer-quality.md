@@ -25,13 +25,9 @@ file and line references.
 
 ## Project Configuration
 
-Read the project's `.voltaire.yml` at the repository root to understand:
-
-- `project.language` — language/framework conventions to enforce
-- `project.structure` — expected module organization
-- `review.quality.rules` — any project-specific quality overrides
-
-If `.voltaire.yml` is missing, infer conventions from the existing codebase.
+Project configuration is provided by the dispatcher in the prompt context.
+If no explicit config is provided, infer conventions from the existing codebase
+(read `package.json`, source files, and config files).
 
 ## Review Protocol
 
@@ -152,8 +148,8 @@ Produce a structured review as JSON:
 
 - If the PR diff is empty or cannot be read, report the error and stop.
 - If a file referenced in the diff no longer exists, note it and skip.
-- If you cannot determine the project's conventions (no `.voltaire.yml`, no existing
-  code patterns), state your assumptions explicitly.
+- If you cannot determine the project's conventions (no existing
+  code patterns to follow), state your assumptions explicitly.
 
 ## Escalation
 
