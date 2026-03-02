@@ -1,85 +1,80 @@
 {
+  "_comment": "Reference config for OpenClaw 2026.3.1. The actual config is generated via CLI (openclaw config set, openclaw agents add). This file documents the target state.",
+
   "agents": {
+    "defaults": {
+      "contextPruning": { "mode": "cache-ttl", "ttl": "1h" },
+      "compaction": { "mode": "safeguard" },
+      "heartbeat": { "every": "30m" },
+      "maxConcurrent": 4,
+      "subagents": { "maxConcurrent": 8 }
+    },
     "list": [
       {
         "id": "dispatcher",
-        "name": "Dispatcher",
+        "name": "dispatcher",
         "workspace": "~/.openclaw/workspace-dispatcher",
+        "agentDir": "~/.openclaw/agents/dispatcher/agent",
         "model": "anthropic/claude-sonnet-4-6"
       },
       {
         "id": "reporter",
-        "name": "Reporter",
+        "name": "reporter",
         "workspace": "~/.openclaw/workspace-reporter",
+        "agentDir": "~/.openclaw/agents/reporter/agent",
         "model": "anthropic/claude-haiku-4-5"
       },
       {
         "id": "watcher",
-        "name": "Watcher",
+        "name": "watcher",
         "workspace": "~/.openclaw/workspace-watcher",
+        "agentDir": "~/.openclaw/agents/watcher/agent",
         "model": "anthropic/claude-haiku-4-5"
       }
     ]
   },
-  "bindings": [
-    { "agentId": "dispatcher", "match": { "path": "notion-*" } },
-    { "agentId": "dispatcher", "match": { "path": "github-*" } },
-    { "agentId": "dispatcher", "match": { "path": "dispatch-*" } },
-    { "agentId": "dispatcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_DEV" } } },
-    { "agentId": "watcher", "match": { "channel": "slack", "peer": { "kind": "channel", "id": "C_ALERTS" } } }
-  ],
-  "limits": {
-    "maxConcurrentSessions": 5,
-    "maxConcurrentPerProject": 2,
-    "queueMaxSize": 50,
-    "sessionTimeoutMs": 3600000,
-    "dispatchCooldownMs": 10000
-  },
+
   "hooks": {
     "enabled": true,
-    "tokens": {
-      "notion": "${OPENCLAW_HOOKS_TOKEN_NOTION}",
-      "github": "${OPENCLAW_HOOKS_TOKEN_GITHUB}",
-      "slack": "${OPENCLAW_HOOKS_TOKEN_SLACK}",
-      "dispatch": "${OPENCLAW_HOOKS_TOKEN_DISPATCH}"
-    },
+    "path": "/hooks",
+    "token": "<OPENCLAW_HOOKS_TOKEN>",
     "defaultSessionKey": "hook:ingress",
+    "allowRequestSessionKey": false,
+    "allowedAgentIds": ["dispatcher", "watcher"],
+    "allowedSessionKeyPrefixes": ["hook:"],
     "mappings": [
       {
-        "id": "notion-ticket",
         "match": { "path": "notion-ticket" },
         "action": "agent",
-        "messageTemplate": "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and call the Voltaire Dispatch Service HTTP API to dispatch the appropriate pipeline."
+        "agentId": "dispatcher",
+        "messageTemplate": "Notion webhook received. Event type: {{type}}. Ticket data: {{json}}. Analyze the ticket and dispatch the appropriate pipeline."
       },
       {
-        "id": "github-pr-opened",
         "match": { "path": "github-pr" },
         "action": "agent",
-        "messageTemplate": "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Call the Dispatch Service /dispatch/review endpoint to trigger the review pipeline."
+        "agentId": "dispatcher",
+        "messageTemplate": "GitHub PR webhook received. Action: {{action}}. PR #{{pull_request.number}} on {{repository.full_name}}. Title: {{pull_request.title}}. Dispatch a review pipeline if appropriate."
       },
       {
-        "id": "github-pr-review-done",
         "match": { "path": "github-review-done" },
         "action": "agent",
-        "messageTemplate": "PR #{{body.pull_request.number}} review completed. If all checks pass, call the Dispatch Service /dispatch/qa endpoint to trigger QA pipeline."
+        "agentId": "dispatcher",
+        "messageTemplate": "PR #{{pull_request.number}} review completed. If all checks pass, call the Dispatch Service /dispatch/qa endpoint to trigger QA pipeline."
       },
       {
-        "id": "dispatch-result",
         "match": { "path": "dispatch-result" },
         "action": "agent",
-        "messageTemplate": "Dispatch Service callback: {{body.event}}. Pipeline: {{body.data.pipeline}}, status: {{body.data.status}}, cost: ${{body.data.costUsd}}, session: {{body.data.sessionId}}. Ticket: {{body.data.ticketId}}, PR: {{body.data.prNumber}}. Update the Notion ticket status accordingly and post a notification to the appropriate Slack channel (#dev-agents for success, #alerts for failures)."
+        "agentId": "dispatcher",
+        "messageTemplate": "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, cost={{data.costUsd}}USD, session={{data.sessionId}}. Update the Notion ticket status accordingly."
       }
     ]
   },
-  "mcpServers": {
-    "notion": {
-      "command": "npx",
-      "args": ["-y", "@notionhq/notion-mcp-server"],
-      "env": { "NOTION_TOKEN": "${NOTION_API_TOKEN}" }
-    },
-    "playwright": {
-      "command": "npx",
-      "args": ["@playwright/mcp@latest", "--headless"]
+
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "<OPENCLAW_GATEWAY_TOKEN>"
     }
   }
 }

@@ -141,45 +141,44 @@ OpenClaw handles event ingestion, routing, scheduling, and external communicatio
 OpenClaw runs multiple isolated agents, each with its own workspace and memory:
 
 ```json5
-// openclaw.json — agents section
+// openclaw.json — agents section (OpenClaw 2026.3.1)
 {
   agents: {
+    defaults: {
+      contextPruning: { mode: "cache-ttl", ttl: "1h" },
+      compaction: { mode: "safeguard" },
+      heartbeat: { every: "30m" },
+      maxConcurrent: 4,
+      subagents: { maxConcurrent: 8 }
+    },
     list: [
       {
         id: "dispatcher",
-        name: "Dispatcher",
+        name: "dispatcher",
         workspace: "~/.openclaw/workspace-dispatcher",
         model: "anthropic/claude-sonnet-4-6",
         // Triage tickets, call dispatch service, update status
       },
       {
         id: "reporter",
-        name: "Reporter",
+        name: "reporter",
         workspace: "~/.openclaw/workspace-reporter",
         model: "anthropic/claude-haiku-4-5",
         // Generate reports, summaries, daily briefs
       },
       {
         id: "watcher",
-        name: "Watcher",
+        name: "watcher",
         workspace: "~/.openclaw/workspace-watcher",
         model: "anthropic/claude-haiku-4-5",
         // Monitor agent health, alert on failures, kill stuck processes
       }
     ]
-  },
-  bindings: [
-    // Notion webhooks → dispatcher
-    { agentId: "dispatcher", match: { path: "notion-*" } },
-    // GitHub webhooks → dispatcher
-    { agentId: "dispatcher", match: { path: "github-*" } },
-    // Slack dev channel → dispatcher
-    { agentId: "dispatcher", match: { channel: "slack", peer: { kind: "channel", id: "C_DEV" } } },
-    // Slack alerts channel → watcher
-    { agentId: "watcher", match: { channel: "slack", peer: { kind: "channel", id: "C_ALERTS" } } }
-  ]
+  }
 }
 ```
+
+> **Note:** Webhook routing to agents is handled via `hooks.mappings` (see below), not via a separate `bindings` section. Channel bindings (Slack, Discord) are configured via `openclaw agents bind` CLI when channels are connected.
 
 ### Concurrency & Rate Limits
 
@@ -212,42 +211,50 @@ server {
 }
 ```
 
-Each webhook source uses a **separate token** (not one shared token):
+Webhook authentication uses a **single bearer token** for the `/hooks/*` endpoint:
 
 ```json5
-// openclaw.json — hooks section
+// openclaw.json — hooks section (OpenClaw 2026.3.1)
 {
   hooks: {
     enabled: true,
-    tokens: {
-      notion: "${OPENCLAW_HOOKS_TOKEN_NOTION}",
-      github: "${OPENCLAW_HOOKS_TOKEN_GITHUB}",
-      slack: "${OPENCLAW_HOOKS_TOKEN_SLACK}"
-    },
+    path: "/hooks",
+    token: "<OPENCLAW_HOOKS_TOKEN>",        // single shared token, Bearer auth
     defaultSessionKey: "hook:ingress",
+    allowRequestSessionKey: false,
+    allowedAgentIds: ["dispatcher", "watcher"],
+    allowedSessionKeyPrefixes: ["hook:"],
     mappings: [
       {
-        id: "notion-ticket",
         match: { path: "notion-ticket" },
         action: "agent",
-        messageTemplate: "Notion ticket event: {{body.type}} on page {{body.page_id}}. Read the ticket, classify (feature/bug/refactor/chore), and dispatch via the Voltaire Dispatch Service HTTP API."
+        agentId: "dispatcher",
+        messageTemplate: "Notion webhook received. Event type: {{type}}. Ticket data: {{json}}. Analyze the ticket and dispatch the appropriate pipeline."
       },
       {
-        id: "github-pr-opened",
         match: { path: "github-pr" },
         action: "agent",
-        messageTemplate: "PR #{{body.pull_request.number}} on {{body.repository.full_name}}: '{{body.pull_request.title}}'. Call the dispatch service to trigger the review pipeline."
+        agentId: "dispatcher",
+        messageTemplate: "GitHub PR webhook received. Action: {{action}}. PR #{{pull_request.number}} on {{repository.full_name}}. Title: {{pull_request.title}}. Dispatch a review pipeline if appropriate."
       },
       {
-        id: "github-pr-review-done",
         match: { path: "github-review-done" },
         action: "agent",
-        messageTemplate: "PR #{{body.pull_request.number}} review completed. If all checks pass, call the dispatch service to trigger QA pipeline."
+        agentId: "dispatcher",
+        messageTemplate: "PR #{{pull_request.number}} review completed. If all checks pass, call the Dispatch Service /dispatch/qa endpoint to trigger QA pipeline."
+      },
+      {
+        match: { path: "dispatch-result" },
+        action: "agent",
+        agentId: "dispatcher",
+        messageTemplate: "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, cost={{data.costUsd}}USD, session={{data.sessionId}}. Update the Notion ticket status accordingly."
       }
     ]
   }
 }
 ```
+
+> **Note:** OpenClaw 2026.3.1 uses a single `token` (not per-source tokens). Webhook sources (Notion, GitHub) share the same bearer token. The `allowedAgentIds` field restricts which agents can be targeted by webhooks. Each mapping requires a `messageTemplate` — OpenClaw uses mustache-style `{{variable}}` substitution from the webhook JSON body. The `agentId` field on each mapping routes to the specified agent.
 
 ### OpenClaw Cron Jobs
 
@@ -295,22 +302,30 @@ Each webhook source uses a **separate token** (not one shared token):
 }
 ```
 
-### OpenClaw MCP Configuration
+### MCP Servers (Claude Code, not OpenClaw)
+
+MCP servers are configured in `~/.claude.json` on the voltaire user (NOT in `openclaw.json`). OpenClaw agents use Claude Code as their CLI backend, so they inherit the user-level MCP configuration.
 
 ```json5
-// openclaw.json — mcpServers section
+// ~/.claude.json — mcpServers section
 {
   mcpServers: {
-    notion: {
+    "context7": {
+      type: "stdio",
+      command: "npx",
+      args: ["-y", "@upstash/context7-mcp"]
+    },
+    "notion-api": {
+      type: "stdio",
       command: "npx",
       args: ["-y", "@notionhq/notion-mcp-server"],
-      env: { NOTION_TOKEN: "${NOTION_API_TOKEN}" }
+      env: { NOTION_TOKEN: "<NOTION_API_TOKEN>" }
     }
   }
 }
 ```
 
-> **Note:** Playwright MCP is configured per-session in the Agent SDK (not globally in OpenClaw). See [Claude Agent SDK Integration](#claude-agent-sdk-integration).
+> **Note:** Playwright MCP is configured per-session in the Agent SDK (not globally). See [Claude Agent SDK Integration](#claude-agent-sdk-integration). Context7 provides library documentation to all agents.
 
 ---
 
@@ -763,9 +778,13 @@ async function runWithRecovery(
       }
     } catch (error) {
       if (attempt === maxRetries) {
-        // All retries exhausted — escalate
-        await notifySlack(`FAILED: ${pipeline} after ${maxRetries} attempts. Error: ${error}`);
-        await updateNotionStatus(pipeline, "Blocked", `FAILED: ${error}`);
+        // All retries exhausted — escalate via callback to OpenClaw
+        notifyPipelineResult({
+          sessionId: lastSessionId ?? "unknown",
+          pipeline, status: "failure",
+          costUsd: 0, durationMs: 0,
+          timestamp: new Date().toISOString(),
+        });
         throw error;
       }
 
@@ -1377,7 +1396,7 @@ The weekly cost report script (`scripts/cost-report.sh`) simply aggregates this 
 | Rate limit events | `SDKRateLimitEvent` count | Real-time |
 | Agent uptime | System watchdog (`scripts/watchdog.sh`) | Every 5 minutes (cron) |
 
-### Alerting (via dispatch service → OpenClaw → Slack)
+### Alerting (via Dispatch Service callback → OpenClaw → Slack)
 
 | Alert | Condition | Severity |
 |-------|-----------|----------|
@@ -1431,7 +1450,7 @@ Slack commands (via OpenClaw):
 | **Notion API** | Can't read tickets, can't update status | Continue active pipelines. Queue status updates. Retry with backoff. |
 | **GitHub API** | Can't create PRs, can't post reviews | Agent commits locally, creates PR when API returns. Reviews saved to file, posted later. |
 | **Slack** | No notifications | Handled by OpenClaw — fallback to Discord. If both down, log to file. |
-| **OpenClaw (callback)** | Pipeline results not forwarded to Slack/Notion | Dispatch Service logs results to event journal. On OpenClaw recovery, events are replayable. |
+| **OpenClaw (callback)** | Pipeline results not forwarded to Slack/Notion | Dispatch Service logs results to event journal. On OpenClaw recovery, events are replayable. Callback module retries once (5s delay), then logs and moves on. |
 | **Disk full** | Everything stops | Alert at 80%. Auto-cleanup old sessions, screenshots, logs at 90%. |
 | **SDK session crash** | Single pipeline fails | Auto-resume via `resume: sessionId` (built-in). If repeated crash, escalate. |
 
@@ -1566,13 +1585,14 @@ Storage:
 # /etc/systemd/system/openclaw.service
 [Unit]
 Description=OpenClaw Gateway
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=voltaire
 WorkingDirectory=/home/voltaire
-ExecStart=/usr/bin/openclaw gateway
+ExecStart=/usr/bin/openclaw gateway run --force
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/voltaire/.env
@@ -1581,20 +1601,29 @@ EnvironmentFile=/opt/voltaire/.env
 WantedBy=multi-user.target
 ```
 
+> **Note:** `openclaw gateway run --force` is required (not just `openclaw gateway`). The `--force` flag starts even if a previous gateway instance didn't shut down cleanly.
+
 ```ini
 # /etc/systemd/system/voltaire-dispatch.service
+# See dispatch-service/voltaire-dispatch.service for the full hardened version
 [Unit]
 Description=Voltaire Dispatch Service
-After=network.target openclaw.service
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
 User=voltaire
+Group=voltaire
 WorkingDirectory=/opt/voltaire/dispatch-service
 ExecStart=/usr/bin/node dist/index.js
-Restart=always
-RestartSec=5
+Restart=on-failure
+RestartSec=10
 EnvironmentFile=/opt/voltaire/.env
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/voltaire/costs /opt/voltaire/logs /opt/voltaire/events /tmp/voltaire-worktrees
+MemoryMax=2G
 
 [Install]
 WantedBy=multi-user.target
