@@ -1,0 +1,169 @@
+import type { Options, AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
+import { agents } from "../agents.js";
+import { createReadonlySandboxConfig } from "../sandbox.js";
+import { runWithRecovery } from "../recovery.js";
+import type { ReviewRequest, PipelineResult } from "../types.js";
+import { logger } from "../logger.js";
+import { hooks } from "../hooks.js";
+
+/**
+ * Select review agents based on PR diff size.
+ * XS/S: 1 combined reviewer (Opus)
+ * M: 2 reviewers (quality+perf, security+coverage)
+ * L/XL: 4 parallel reviewers
+ */
+function selectReviewAgents(
+  diffSize: number,
+): Record<string, AgentDefinition> {
+  if (diffSize < 50) {
+    // XS/S — single combined reviewer
+    return {
+      "combined-reviewer": {
+        description:
+          "Combined code reviewer covering quality, security, performance, and test coverage.",
+        prompt: `You are a combined code reviewer. Review the PR diff for:
+1. Code quality (DRY, naming, complexity, patterns)
+2. Security (injections, auth gaps, secrets, input validation)
+3. Performance (N+1, re-renders, bundle size, algorithms)
+4. Test coverage (missing tests, edge cases, error paths)
+
+Output a structured JSON review with verdict, issues, and stats.`,
+        tools: ["Read", "Glob", "Grep", "Bash"],
+        model: "opus",
+      },
+    };
+  }
+
+  if (diffSize < 300) {
+    // M — two review subagents
+    return {
+      "quality-perf-reviewer": {
+        ...agents["reviewer-quality"],
+        prompt: `${agents["reviewer-quality"].prompt}
+
+Also review for performance issues: N+1 queries, re-renders, bundle size.`,
+        model: "sonnet",
+      },
+      "security-coverage-reviewer": {
+        ...agents["reviewer-security"],
+        prompt: `${agents["reviewer-security"].prompt}
+
+Also review for test coverage gaps: missing tests, edge cases, error paths.`,
+        model: "opus",
+      },
+    };
+  }
+
+  // L/XL — full 4-lens review
+  return {
+    "reviewer-quality": agents["reviewer-quality"],
+    "reviewer-security": agents["reviewer-security"],
+    "reviewer-perf": agents["reviewer-perf"],
+    "reviewer-coverage": agents["reviewer-coverage"],
+  };
+}
+
+/**
+ * Estimate PR diff size from the repository.
+ */
+async function getPrDiffSize(
+  prNumber: number,
+  repoDir: string,
+): Promise<number> {
+  const { execSync } = await import("node:child_process");
+  try {
+    const output = execSync(
+      `gh pr diff ${prNumber} --stat | tail -1`,
+      { cwd: repoDir, encoding: "utf-8", timeout: 30_000 },
+    );
+    // Parse "X files changed, Y insertions(+), Z deletions(-)"
+    const match = output.match(/(\d+)\s+insertion|(\d+)\s+deletion/g);
+    if (!match) return 100; // default to M
+    const total = match.reduce((sum, m) => {
+      const num = m.match(/\d+/);
+      return sum + (num ? parseInt(num[0], 10) : 0);
+    }, 0);
+    return total;
+  } catch {
+    logger.warn(`Could not get diff size for PR #${prNumber}, defaulting to M`);
+    return 100;
+  }
+}
+
+/**
+ * Run the review pipeline for a PR.
+ */
+export async function runReviewPipeline(
+  request: ReviewRequest,
+  repoDir: string,
+): Promise<PipelineResult> {
+  const startTime = Date.now();
+
+  const diffSize = await getPrDiffSize(request.prNumber, repoDir);
+  const reviewAgents = selectReviewAgents(diffSize);
+  const agentCount = Object.keys(reviewAgents).length;
+
+  logger.info(
+    `Review PR #${request.prNumber}: ${diffSize} lines changed → ${agentCount} reviewer(s)`,
+  );
+
+  const prompt = `Review Pull Request #${request.prNumber} in this repository.
+
+Use \`gh pr diff ${request.prNumber}\` to get the diff, then perform a thorough review.
+
+Spawn the available review subagents to perform parallel reviews, then consolidate results.
+
+Output a structured JSON review report with:
+- verdict: "APPROVED" or "CHANGES_REQUESTED"
+- summary
+- issues array (each with severity, category, file, line, description, remediation)
+- stats (files_reviewed, critical, high, medium, low counts)`;
+
+  const options: Options = {
+    permissionMode: "acceptEdits",
+    settingSources: ["project"],
+    systemPrompt: { type: "preset", preset: "claude_code" },
+    hooks,
+    sandbox: createReadonlySandboxConfig(repoDir),
+    agents: reviewAgents,
+    tools: { type: "preset", preset: "claude_code" },
+    cwd: repoDir,
+    maxTurns: 100,
+  };
+
+  let sessionId = "";
+  let costUsd = 0;
+
+  try {
+    const result = await runWithRecovery("review", prompt, options, {
+      onSessionId: (id) => {
+        sessionId = id;
+      },
+      onCostRecord: (msg) => {
+        costUsd = msg.total_cost_usd;
+      },
+    });
+
+    return {
+      prNumber: request.prNumber,
+      sessionId,
+      pipeline: "review",
+      status: result.subtype === "success" ? "success" : "failure",
+      summary: result.subtype === "success" ? result.result : undefined,
+      costUsd,
+      durationMs: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    };
+  } catch (error) {
+    logger.error(`Review pipeline failed for PR #${request.prNumber}`, error);
+    return {
+      prNumber: request.prNumber,
+      sessionId,
+      pipeline: "review",
+      status: "failure",
+      costUsd,
+      durationMs: Date.now() - startTime,
+      timestamp: new Date().toISOString(),
+    };
+  }
+}

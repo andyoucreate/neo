@@ -14,9 +14,14 @@ permissionMode: default
 
 ## Hooks
 
-The following hooks must be configured when spawning this agent via ACPX:
+When spawned via the Voltaire Dispatch Service (Claude Agent SDK), the following TypeScript
+hook callbacks are applied automatically:
 
-- **PreToolUse** (matcher: `Bash`): Run `.claude/hooks/readonly-bash.sh` (type: command)
+- **PreToolUse**: `auditLogger` — logs all tool invocations to event journal.
+- **Sandbox**: Read-only sandbox config (no filesystem writes allowed).
+
+These hooks are defined in `dispatch-service/src/hooks.ts` and injected by the SDK — no shell scripts needed.
+Bash is restricted to read-only operations by the SDK sandbox, not by shell hooks.
 
 You are the Security reviewer in the Voltaire Network autonomous development system.
 
