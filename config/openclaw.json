@@ -38,10 +38,10 @@
     "enabled": true,
     "path": "/hooks",
     "token": "<OPENCLAW_HOOKS_TOKEN>",
-    "defaultSessionKey": "hook:ingress",
+    "defaultSessionKey": "main",
     "allowRequestSessionKey": false,
     "allowedAgentIds": ["dispatcher", "watcher"],
-    "allowedSessionKeyPrefixes": ["hook:"],
+    "allowedSessionKeyPrefixes": ["hook:", "main"],
     "mappings": [
       {
         "match": { "path": "notion-ticket" },
