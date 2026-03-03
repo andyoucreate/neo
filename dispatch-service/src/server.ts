@@ -466,9 +466,14 @@ async function runPipelineInBackground(
   try {
     const result = await runner();
     await recordResult(sessionId, result);
+    if (result.status !== "success") {
+      // Allow retry on non-success (failure, timeout, cancelled)
+      releaseTicketId(sessionId);
+    }
   } catch (error) {
     logger.error(`Background ${pipeline} pipeline error`, error);
     await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
+    releaseTicketId(sessionId);
     cleanupSession(sessionId);
   }
 }
@@ -563,6 +568,14 @@ async function recordResult(
   logger.info(
     `Pipeline ${result.pipeline} completed: ${result.status} ($${result.costUsd.toFixed(2)})`,
   );
+}
+
+function releaseTicketId(sessionId: string): void {
+  const session = activeSessions.get(sessionId);
+  if (session?.ticketId) {
+    dispatchedTickets.delete(session.ticketId);
+    logger.info(`Released ticket ${session.ticketId} for retry`);
+  }
 }
 
 function cleanupSession(sessionId: string): void {

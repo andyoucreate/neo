@@ -30,11 +30,30 @@ export async function createWorktree(
 
     // Create worktree with a new branch from develop (or main)
     const baseBranch = await getDefaultBranch(repoDir);
-    await execFileAsync(
-      "git",
-      ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
-      { cwd: repoDir, timeout: GIT_TIMEOUT },
-    );
+    try {
+      await execFileAsync(
+        "git",
+        ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
+        { cwd: repoDir, timeout: GIT_TIMEOUT },
+      );
+    } catch (branchError: unknown) {
+      const msg = branchError instanceof Error ? branchError.message : "";
+      if (msg.includes("already exists")) {
+        // Branch exists from a previous failed run — delete it and retry
+        logger.warn(`Branch ${branchName} already exists, cleaning up and retrying`);
+        await execFileAsync("git", ["branch", "-D", branchName], {
+          cwd: repoDir,
+          timeout: GIT_TIMEOUT,
+        }).catch(() => {});
+        await execFileAsync(
+          "git",
+          ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
+          { cwd: repoDir, timeout: GIT_TIMEOUT },
+        );
+      } else {
+        throw branchError;
+      }
+    }
 
     logger.info(`Created worktree at ${worktreePath} (branch: ${branchName})`);
     return worktreePath;
