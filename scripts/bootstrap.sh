@@ -22,6 +22,11 @@ apt update && apt install -y nodejs
 
 # 4. Claude Code CLI
 npm install -g @anthropic-ai/claude-code
+CLAUDE_BIN=$(which claude 2>/dev/null || echo "/usr/local/bin/claude")
+echo "Claude Code installed at: $CLAUDE_BIN"
+if [ ! -x "$CLAUDE_BIN" ]; then
+  echo "WARNING: Claude Code binary not found at $CLAUDE_BIN"
+fi
 
 # 5. OpenClaw
 npm install -g openclaw@latest
@@ -58,6 +63,11 @@ chown -R voltaire:voltaire /opt/voltaire
 touch /opt/voltaire/.env
 chown root:voltaire /opt/voltaire/.env
 chmod 640 /opt/voltaire/.env
+
+# Write CLAUDE_CODE_PATH to .env (resolved from step 4)
+if ! grep -q "CLAUDE_CODE_PATH" /opt/voltaire/.env 2>/dev/null; then
+  echo "CLAUDE_CODE_PATH=$CLAUDE_BIN" >> /opt/voltaire/.env
+fi
 
 # 13. Logrotate config
 cat > /etc/logrotate.d/voltaire << 'LOGROTATE'

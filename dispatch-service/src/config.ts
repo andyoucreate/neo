@@ -21,9 +21,9 @@ export const REPOS_BASE_DIR =
   process.env.REPOS_BASE_DIR || "/home/voltaire/repos";
 
 // ─── Claude Code ───────────────────────────────────────────────
+// npm install -g puts the binary at /usr/local/bin/claude on Ubuntu (NodeSource)
 export const CLAUDE_CODE_PATH =
-  process.env.CLAUDE_CODE_PATH ||
-  "/usr/lib/node_modules/@anthropic-ai/claude-code/cli.js";
+  process.env.CLAUDE_CODE_PATH || "/usr/local/bin/claude";
 
 // ─── Recovery ──────────────────────────────────────────────────
 export const MAX_RECOVERY_RETRIES = 3;
