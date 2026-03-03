@@ -12,6 +12,9 @@ export function createSandboxConfig(repoDir: string): SandboxSettings {
       allowWrite: [
         `${repoDir}/**`, // repo directory (rw)
         "/tmp/**", // temp files
+        "/home/voltaire/.local/share/pnpm/**", // pnpm store
+        "/home/voltaire/.cache/**", // general cache (pnpm, etc.)
+        "/home/voltaire/.npm/**", // npm cache (fallback)
       ],
       denyWrite: [
         "/opt/voltaire/.env", // secrets

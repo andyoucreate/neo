@@ -123,7 +123,7 @@ Output a structured JSON review report with:
   const options: Options = {
     pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
-    settingSources: ["project"],
+    settingSources: ["user", "project"],
     systemPrompt: { type: "preset", preset: "claude_code" },
     hooks,
     sandbox: createReadonlySandboxConfig(repoDir),

@@ -1,4 +1,4 @@
-import type { McpStdioServerConfig, McpHttpServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { McpHttpServerConfig, McpStdioServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 /**
  * MCP server configurations for different agent pipelines.

@@ -40,7 +40,7 @@ Report what was fixed and what was not, in structured JSON.`;
   const options: Options = {
     pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
-    settingSources: ["project"],
+    settingSources: ["user", "project"],
     systemPrompt: { type: "preset", preset: "claude_code" },
     hooks,
     sandbox: createSandboxConfig(repoDir),

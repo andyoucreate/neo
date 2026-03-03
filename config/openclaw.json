@@ -47,7 +47,7 @@
         "match": { "path": "notion-ticket" },
         "action": "agent",
         "agentId": "dispatcher",
-        "messageTemplate": "Notion webhook received. Event type: {{type}}. Ticket data: {{json}}. Analyze the ticket and dispatch the appropriate pipeline."
+        "messageTemplate": "Notion webhook received. Event type: {{type}}. Ticket data: {{json}}. Read the full ticket from Notion, resolve the repository from the Project Registry, assess ticket clarity, and route to the appropriate pipeline (refine for vague tickets, feature for clear ones, hotfix for critical bugs)."
       },
       {
         "match": { "path": "github-pr" },
@@ -65,7 +65,7 @@
         "match": { "path": "dispatch-result" },
         "action": "agent",
         "agentId": "dispatcher",
-        "messageTemplate": "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, cost={{data.costUsd}}USD, session={{data.sessionId}}. Update the Notion ticket status accordingly."
+        "messageTemplate": "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, ticketId={{data.ticketId}}, cost={{data.costUsd}}USD, duration={{data.durationMs}}ms, session={{data.sessionId}}, summary={{data.summary}}. If pipeline=refine, parse the summary JSON and act on the refine result (pass_through → dispatch feature, decompose → create sub-tickets and dispatch each, escalate → add questions to Notion). Otherwise, update the Notion ticket status accordingly."
       }
     ]
   },

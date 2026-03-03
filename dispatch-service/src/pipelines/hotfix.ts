@@ -38,7 +38,7 @@ This is a hotfix — speed is critical but correctness is paramount.
   const options: Options = {
     pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
     permissionMode: "acceptEdits",
-    settingSources: ["project"],
+    settingSources: ["user", "project"],
     systemPrompt: { type: "preset", preset: "claude_code" },
     hooks,
     sandbox: createSandboxConfig(repoDir),

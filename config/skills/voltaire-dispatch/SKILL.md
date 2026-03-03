@@ -12,6 +12,7 @@ The Dispatch Service runs at `http://127.0.0.1:3001`.
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/feature \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
   -d '{
     "ticketId": "PROJ-42",
     "title": "Add user avatar",
@@ -24,10 +25,38 @@ curl -X POST http://127.0.0.1:3001/dispatch/feature \
   }'
 ```
 
+### Refine Pipeline
+
+Evaluate ticket clarity and decompose vague tickets into precise sub-tickets.
+Use this when a ticket lacks clear acceptance criteria or has a broad scope.
+
+```bash
+curl -X POST http://127.0.0.1:3001/dispatch/refine \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
+  -d '{
+    "ticketId": "PROJ-42",
+    "title": "Improve user management",
+    "type": "feature",
+    "priority": "medium",
+    "repository": "github.com/org/repo",
+    "criteria": "Users should be managed better",
+    "description": "The user management needs improvement..."
+  }'
+```
+
+Note: `size` is **optional** for refine — the refiner agent estimates it from codebase analysis.
+
+The refine callback returns a `RefineResult` with:
+- `action: "pass_through"` — ticket is clear, dispatch directly to feature
+- `action: "decompose"` — ticket split into sub-tickets (in `subTickets` array)
+- `action: "escalate"` — ticket too vague, clarifying `questions` returned
+
 ### Review Pipeline
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/review \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
   -d '{
     "prNumber": 42,
     "repository": "github.com/org/repo"
@@ -38,6 +67,7 @@ curl -X POST http://127.0.0.1:3001/dispatch/review \
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/qa \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
   -d '{
     "prNumber": 42,
     "repository": "github.com/org/repo"
@@ -48,6 +78,7 @@ curl -X POST http://127.0.0.1:3001/dispatch/qa \
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/hotfix \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
   -d '{
     "ticketId": "BUG-99",
     "title": "Fix login crash",
@@ -61,6 +92,7 @@ curl -X POST http://127.0.0.1:3001/dispatch/hotfix \
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/fixer \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
   -d '{
     "prNumber": 42,
     "repository": "github.com/org/repo",
@@ -91,13 +123,16 @@ curl http://127.0.0.1:3001/health
 
 ### Kill a Session
 ```bash
-curl -X POST http://127.0.0.1:3001/kill/{sessionId}
+curl -X POST http://127.0.0.1:3001/kill/{sessionId} \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>"
 ```
 
 ### Pause/Resume
 ```bash
-curl -X POST http://127.0.0.1:3001/pause
-curl -X POST http://127.0.0.1:3001/resume
+curl -X POST http://127.0.0.1:3001/pause \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>"
+curl -X POST http://127.0.0.1:3001/resume \
+  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>"
 ```
 
 ## Response Codes
@@ -115,21 +150,28 @@ curl -X POST http://127.0.0.1:3001/resume
 
 1. When receiving a Notion ticket event:
    - Read the ticket from Notion
-   - Classify the ticket type (feature/bug/refactor/chore)
-   - Map to the appropriate pipeline (feature → `/dispatch/feature`, bug → `/dispatch/hotfix`)
-   - Call the Dispatch Service with the ticket data
+   - Resolve the repository from the Project Registry (in dispatcher instructions)
+   - Assess ticket clarity:
+     - **Clear ticket** (testable criteria, small scope) → `/dispatch/feature` with estimated size
+     - **Vague ticket** (broad scope, unclear criteria) → `/dispatch/refine`
+     - **Critical bug** → `/dispatch/hotfix`
 
-2. When receiving a GitHub PR event:
+2. When receiving a refine callback:
+   - `pass_through` → dispatch to `/dispatch/feature` with enriched data
+   - `decompose` → create sub-tickets in Notion, dispatch each to `/dispatch/feature`
+   - `escalate` → add questions to Notion ticket, set status "Needs Clarification"
+
+3. When receiving a GitHub PR event:
    - Extract PR number and repository
    - Call `/dispatch/review` to trigger code review
 
-3. When review completes with all checks passing:
+4. When review completes with all checks passing:
    - Call `/dispatch/qa` to trigger QA testing
 
-4. When issues are found by reviewers:
+5. When issues are found by reviewers:
    - Call `/dispatch/fixer` with the list of issues
 
-5. When receiving a `dispatch-result` callback:
+6. When receiving a `dispatch-result` callback:
    - Update the Notion ticket status accordingly
    - Write a completion report to the Notion page if pipeline succeeded
 
@@ -141,7 +183,7 @@ The Dispatch Service sends HTTP callbacks to OpenClaw when events occur. It does
 
 | Event | When | Payload |
 |-------|------|---------|
-| `pipeline.completed` | Pipeline finishes successfully | Full `PipelineResult` |
+| `pipeline.completed` | Pipeline finishes successfully | Full `PipelineResult` (or `RefineResult` for refine) |
 | `pipeline.failed` | Pipeline fails, times out, or is cancelled | Full `PipelineResult` |
 | `service.started` | Dispatch Service starts | `{ action, version, host }` |
 | `service.stopped` | Dispatch Service shuts down | `{ action, version, host, signal }` |
@@ -165,7 +207,27 @@ The Dispatch Service sends HTTP callbacks to OpenClaw when events occur. It does
 }
 ```
 
+### Refine Callback Payload
+
+For refine pipelines, the `summary` field in the PipelineResult contains a JSON-serialized `RefineResult`:
+
+```json
+{
+  "event": "pipeline.completed",
+  "timestamp": "2026-03-01T14:32:00Z",
+  "data": {
+    "ticketId": "PROJ-42",
+    "sessionId": "dispatch-1709...",
+    "pipeline": "refine",
+    "status": "success",
+    "summary": "{\"action\":\"decompose\",\"score\":2,\"subTickets\":[...],...}",
+    "costUsd": 12.50,
+    "durationMs": 45000
+  }
+}
+```
+
 ### Responsibility Split
 
 - **Dispatch Service** = pure execution engine (SDK sessions, security, cost tracking, callbacks)
-- **OpenClaw** = all external communication (Notion status updates, reports)
+- **OpenClaw Dispatcher** = intelligence layer (project resolution, ticket routing, Notion updates)

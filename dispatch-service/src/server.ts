@@ -12,6 +12,7 @@ import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
 import { runQaPipeline } from "./pipelines/qa.js";
+import { runRefinePipeline } from "./pipelines/refine.js";
 import { runReviewPipeline } from "./pipelines/review.js";
 import { sanitize } from "./sanitize.js";
 import type {
@@ -22,6 +23,8 @@ import type {
   PipelineResult,
   PipelineType,
   QaRequest,
+  RefineRequest,
+  RefineResult,
   ReviewRequest,
   ServiceStatus,
 } from "./types.js";
@@ -72,6 +75,17 @@ const fixerSchema = z.object({
   prNumber: z.number().int().positive(),
   repository: z.string().min(1),
   issues: z.array(fixerIssueSchema).min(1),
+});
+
+const refineSchema = z.object({
+  ticketId: z.string().min(1),
+  title: z.string().min(1),
+  type: z.enum(["feature", "bug", "refactor", "chore"]),
+  priority: z.enum(["critical", "high", "medium", "low"]),
+  size: z.enum(["xs", "s", "m", "l", "xl"]).optional(),
+  repository: z.string().min(1),
+  criteria: z.string().optional(),
+  description: z.string().optional(),
 });
 
 // ─── Server state ──────────────────────────────────────────────
@@ -238,6 +252,41 @@ export function createServer(): express.Express {
       res,
       { prNumber: data.prNumber },
       (sessionId) => runFixerPipelineBackground(data as FixerRequest, sessionId),
+    );
+  });
+
+  // ─── POST /dispatch/refine ──────────────────────────────────
+  app.post("/dispatch/refine", async (req: Request, res: Response) => {
+    const parsed = refineSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+
+    const data = parsed.data;
+
+    const sanitized = sanitize({
+      ...data,
+      size: data.size ?? "m",
+      criteria: data.criteria ?? "",
+      description: data.description ?? "",
+    });
+    if (sanitized === "quarantined") {
+      appendEvent("dispatch.quarantined", {
+        pipeline: "refine",
+        ticketId: data.ticketId,
+        repository: data.repository,
+      }).catch(() => {});
+      res.status(422).json({ error: "Content quarantined — invalid input" });
+      return;
+    }
+
+    await dispatchPipeline(
+      "refine",
+      data.repository,
+      res,
+      { ticketId: data.ticketId },
+      (sessionId) => runRefinePipelineBackground(data as RefineRequest, sessionId),
     );
   });
 
@@ -415,6 +464,41 @@ function runFixerPipelineBackground(request: FixerRequest, sessionId: string): v
   void runPipelineInBackground("fixer", sessionId, () =>
     runFixerPipeline(request, repoDir),
   );
+}
+
+function runRefinePipelineBackground(request: RefineRequest, sessionId: string): void {
+  const repoDir = resolveRepoDir(request.repository);
+  void runRefineInBackground("refine", sessionId, () =>
+    runRefinePipeline(request, repoDir),
+  );
+}
+
+async function runRefineInBackground(
+  pipeline: PipelineType,
+  sessionId: string,
+  runner: () => Promise<RefineResult>,
+): Promise<void> {
+  try {
+    const result = await runner();
+    // Convert RefineResult to PipelineResult for recording.
+    // The full RefineResult (with sub-tickets) is serialized into summary
+    // so OpenClaw can parse it and create sub-tickets.
+    const pipelineResult: PipelineResult = {
+      ticketId: result.ticketId,
+      sessionId: result.sessionId,
+      pipeline: result.pipeline,
+      status: result.status,
+      summary: JSON.stringify(result),
+      costUsd: result.costUsd,
+      durationMs: result.durationMs,
+      timestamp: result.timestamp,
+    };
+    await recordResult(sessionId, pipelineResult);
+  } catch (error) {
+    logger.error(`Background ${pipeline} pipeline error`, error);
+    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
+    cleanupSession(sessionId);
+  }
 }
 
 async function recordResult(

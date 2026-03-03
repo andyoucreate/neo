@@ -4,6 +4,7 @@ import { agents } from "../agents.js";
 const EXPECTED_AGENTS = [
   "architect",
   "developer",
+  "refiner",
   "reviewer-quality",
   "reviewer-security",
   "reviewer-perf",
@@ -14,6 +15,7 @@ const EXPECTED_AGENTS = [
 
 const READ_ONLY_AGENTS = [
   "architect",
+  "refiner",
   "reviewer-quality",
   "reviewer-perf",
   "reviewer-coverage",
@@ -24,7 +26,7 @@ const WRITABLE_AGENTS = ["developer", "fixer", "qa-playwright"];
 const VALID_MODELS = ["opus", "sonnet"];
 
 describe("agents", () => {
-  it("defines all 8 expected agents", () => {
+  it("defines all 9 expected agents", () => {
     const agentNames = Object.keys(agents).sort();
     expect(agentNames).toEqual([...EXPECTED_AGENTS].sort());
   });

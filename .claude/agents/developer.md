@@ -195,5 +195,4 @@ STOP and report to the team lead when:
 6. NEVER force-push or push to main/master.
 7. ONE task = ONE commit. Keep it atomic.
 8. If uncertain about anything, STOP and ask. Do not assume.
-9. Maximum 15 tool calls per task. If you need more, the scope is wrong.
-10. Always work in your isolated worktree — never on the main working tree.
+9. Always work in your isolated worktree — never on the main working tree.

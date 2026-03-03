@@ -4,7 +4,7 @@
 export type TicketType = "feature" | "bug" | "refactor" | "chore";
 export type Priority = "critical" | "high" | "medium" | "low";
 export type Size = "xs" | "s" | "m" | "l" | "xl";
-export type PipelineType = "feature" | "review" | "qa" | "hotfix" | "fixer";
+export type PipelineType = "feature" | "review" | "qa" | "hotfix" | "fixer" | "refine";
 
 export interface SanitizedTicket {
   ticketId: string;
@@ -152,7 +152,7 @@ export type CallbackEvent =
 export interface CallbackPayload {
   event: CallbackEvent;
   timestamp: string;
-  data: PipelineResult | ServiceEventData | AgentNotificationData;
+  data: PipelineResult | RefineResult | ServiceEventData | AgentNotificationData;
 }
 
 export interface ServiceEventData {
@@ -165,4 +165,44 @@ export interface ServiceEventData {
 export interface AgentNotificationData {
   sessionId: string;
   message: string;
+}
+
+// ─── Refine pipeline ─────────────────────────────────────────
+export interface RefineRequest {
+  ticketId: string;
+  title: string;
+  type: TicketType;
+  priority: Priority;
+  size?: Size;
+  repository: string;
+  criteria?: string;
+  description?: string;
+}
+
+export interface SubTicket {
+  id: string;
+  title: string;
+  type: TicketType;
+  priority: Priority;
+  size: "xs" | "s";
+  files: string[];
+  criteria: string[];
+  depends_on: string[];
+  description: string;
+}
+
+export interface RefineResult {
+  ticketId: string;
+  sessionId: string;
+  pipeline: "refine";
+  status: PipelineStatus;
+  score: number;
+  reason: string;
+  action: "pass_through" | "decompose" | "escalate";
+  enrichedContext?: Record<string, unknown>;
+  subTickets?: SubTicket[];
+  questions?: string[];
+  costUsd: number;
+  durationMs: number;
+  timestamp: string;
 }
