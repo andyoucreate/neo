@@ -31,8 +31,8 @@ fi
 # 5. OpenClaw
 npm install -g openclaw@latest
 
-# 6. ACPX
-npm install -g acpx@latest
+# 6. pnpm (required for dispatch-service)
+npm install -g pnpm
 
 # 7. Mail utilities (for watchdog alerts independent of Slack)
 apt install -y mailutils
@@ -56,7 +56,7 @@ ufw allow 443/tcp  # HTTPS
 ufw --force enable
 
 # 11. Directory structure
-mkdir -p /opt/voltaire/{backups,scripts,events,locks}
+mkdir -p /opt/voltaire/{backups,scripts,events,locks,costs,logs}
 chown -R voltaire:voltaire /opt/voltaire
 
 # 12. .env file with correct permissions (readable by voltaire via group)
@@ -69,10 +69,22 @@ if ! grep -q "CLAUDE_CODE_PATH" /opt/voltaire/.env 2>/dev/null; then
   echo "CLAUDE_CODE_PATH=$CLAUDE_BIN" >> /opt/voltaire/.env
 fi
 
-# 13. Logrotate config
+# 13. Clone repo + build dispatch-service
+REPO_DIR=/home/voltaire/repos/voltaire-network
+if [ ! -d "$REPO_DIR/.git" ]; then
+  su - voltaire -c "mkdir -p /home/voltaire/repos"
+  su - voltaire -c "git clone git@github.com:andyoucreate/voltaire-network.git $REPO_DIR"
+fi
+su - voltaire -c "cd $REPO_DIR/dispatch-service && pnpm install --frozen-lockfile && pnpm build"
+
+# Symlink so systemd WorkingDirectory resolves correctly
+ln -sfn "$REPO_DIR/dispatch-service" /opt/voltaire/dispatch-service
+
+# 14. Logrotate config
 cat > /etc/logrotate.d/voltaire << 'LOGROTATE'
 /home/voltaire/.openclaw/logs/*.log
-/opt/voltaire/events/*.jsonl {
+/opt/voltaire/events/*.jsonl
+/opt/voltaire/logs/*.log {
     daily
     rotate 30
     compress
@@ -83,20 +95,21 @@ cat > /etc/logrotate.d/voltaire << 'LOGROTATE'
 }
 LOGROTATE
 
-# 14. Systemd service for OpenClaw
+# 15. Systemd services
 cp /opt/voltaire/scripts/openclaw.service /etc/systemd/system/
+cp "$REPO_DIR/dispatch-service/voltaire-dispatch.service" /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable openclaw
+systemctl enable openclaw voltaire-dispatch
 
-# 15. System watchdog + backup cron
+# 16. System watchdog + backup cron
 (echo "*/5 * * * * /opt/voltaire/scripts/watchdog.sh"; echo "0 3 * * * /opt/voltaire/scripts/backup.sh") | crontab -u voltaire -
 
-# 16. TLS via Let's Encrypt
+# 17. TLS via Let's Encrypt
 # certbot --nginx -d voltaire.yourdomain.com
 
 echo "=== Bootstrap complete ==="
 echo "Next steps:"
-echo "1. Fill /opt/voltaire/.env with API keys (separate tokens per service)"
+echo "1. Fill /opt/voltaire/.env with API keys (ANTHROPIC_API_KEY, DISPATCH_AUTH_TOKEN)"
 echo "2. Configure /home/voltaire/.openclaw/openclaw.json"
 echo "3. Create GitHub bot account (voltaire-bot) and add SSH key"
-echo "4. Start: systemctl start openclaw"
+echo "4. Start: systemctl start openclaw voltaire-dispatch"
