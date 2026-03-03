@@ -3,7 +3,7 @@ import type { FixerRequest, PipelineResult } from "../types.js";
 import { runPipeline } from "./run-pipeline.js";
 
 /**
- * Run the fixer pipeline to auto-correct review/QA issues.
+ * Run the fixer pipeline to auto-correct review issues.
  */
 export async function runFixerPipeline(
   request: FixerRequest,
@@ -11,7 +11,7 @@ export async function runFixerPipeline(
 ): Promise<PipelineResult> {
   const issuesJson = JSON.stringify(request.issues, null, 2);
 
-  const prompt = `You are the Fixer agent. Fix the following issues found by reviewers/QA on PR #${request.prNumber}.
+  const prompt = `You are the Fixer agent. Fix the following issues found by reviewers on PR #${request.prNumber}.
 
 ## Issues to Fix
 \`\`\`json

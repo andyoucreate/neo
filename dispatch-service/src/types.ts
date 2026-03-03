@@ -4,7 +4,7 @@
 export type TicketType = "feature" | "bug" | "refactor" | "chore";
 export type Priority = "critical" | "high" | "medium" | "low";
 export type Size = "xs" | "s" | "m" | "l" | "xl";
-export type PipelineType = "feature" | "review" | "qa" | "hotfix" | "fixer" | "refine";
+export type PipelineType = "feature" | "review" | "hotfix" | "fixer" | "refine";
 
 export interface SanitizedTicket {
   ticketId: string;
@@ -35,11 +35,6 @@ export interface ReviewRequest {
   prNumber: number;
   repository: string;
   skills?: string[];
-}
-
-export interface QaRequest {
-  prNumber: number;
-  repository: string;
 }
 
 export interface HotfixRequest {

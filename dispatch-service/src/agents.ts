@@ -97,19 +97,10 @@ export const agents: Record<string, AgentDefinition> = {
     model: "sonnet",
   },
 
-  // ─── qa-playwright ───────────────────────────────────────────
-  "qa-playwright": {
-    description:
-      "QA agent with Playwright for E2E testing and visual regression.",
-    prompt: loadAgentPrompt("qa-playwright"),
-    tools: ["Bash", "Read", "Write", "Edit", "Glob", "Grep"],
-    model: "sonnet",
-  },
-
   // ─── fixer ───────────────────────────────────────────────────
   fixer: {
     description:
-      "Auto-correction agent. Fixes issues found by reviewers and QA. Targets root causes, not symptoms.",
+      "Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms.",
     prompt: loadAgentPrompt("fixer"),
     tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
     model: "opus",

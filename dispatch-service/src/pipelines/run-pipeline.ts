@@ -122,7 +122,7 @@ export async function executePipeline(
 /**
  * Run a pipeline and return a PipelineResult.
  * Handles all boilerplate: options building, session tracking, error handling.
- * Use this for standard pipelines (feature, fixer, hotfix, qa, review).
+ * Use this for standard pipelines (feature, fixer, hotfix, review).
  */
 export async function runPipeline(
   config: PipelineConfig,

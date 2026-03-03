@@ -1,7 +1,7 @@
 import type { SandboxSettings } from "@anthropic-ai/claude-agent-sdk";
 
 /**
- * Standard sandbox for developer, fixer, QA agents.
+ * Standard sandbox for developer and fixer agents.
  * Allows writes within the repo and /tmp only.
  */
 export function createSandboxConfig(repoDir: string): SandboxSettings {

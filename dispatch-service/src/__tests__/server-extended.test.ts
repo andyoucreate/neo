@@ -127,14 +127,6 @@ describe("HTTP Server — Extended", () => {
       expect(res.status).toBe(400);
     });
 
-    it("should reject QA with missing prNumber", async () => {
-      const res = await request(app)
-        .post("/dispatch/qa")
-        .send({ repository: "github.com/org/repo" });
-
-      expect(res.status).toBe(400);
-    });
-
     it("should reject feature with invalid type", async () => {
       const res = await request(app).post("/dispatch/feature").send({
         ticketId: "PROJ-99",

@@ -63,17 +63,6 @@ curl -X POST http://127.0.0.1:3001/dispatch/review \
   }'
 ```
 
-### QA Pipeline
-```bash
-curl -X POST http://127.0.0.1:3001/dispatch/qa \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <DISPATCH_AUTH_TOKEN>" \
-  -d '{
-    "prNumber": 42,
-    "repository": "github.com/org/repo"
-  }'
-```
-
 ### Hotfix Pipeline
 ```bash
 curl -X POST http://127.0.0.1:3001/dispatch/hotfix \
@@ -165,13 +154,10 @@ curl -X POST http://127.0.0.1:3001/resume \
    - Extract PR number and repository
    - Call `/dispatch/review` to trigger code review
 
-4. When review completes with all checks passing:
-   - Call `/dispatch/qa` to trigger QA testing
-
-5. When issues are found by reviewers:
+4. When issues are found by reviewers:
    - Call `/dispatch/fixer` with the list of issues
 
-6. When receiving a `dispatch-result` callback:
+5. When receiving a `dispatch-result` callback:
    - Update the Notion ticket status accordingly
    - Write a completion report to the Notion page if pipeline succeeded
 

@@ -9,7 +9,6 @@ const EXPECTED_AGENTS = [
   "reviewer-security",
   "reviewer-perf",
   "reviewer-coverage",
-  "qa-playwright",
   "fixer",
 ] as const;
 
@@ -21,12 +20,12 @@ const READ_ONLY_AGENTS = [
   "reviewer-coverage",
 ];
 
-const WRITABLE_AGENTS = ["developer", "fixer", "qa-playwright"];
+const WRITABLE_AGENTS = ["developer", "fixer"];
 
 const VALID_MODELS = ["opus", "sonnet"];
 
 describe("agents", () => {
-  it("defines all 9 expected agents", () => {
+  it("defines all 8 expected agents", () => {
     const agentNames = Object.keys(agents).sort();
     expect(agentNames).toEqual([...EXPECTED_AGENTS].sort());
   });

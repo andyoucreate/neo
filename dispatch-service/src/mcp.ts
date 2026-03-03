@@ -1,16 +1,9 @@
-import type { McpHttpServerConfig, McpStdioServerConfig } from "@anthropic-ai/claude-agent-sdk";
+import type { McpHttpServerConfig } from "@anthropic-ai/claude-agent-sdk";
 
 /**
  * MCP server configurations for different agent pipelines.
  * Passed to SDK query() options per session.
  */
-
-export const mcpPlaywright: Record<string, McpStdioServerConfig> = {
-  playwright: {
-    command: "npx",
-    args: ["@playwright/mcp@latest", "--headless", "--browser", "chromium"],
-  },
-};
 
 export const mcpNotion: Record<string, McpHttpServerConfig> = {
   notion: {

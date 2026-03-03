@@ -14,7 +14,6 @@ import { buildBranchName, createWorktree, getDefaultBranch, removeWorktree } fro
 import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
-import { runQaPipeline } from "./pipelines/qa.js";
 import { runRefinePipeline } from "./pipelines/refine.js";
 import { runReviewPipeline } from "./pipelines/review.js";
 import { sanitize } from "./sanitize.js";
@@ -25,7 +24,6 @@ import type {
   HotfixRequest,
   PipelineResult,
   PipelineType,
-  QaRequest,
   RefineRequest,
   RefineResult,
   ReviewRequest,
@@ -49,11 +47,6 @@ const reviewSchema = z.object({
   prNumber: z.number().int().positive(),
   repository: z.string().min(1),
   skills: z.array(z.string()).optional(),
-});
-
-const qaSchema = z.object({
-  prNumber: z.number().int().positive(),
-  repository: z.string().min(1),
 });
 
 const hotfixSchema = z.object({
@@ -193,25 +186,6 @@ export function createServer(): express.Express {
       res,
       { prNumber: data.prNumber },
       (sessionId) => dispatchBackground("review", sessionId, data as ReviewRequest, runReviewPipeline),
-    );
-  });
-
-  // ─── POST /dispatch/qa ───────────────────────────────────────
-  app.post("/dispatch/qa", async (req: Request, res: Response) => {
-    const parsed = qaSchema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.flatten() });
-      return;
-    }
-
-    const data = parsed.data;
-
-    await dispatchPipeline(
-      "qa",
-      data.repository,
-      res,
-      { prNumber: data.prNumber },
-      (sessionId) => dispatchBackground("qa", sessionId, data as QaRequest, runQaPipeline),
     );
   });
 

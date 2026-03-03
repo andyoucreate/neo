@@ -17,7 +17,7 @@ Compile clear, concise summaries of the Voltaire Network's activity: pipelines e
 
 ### Daily Brief
 Summary of the last 24h:
-- Pipelines executed (count by type: feature, review, qa, hotfix, fixer)
+- Pipelines executed (count by type: feature, review, hotfix, fixer)
 - Total cost USD
 - PRs opened/merged/closed
 - Tickets completed
