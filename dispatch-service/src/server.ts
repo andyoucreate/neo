@@ -10,7 +10,7 @@ import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { logger } from "./logger.js";
-import { buildBranchName, createWorktree, getDefaultBranch, removeWorktree } from "./worktree.js";
+import { buildBranchName, createWorktree, createWorktreeForBranch, getDefaultBranch, removeWorktree } from "./worktree.js";
 import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
@@ -228,7 +228,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { prNumber: data.prNumber },
-      (sessionId) => dispatchBackground("fixer", sessionId, data as FixerRequest, runFixerPipeline),
+      (sessionId) => dispatchWithPrWorktree("fixer", sessionId, data as FixerRequest, runFixerPipeline),
     );
   });
 
@@ -463,6 +463,44 @@ function dispatchBackground<T extends { repository: string }>(
 ): void {
   const repoDir = resolveRepoDir(request.repository);
   void runPipelineInBackground(pipeline, sessionId, () => runner(request, repoDir));
+}
+
+/**
+ * Background dispatch with PR branch worktree isolation for fixer pipeline.
+ * Fetches and checks out the existing PR branch, runs the pipeline, then cleans up.
+ */
+function dispatchWithPrWorktree<T extends { repository: string; prNumber: number }>(
+  pipeline: PipelineType,
+  sessionId: string,
+  request: T,
+  runner: (req: T, repoDir: string) => Promise<PipelineResult>,
+): void {
+  const repoDir = resolveRepoDir(request.repository);
+
+  void runPipelineInBackground(pipeline, sessionId, async () => {
+    const { execFile } = await import("node:child_process");
+    const { promisify } = await import("node:util");
+    const execFileAsync = promisify(execFile);
+
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["api", `repos/${request.repository}/pulls/${request.prNumber}`, "--jq", ".head.ref"],
+      { cwd: repoDir, timeout: 30_000 },
+    );
+    const prBranch = stdout.trim();
+
+    logger.info(`Fixer: checking out PR #${request.prNumber} branch: ${prBranch}`);
+
+    const worktreePath = await createWorktreeForBranch(repoDir, sessionId, prBranch);
+
+    try {
+      return await runner(request, worktreePath);
+    } finally {
+      await removeWorktree(repoDir, sessionId).catch((err: unknown) => {
+        logger.warn(`Failed to cleanup worktree for ${sessionId}`, err);
+      });
+    }
+  });
 }
 
 /**

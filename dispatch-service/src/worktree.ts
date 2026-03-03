@@ -165,6 +165,48 @@ export function buildBranchName(
   return `${prefix}/${sanitized}`;
 }
 
+/**
+ * Create a worktree that checks out an existing remote branch (e.g. a PR branch).
+ * Does NOT create a new branch — checks out the existing one.
+ */
+export async function createWorktreeForBranch(
+  repoDir: string,
+  sessionId: string,
+  branch: string,
+): Promise<string> {
+  const worktreePath = join(WORKTREE_BASE, sessionId);
+
+  try {
+    await execFileAsync("git", ["fetch", "origin", branch], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    });
+
+    await execFileAsync(
+      "git",
+      ["worktree", "add", "--track", "-b", branch, worktreePath, `origin/${branch}`],
+      { cwd: repoDir, timeout: GIT_TIMEOUT },
+    ).catch(async (err: unknown) => {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("already exists")) {
+        await execFileAsync(
+          "git",
+          ["worktree", "add", worktreePath, branch],
+          { cwd: repoDir, timeout: GIT_TIMEOUT },
+        );
+      } else {
+        throw err;
+      }
+    });
+
+    logger.info(`Created worktree at ${worktreePath} (existing branch: ${branch})`);
+    return worktreePath;
+  } catch (error) {
+    logger.error(`Failed to create worktree for branch ${branch} / session ${sessionId}`, error);
+    throw error;
+  }
+}
+
 export async function getDefaultBranch(repoDir: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
