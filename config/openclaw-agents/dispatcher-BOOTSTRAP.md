@@ -114,16 +114,65 @@ When you receive a `dispatch-result` callback where `pipeline == "refine"`:
 1. Extract PR number and repository from the webhook payload
 2. Call `/dispatch/review` to trigger code review
 
-### Other Dispatch Result Callbacks
+### Pipeline Result Callbacks — Chaining Logic
 
 For non-refine callbacks (`pipeline != "refine"`):
 
-1. Parse the callback event (`pipeline.completed`, `pipeline.failed`, etc.)
-2. Update the Notion ticket status:
-   - `pipeline.completed` + `status == "success"` → "Done" (or "In Review" for feature pipeline with PR)
-   - `pipeline.completed` + `status == "failure"` → "Failed"
-   - `pipeline.failed` → "Failed"
-3. Add a comment with cost and duration: "Pipeline completed in X min ($Y.ZZ)"
+1. Parse the callback data: `event`, `pipeline`, `status`, `prUrl`, `prNumber`, `branch`, `repository`, `ticketId`, `costUsd`, `durationMs`.
+
+2. **Chain the next pipeline based on what completed**:
+
+   ```
+   if pipeline == "feature" AND status == "success" AND prNumber exists:
+       → Update Notion ticket status to "In Review"
+       → Call POST /dispatch/review with { prNumber, repository }
+       → Log: "Feature created PR #{prNumber}, dispatching review..."
+
+   if pipeline == "hotfix" AND status == "success" AND prNumber exists:
+       → Update Notion ticket status to "In Review"
+       → Call POST /dispatch/review with { prNumber, repository }
+       → Log: "Hotfix created PR #{prNumber}, dispatching review..."
+
+   if pipeline == "feature" or "hotfix" AND status == "success" AND NO prNumber:
+       → Update Notion ticket status to "Done" (code pushed directly)
+       → Log: "Pipeline completed without PR — marking done."
+
+   if pipeline == "review" AND status == "success":
+       Parse the summary for verdict:
+       if verdict contains "APPROVED":
+           → Update Notion ticket status to "QA"
+           → Call POST /dispatch/qa with { prNumber, repository }
+           → Log: "Review approved PR #{prNumber}, dispatching QA..."
+       if verdict contains "CHANGES_REQUESTED":
+           → Update Notion ticket status to "Changes Requested"
+           → Add a comment with review findings on the Notion ticket
+           → Do NOT auto-dispatch fixer (let a human decide)
+
+   if pipeline == "fixer" AND status == "success":
+       → Call POST /dispatch/review with { prNumber, repository }
+       → Log: "Fixer completed for PR #{prNumber}, re-dispatching review..."
+
+   if pipeline == "qa" AND status == "success":
+       Parse the summary for verdict:
+       if verdict contains "PASS":
+           → Update Notion ticket status to "Done"
+           → Log: "QA passed for PR #{prNumber} — ticket complete!"
+       if verdict contains "FAIL":
+           → Update Notion ticket status to "QA Failed"
+           → Add a comment with QA failures
+
+   if status == "failure" or "timeout" (any pipeline):
+       → Update Notion ticket status to "Failed"
+       → Add comment: "Pipeline {pipeline} failed after {durationMs}ms (${costUsd})"
+   ```
+
+3. Add a cost/duration comment on the Notion ticket: "Pipeline {pipeline} completed in X min ($Y.ZZ)"
+
+### Anti-Loop Guard
+
+When dispatching review after fixer, track how many fixer→review cycles have occurred for this PR
+(count "re-dispatching review" comments on the Notion ticket). **Maximum 2 cycles per PR.**
+If the limit is reached, update Notion status to "Needs Human Review" instead of dispatching again.
 
 ## Payload Formats
 

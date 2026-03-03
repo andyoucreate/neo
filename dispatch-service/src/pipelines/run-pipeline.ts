@@ -15,11 +15,13 @@ export interface PipelineConfig {
   maxTurns: number;
   sandbox?: "writable" | "readonly";
   mcpServers?: Options["mcpServers"];
+  branch?: string;
 }
 
 export interface PipelineMeta {
   ticketId?: string;
   prNumber?: number;
+  repository?: string;
 }
 
 // ─── Low-level execution result ─────────────────────────────
@@ -29,6 +31,36 @@ export interface ExecutionResult {
   durationMs: number;
   success: boolean;
   output: string | undefined;
+}
+
+// ─── PR info parsing ────────────────────────────────────────
+interface PrInfo {
+  prUrl?: string;
+  prNumber?: number;
+}
+
+/**
+ * Extract PR URL and number from agent output text.
+ * Looks for explicit PR_URL markers, then falls back to GitHub PR URL patterns.
+ */
+function parsePrInfo(output: string | undefined): PrInfo {
+  if (!output) return {};
+
+  const markerMatch = output.match(
+    /PR_URL:\s*(https:\/\/github\.com\/[^\s]+\/pull\/(\d+))/,
+  );
+  if (markerMatch) {
+    return { prUrl: markerMatch[1], prNumber: parseInt(markerMatch[2], 10) };
+  }
+
+  const urlMatch = output.match(
+    /https:\/\/github\.com\/[^\s]+\/pull\/(\d+)/,
+  );
+  if (urlMatch) {
+    return { prUrl: urlMatch[0], prNumber: parseInt(urlMatch[1], 10) };
+  }
+
+  return {};
 }
 
 /**
@@ -42,7 +74,7 @@ function buildOptions(config: PipelineConfig): Options {
 
   return {
     pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
-    permissionMode: "acceptEdits",
+    permissionMode: "bypassPermissions",
     settingSources: ["user", "project"],
     systemPrompt: { type: "preset", preset: "claude_code" },
     hooks,
@@ -106,12 +138,16 @@ export async function runPipeline(
     sessionId = exec.sessionId;
     costUsd = exec.costUsd;
 
+    const prInfo = parsePrInfo(exec.output);
+
     return {
       ...meta,
       sessionId,
       pipeline: config.pipeline,
       status: exec.success ? "success" : "failure",
       summary: exec.output,
+      branch: config.branch,
+      ...prInfo,
       costUsd,
       durationMs: exec.durationMs,
       timestamp: new Date().toISOString(),
@@ -123,6 +159,7 @@ export async function runPipeline(
       sessionId,
       pipeline: config.pipeline,
       status: "failure",
+      branch: config.branch,
       costUsd,
       durationMs: Date.now() - startTime,
       timestamp: new Date().toISOString(),

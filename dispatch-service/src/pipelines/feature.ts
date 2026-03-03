@@ -9,7 +9,32 @@ import { runPipeline } from "./run-pipeline.js";
 function buildFeaturePrompt(
   ticket: FeatureRequest,
   hasArchitect: boolean,
+  branch: string,
+  baseBranch: string,
 ): string {
+  const prInstructions = `
+## Push and Create PR
+
+After all verification passes, push your changes and create a pull request:
+
+\`\`\`bash
+git push -u origin ${branch}
+gh pr create --base ${baseBranch} --head ${branch} \\
+  --title "feat(${ticket.ticketId}): ${ticket.title.slice(0, 60)}" \\
+  --body "Implements ${ticket.ticketId}
+
+## Changes
+<summarize your changes here>
+
+## Acceptance Criteria
+${(ticket.criteria || "See ticket description.").replace(/"/g, '\\"')}"
+\`\`\`
+
+After creating the PR, output the PR URL on a line by itself:
+\`\`\`
+PR_URL: <the full GitHub PR URL>
+\`\`\``;
+
   const orchestrationInstructions = hasArchitect
     ? `## Orchestration
 
@@ -27,7 +52,8 @@ Follow this sequence:
    - Full test suite
    - Linting
 5. **If any verification fails**, use the developer agent to fix the issue.
-6. **Create a pull request** summarizing all changes.`
+6. **Push and create a pull request** following the instructions below.
+${prInstructions}`
     : `## Execution
 
 You are implementing this feature directly. Follow these steps:
@@ -42,9 +68,15 @@ You are implementing this feature directly. Follow these steps:
    - Relevant test file, then full test suite
    - Linting
 6. **Commit** with a conventional commit message.
-7. **Create a pull request** with a summary of changes.`;
+7. **Push and create a pull request** following the instructions below.
+${prInstructions}`;
 
   return `You are implementing a feature for this project.
+
+## Git Branch
+
+You are working on branch \`${branch}\`. All commits go on this branch.
+The PR will target \`${baseBranch}\`.
 
 ## Ticket
 - **ID**: ${ticket.ticketId}
@@ -76,6 +108,8 @@ ${orchestrationInstructions}
 export async function runFeaturePipeline(
   ticket: FeatureRequest,
   repoDir: string,
+  branch: string,
+  baseBranch: string,
 ): Promise<PipelineResult> {
   const hasArchitect = ticket.size !== "xs" && ticket.size !== "s";
 
@@ -86,11 +120,12 @@ export async function runFeaturePipeline(
   return runPipeline(
     {
       pipeline: "feature",
-      prompt: buildFeaturePrompt(ticket, hasArchitect),
+      prompt: buildFeaturePrompt(ticket, hasArchitect, branch, baseBranch),
       repoDir,
       agents: selectedAgents,
       maxTurns: hasArchitect ? 150 : 50,
+      branch,
     },
-    { ticketId: ticket.ticketId },
+    { ticketId: ticket.ticketId, repository: ticket.repository },
   );
 }

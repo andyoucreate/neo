@@ -65,7 +65,7 @@
         "match": { "path": "dispatch-result" },
         "action": "agent",
         "agentId": "dispatcher",
-        "messageTemplate": "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, ticketId={{data.ticketId}}, cost={{data.costUsd}}USD, duration={{data.durationMs}}ms, session={{data.sessionId}}, summary={{data.summary}}. If pipeline=refine, parse the summary JSON and act on the refine result (pass_through → dispatch feature, decompose → create sub-tickets and dispatch each, escalate → add questions to Notion). Otherwise, update the Notion ticket status accordingly."
+        "messageTemplate": "Dispatch Service callback: event={{event}}, pipeline={{data.pipeline}}, status={{data.status}}, ticketId={{data.ticketId}}, prUrl={{data.prUrl}}, prNumber={{data.prNumber}}, branch={{data.branch}}, repository={{data.repository}}, cost={{data.costUsd}}USD, duration={{data.durationMs}}ms, session={{data.sessionId}}, summary={{data.summary}}. If pipeline=refine, parse the summary JSON and act on the refine result (pass_through → dispatch feature, decompose → create sub-tickets and dispatch each, escalate → add questions to Notion). Otherwise, follow the pipeline chaining logic in BOOTSTRAP.md: feature/hotfix with PR → dispatch review; review approved → dispatch QA; QA passed → mark done; failure → mark failed."
       }
     ]
   },

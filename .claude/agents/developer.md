@@ -9,7 +9,7 @@ tools:
   - Bash
   - Glob
   - Grep
-permissionMode: acceptEdits
+permissionMode: bypassPermissions
 ---
 
 # Developer Agent — Voltaire Network
@@ -146,9 +146,27 @@ Commit message conventions:
 The scope should match the module/feature being changed.
 Use the commit message from the task spec if one is provided.
 
-### Step 5: Report
+### Step 5: Push and Create PR
 
-After committing, produce a structured report:
+When the pipeline prompt instructs you to create a PR, push and open it:
+
+```bash
+git push -u origin <branch-name>
+gh pr create --base <base-branch> --head <branch-name> \
+  --title "<commit-type>(scope): description" \
+  --body "<PR body summarizing changes>"
+```
+
+After creating the PR, output the URL on a dedicated line so the pipeline can parse it:
+```
+PR_URL: https://github.com/org/repo/pull/42
+```
+
+If the pipeline prompt does NOT mention creating a PR, skip this step.
+
+### Step 6: Report
+
+After committing (and optionally pushing), produce a structured report:
 
 ```json
 {

@@ -9,6 +9,7 @@ import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { logger } from "./logger.js";
+import { buildBranchName, createWorktree, getDefaultBranch, removeWorktree } from "./worktree.js";
 import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
@@ -171,7 +172,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { ticketId: data.ticketId },
-      (sessionId) => dispatchBackground("feature", sessionId, data as FeatureRequest, runFeaturePipeline),
+      (sessionId) => dispatchWithWorktree("feature", sessionId, data as FeatureRequest, runFeaturePipeline),
     );
   });
 
@@ -233,7 +234,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { ticketId: data.ticketId },
-      (sessionId) => dispatchBackground("hotfix", sessionId, data as HotfixRequest, runHotfixPipeline),
+      (sessionId) => dispatchWithWorktree("hotfix", sessionId, data as HotfixRequest, runHotfixPipeline),
     );
   });
 
@@ -460,6 +461,33 @@ function dispatchBackground<T extends { repository: string }>(
 ): void {
   const repoDir = resolveRepoDir(request.repository);
   void runPipelineInBackground(pipeline, sessionId, () => runner(request, repoDir));
+}
+
+/**
+ * Background dispatch with worktree isolation for feature/hotfix pipelines.
+ * Creates a dedicated branch and worktree, runs the pipeline, then cleans up.
+ */
+function dispatchWithWorktree<T extends { repository: string; ticketId: string }>(
+  pipeline: "feature" | "hotfix",
+  sessionId: string,
+  request: T,
+  runner: (req: T, repoDir: string, branch: string, baseBranch: string) => Promise<PipelineResult>,
+): void {
+  const repoDir = resolveRepoDir(request.repository);
+
+  void runPipelineInBackground(pipeline, sessionId, async () => {
+    const branch = buildBranchName(pipeline, request.ticketId);
+    const worktreePath = await createWorktree(repoDir, sessionId, branch);
+
+    try {
+      const baseBranch = await getDefaultBranch(repoDir);
+      return await runner(request, worktreePath, branch, baseBranch);
+    } finally {
+      await removeWorktree(repoDir, sessionId).catch((err: unknown) => {
+        logger.warn(`Failed to cleanup worktree for ${sessionId}`, err);
+      });
+    }
+  });
 }
 
 /**

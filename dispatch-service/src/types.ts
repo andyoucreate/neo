@@ -20,6 +20,7 @@ export interface SanitizedTicket {
 // ─── Dispatch request payloads ─────────────────────────────────
 export interface FeatureRequest {
   ticketId: string;
+  notionTicketId?: string;
   title: string;
   type: TicketType;
   priority: Priority;
@@ -81,6 +82,7 @@ export interface PipelineResult {
   sessionId: string;
   pipeline: PipelineType;
   status: PipelineStatus;
+  repository?: string;
   prUrl?: string;
   prNumber?: number;
   branch?: string;

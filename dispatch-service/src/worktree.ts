@@ -134,7 +134,19 @@ export async function pruneWorktrees(repoDir: string): Promise<number> {
   return pruned;
 }
 
-async function getDefaultBranch(repoDir: string): Promise<string> {
+/**
+ * Build a human-readable branch name from a pipeline type and ticket ID.
+ */
+export function buildBranchName(
+  pipeline: "feature" | "hotfix",
+  ticketId: string,
+): string {
+  const prefix = pipeline === "hotfix" ? "fix" : "feat";
+  const sanitized = ticketId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  return `${prefix}/${sanitized}`;
+}
+
+export async function getDefaultBranch(repoDir: string): Promise<string> {
   try {
     const { stdout } = await execFileAsync(
       "git",
