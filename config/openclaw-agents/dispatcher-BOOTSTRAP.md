@@ -37,6 +37,7 @@ Map Notion project names to GitHub repositories. Use this table to resolve the `
 | `/dispatch/hotfix` | POST | Trigger hotfix pipeline |
 | `/dispatch/fixer` | POST | Trigger fixer pipeline |
 | `/dispatch/refine` | POST | Evaluate ticket clarity and decompose if needed |
+| `/dispatch/ci-check` | GET | Poll CI status for a PR (query: prNumber, repository) |
 | `/status` | GET | Check active sessions and queue |
 | `/health` | GET | Health check |
 
@@ -124,14 +125,31 @@ For non-refine callbacks (`pipeline != "refine"`):
 
    ```
    if pipeline == "feature" AND status == "success" AND prNumber exists:
-       → Update Notion ticket status to "In Review"
-       → Call POST /dispatch/review with { prNumber, repository }
-       → Log: "Feature created PR #{prNumber}, dispatching review..."
+       → Update Notion ticket status to "Waiting for CI"
+       → Call GET http://127.0.0.1:3001/dispatch/ci-check?prNumber={prNumber}&repository={repository}
+         (this may take up to 2 minutes — it polls GitHub CI checks)
+       → Based on the JSON response "conclusion" field:
+         - "success" or "no_checks":
+             → Update Notion to "In Review"
+             → Call POST /dispatch/review with { prNumber, repository }
+             → Log: "CI passed for PR #{prNumber}, dispatching review..."
+         - "failure":
+             → Log: "CI failed for PR #{prNumber}: {failedChecks}"
+             → Format each failed check as a FixerIssue and dispatch fixer:
+               POST /dispatch/fixer with {
+                 prNumber, repository,
+                 issues: [{ source: "ci", severity: "CRITICAL", file: ".", line: 0,
+                   description: "CI check '{name}' failed ({conclusion}). Run the CI commands locally (build, test, lint), diagnose the error, and fix it.",
+                   suggestion: "Check the test/build output and fix any failures"
+                 }]
+               }
+         - "timeout" or "error":
+             → Log warning, dispatch review anyway (fallback)
+             → Update Notion to "In Review"
+             → Call POST /dispatch/review with { prNumber, repository }
 
    if pipeline == "hotfix" AND status == "success" AND prNumber exists:
-       → Update Notion ticket status to "In Review"
-       → Call POST /dispatch/review with { prNumber, repository }
-       → Log: "Hotfix created PR #{prNumber}, dispatching review..."
+       → Same as feature above: check CI first, then dispatch review or fixer
 
    if pipeline == "feature" or "hotfix" AND status == "success" AND NO prNumber:
        → Update Notion ticket status to "Done" (code pushed directly)

@@ -3,6 +3,7 @@ import express from "express";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { z } from "zod";
+import { pollCiChecks } from "./ci-check.js";
 import { notifyPipelineResult } from "./callback.js";
 import { Semaphore } from "./concurrency.js";
 import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
@@ -296,6 +297,28 @@ export function createServer(): express.Express {
         });
       },
     );
+  });
+
+  // ─── GET /dispatch/ci-check ─────────────────────────────────
+  const ciCheckSchema = z.object({
+    prNumber: z.coerce.number().int().positive(),
+    repository: z.string().min(1),
+  });
+
+  app.get("/dispatch/ci-check", async (req: Request, res: Response) => {
+    const parsed = ciCheckSchema.safeParse(req.query);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.flatten() });
+      return;
+    }
+
+    const { prNumber, repository } = parsed.data;
+    logger.info(`CI check requested for PR #${String(prNumber)} on ${repository}`);
+
+    const result = await pollCiChecks(prNumber, repository);
+
+    logger.info(`CI check result for PR #${String(prNumber)}: ${result.conclusion}`);
+    res.json(result);
   });
 
   // ─── GET /status ─────────────────────────────────────────────
