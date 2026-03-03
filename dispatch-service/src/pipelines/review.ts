@@ -1,11 +1,8 @@
-import type { Options, AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
-import { CLAUDE_CODE_PATH } from "../config.js";
-import { createReadonlySandboxConfig } from "../sandbox.js";
-import { runWithRecovery } from "../recovery.js";
-import type { ReviewRequest, PipelineResult } from "../types.js";
 import { logger } from "../logger.js";
-import { hooks } from "../hooks.js";
+import type { PipelineResult, ReviewRequest } from "../types.js";
+import { runPipeline } from "./run-pipeline.js";
 
 /**
  * Select review agents based on PR diff size.
@@ -98,8 +95,6 @@ export async function runReviewPipeline(
   request: ReviewRequest,
   repoDir: string,
 ): Promise<PipelineResult> {
-  const startTime = Date.now();
-
   const diffSize = await getPrDiffSize(request.prNumber, repoDir);
   const reviewAgents = selectReviewAgents(diffSize);
   const agentCount = Object.keys(reviewAgents).length;
@@ -120,52 +115,15 @@ Output a structured JSON review report with:
 - issues array (each with severity, category, file, line, description, remediation)
 - stats (files_reviewed, critical, high, medium, low counts)`;
 
-  const options: Options = {
-    pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
-    permissionMode: "acceptEdits",
-    settingSources: ["user", "project"],
-    systemPrompt: { type: "preset", preset: "claude_code" },
-    hooks,
-    sandbox: createReadonlySandboxConfig(repoDir),
-    agents: reviewAgents,
-    tools: { type: "preset", preset: "claude_code" },
-    cwd: repoDir,
-    maxTurns: 100,
-  };
-
-  let sessionId = "";
-  let costUsd = 0;
-
-  try {
-    const result = await runWithRecovery("review", prompt, options, {
-      onSessionId: (id) => {
-        sessionId = id;
-      },
-      onCostRecord: (msg) => {
-        costUsd = msg.total_cost_usd;
-      },
-    });
-
-    return {
-      prNumber: request.prNumber,
-      sessionId,
+  return runPipeline(
+    {
       pipeline: "review",
-      status: result.subtype === "success" ? "success" : "failure",
-      summary: result.subtype === "success" ? result.result : undefined,
-      costUsd,
-      durationMs: Date.now() - startTime,
-      timestamp: new Date().toISOString(),
-    };
-  } catch (error) {
-    logger.error(`Review pipeline failed for PR #${request.prNumber}`, error);
-    return {
-      prNumber: request.prNumber,
-      sessionId,
-      pipeline: "review",
-      status: "failure",
-      costUsd,
-      durationMs: Date.now() - startTime,
-      timestamp: new Date().toISOString(),
-    };
-  }
+      prompt,
+      repoDir,
+      agents: reviewAgents,
+      maxTurns: 100,
+      sandbox: "readonly",
+    },
+    { prNumber: request.prNumber },
+  );
 }

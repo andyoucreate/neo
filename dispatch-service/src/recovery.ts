@@ -1,5 +1,5 @@
-import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Options, SDKMessage, SDKResultMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
 import { MAX_RECOVERY_RETRIES, RECOVERY_BACKOFF_BASE_MS } from "./config.js";
 import { logger } from "./logger.js";
 

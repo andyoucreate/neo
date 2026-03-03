@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 import express from "express";
 import crypto from "node:crypto";
+import fs from "node:fs";
 import { z } from "zod";
 import { notifyPipelineResult } from "./callback.js";
 import { Semaphore } from "./concurrency.js";
@@ -170,7 +171,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { ticketId: data.ticketId },
-      (sessionId) => runFeaturePipelineBackground(data as FeatureRequest, sessionId),
+      (sessionId) => dispatchBackground("feature", sessionId, data as FeatureRequest, runFeaturePipeline),
     );
   });
 
@@ -189,7 +190,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { prNumber: data.prNumber },
-      (sessionId) => runReviewPipelineBackground(data as ReviewRequest, sessionId),
+      (sessionId) => dispatchBackground("review", sessionId, data as ReviewRequest, runReviewPipeline),
     );
   });
 
@@ -208,7 +209,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { prNumber: data.prNumber },
-      (sessionId) => runQaPipelineBackground(data as QaRequest, sessionId),
+      (sessionId) => dispatchBackground("qa", sessionId, data as QaRequest, runQaPipeline),
     );
   });
 
@@ -232,7 +233,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { ticketId: data.ticketId },
-      (sessionId) => runHotfixPipelineBackground(data as HotfixRequest, sessionId),
+      (sessionId) => dispatchBackground("hotfix", sessionId, data as HotfixRequest, runHotfixPipeline),
     );
   });
 
@@ -251,7 +252,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { prNumber: data.prNumber },
-      (sessionId) => runFixerPipelineBackground(data as FixerRequest, sessionId),
+      (sessionId) => dispatchBackground("fixer", sessionId, data as FixerRequest, runFixerPipeline),
     );
   });
 
@@ -286,7 +287,13 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { ticketId: data.ticketId },
-      (sessionId) => runRefinePipelineBackground(data as RefineRequest, sessionId),
+      (sessionId) => {
+        const repoDir = resolveRepoDir(data.repository);
+        void runPipelineInBackground("refine", sessionId, async () => {
+          const result = await runRefinePipeline(data as RefineRequest, repoDir);
+          return refineResultToPipelineResult(result);
+        });
+      },
     );
   });
 
@@ -373,6 +380,17 @@ async function dispatchPipeline(
   meta: { ticketId?: string; prNumber?: number },
   runBackground: (sessionId: string) => void,
 ): Promise<void> {
+  const repoDir = resolveRepoDir(repository);
+  if (!fs.existsSync(repoDir)) {
+    logger.error(`Repository not found at ${repoDir} for ${repository}`);
+    res.status(404).json({
+      error: "Repository not cloned on server",
+      repository,
+      expected: repoDir,
+    });
+    return;
+  }
+
   try {
     const sessionId = await semaphore.acquire(repository);
 
@@ -431,74 +449,35 @@ async function runPipelineInBackground(
   }
 }
 
-function runFeaturePipelineBackground(request: FeatureRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground("feature", sessionId, () =>
-    runFeaturePipeline(request, repoDir),
-  );
-}
-
-function runReviewPipelineBackground(request: ReviewRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground("review", sessionId, () =>
-    runReviewPipeline(request, repoDir),
-  );
-}
-
-function runQaPipelineBackground(request: QaRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground("qa", sessionId, () =>
-    runQaPipeline(request, repoDir),
-  );
-}
-
-function runHotfixPipelineBackground(request: HotfixRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground("hotfix", sessionId, () =>
-    runHotfixPipeline(request, repoDir),
-  );
-}
-
-function runFixerPipelineBackground(request: FixerRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground("fixer", sessionId, () =>
-    runFixerPipeline(request, repoDir),
-  );
-}
-
-function runRefinePipelineBackground(request: RefineRequest, sessionId: string): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runRefineInBackground("refine", sessionId, () =>
-    runRefinePipeline(request, repoDir),
-  );
-}
-
-async function runRefineInBackground(
+/**
+ * Generic background dispatch: resolves repo dir and runs the pipeline.
+ */
+function dispatchBackground<T extends { repository: string }>(
   pipeline: PipelineType,
   sessionId: string,
-  runner: () => Promise<RefineResult>,
-): Promise<void> {
-  try {
-    const result = await runner();
-    // Convert RefineResult to PipelineResult for recording.
-    // The full RefineResult (with sub-tickets) is serialized into summary
-    // so OpenClaw can parse it and create sub-tickets.
-    const pipelineResult: PipelineResult = {
-      ticketId: result.ticketId,
-      sessionId: result.sessionId,
-      pipeline: result.pipeline,
-      status: result.status,
-      summary: JSON.stringify(result),
-      costUsd: result.costUsd,
-      durationMs: result.durationMs,
-      timestamp: result.timestamp,
-    };
-    await recordResult(sessionId, pipelineResult);
-  } catch (error) {
-    logger.error(`Background ${pipeline} pipeline error`, error);
-    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
-    cleanupSession(sessionId);
-  }
+  request: T,
+  runner: (req: T, repoDir: string) => Promise<PipelineResult>,
+): void {
+  const repoDir = resolveRepoDir(request.repository);
+  void runPipelineInBackground(pipeline, sessionId, () => runner(request, repoDir));
+}
+
+/**
+ * Convert RefineResult to PipelineResult for recording.
+ * The full RefineResult (with sub-tickets) is serialized into summary
+ * so OpenClaw can parse it and create sub-tickets.
+ */
+function refineResultToPipelineResult(result: RefineResult): PipelineResult {
+  return {
+    ticketId: result.ticketId,
+    sessionId: result.sessionId,
+    pipeline: result.pipeline,
+    status: result.status,
+    summary: JSON.stringify(result),
+    costUsd: result.costUsd,
+    durationMs: result.durationMs,
+    timestamp: result.timestamp,
+  };
 }
 
 async function recordResult(

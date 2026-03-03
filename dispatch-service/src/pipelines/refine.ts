@@ -1,11 +1,7 @@
-import type { Options } from "@anthropic-ai/claude-agent-sdk";
 import { agents } from "../agents.js";
-import { CLAUDE_CODE_PATH } from "../config.js";
-import { hooks } from "../hooks.js";
 import { logger } from "../logger.js";
-import { runWithRecovery } from "../recovery.js";
-import { createReadonlySandboxConfig } from "../sandbox.js";
 import type { RefineRequest, RefineResult, SubTicket } from "../types.js";
+import { executePipeline } from "./run-pipeline.js";
 
 /**
  * Build the prompt for a refine pipeline.
@@ -152,55 +148,35 @@ export async function runRefinePipeline(
   request: RefineRequest,
   repoDir: string,
 ): Promise<RefineResult> {
-  const startTime = Date.now();
-  const prompt = buildRefinePrompt(request);
-
-  const options: Options = {
-    pathToClaudeCodeExecutable: CLAUDE_CODE_PATH,
-    permissionMode: "acceptEdits",
-    settingSources: ["user", "project"],
-    systemPrompt: { type: "preset", preset: "claude_code" },
-    hooks,
-    sandbox: createReadonlySandboxConfig(repoDir),
-    agents: { refiner: agents.refiner },
-    tools: { type: "preset", preset: "claude_code" },
-    cwd: repoDir,
-    maxTurns: 50,
-  };
-
-  let sessionId = "";
-  let costUsd = 0;
-
   try {
-    const result = await runWithRecovery("refine", prompt, options, {
-      onSessionId: (id) => {
-        sessionId = id;
-      },
-      onCostRecord: (msg) => {
-        costUsd = msg.total_cost_usd;
-      },
+    const exec = await executePipeline({
+      pipeline: "refine",
+      prompt: buildRefinePrompt(request),
+      repoDir,
+      agents: { refiner: agents.refiner },
+      maxTurns: 50,
+      sandbox: "readonly",
     });
 
-    const output = result.subtype === "success" ? result.result : undefined;
     return parseRefineOutput(
-      output,
+      exec.output,
       request.ticketId,
-      sessionId,
-      costUsd,
-      Date.now() - startTime,
+      exec.sessionId,
+      exec.costUsd,
+      exec.durationMs,
     );
   } catch (error) {
     logger.error(`Refine pipeline failed for ${request.ticketId}`, error);
     return {
       ticketId: request.ticketId,
-      sessionId,
+      sessionId: "",
       pipeline: "refine",
       status: "failure",
       score: 0,
       reason: error instanceof Error ? error.message : "Unknown error",
       action: "escalate",
-      costUsd,
-      durationMs: Date.now() - startTime,
+      costUsd: 0,
+      durationMs: 0,
       timestamp: new Date().toISOString(),
     };
   }
