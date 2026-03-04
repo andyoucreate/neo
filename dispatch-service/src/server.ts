@@ -186,7 +186,7 @@ export function createServer(): express.Express {
       data.repository,
       res,
       { prNumber: data.prNumber },
-      (sessionId) => dispatchBackground("review", sessionId, data as ReviewRequest, runReviewPipeline),
+      (sessionId) => dispatchWithPrWorktree("review", sessionId, data as ReviewRequest, runReviewPipeline),
     );
   });
 
@@ -462,20 +462,7 @@ async function runPipelineInBackground(
 }
 
 /**
- * Generic background dispatch: resolves repo dir and runs the pipeline.
- */
-function dispatchBackground<T extends { repository: string }>(
-  pipeline: PipelineType,
-  sessionId: string,
-  request: T,
-  runner: (req: T, repoDir: string) => Promise<PipelineResult>,
-): void {
-  const repoDir = resolveRepoDir(request.repository);
-  void runPipelineInBackground(pipeline, sessionId, () => runner(request, repoDir));
-}
-
-/**
- * Background dispatch with PR branch worktree isolation for fixer pipeline.
+ * Background dispatch with PR branch worktree isolation.
  * Fetches and checks out the existing PR branch, runs the pipeline, then cleans up.
  */
 function dispatchWithPrWorktree<T extends { repository: string; prNumber: number }>(
@@ -499,7 +486,7 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
     );
     const prBranch = stdout.trim();
 
-    logger.info(`Fixer: checking out PR #${request.prNumber} branch: ${prBranch}`);
+    logger.info(`${pipeline}: checking out PR #${request.prNumber} branch: ${prBranch}`);
 
     const worktreePath = await createWorktreeForBranch(repoDir, sessionId, prBranch);
 

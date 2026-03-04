@@ -178,6 +178,13 @@ async function runFixer(): Promise<void> {
   }
 }
 
+/**
+ * Review pipeline — mirrors server's dispatchWithPrWorktree:
+ * 1. Fetch PR branch name via gh api
+ * 2. Create worktree on that branch (read-only)
+ * 3. Run review in worktree
+ * 4. Cleanup worktree
+ */
 async function runReview(): Promise<void> {
   const pr = values.pr;
   if (!pr) {
@@ -187,16 +194,45 @@ async function runReview(): Promise<void> {
 
   const { runReviewPipeline } = await import("./pipelines/review.js");
   const repoDir = resolveRepoDir(repo);
+  const prNumber = parseInt(pr, 10);
+  const repoSlug = repo.replace("github.com/", "");
 
-  const result = await runReviewPipeline(
-    {
-      prNumber: parseInt(pr, 10),
-      repository: repo,
-    },
-    repoDir,
+  const request = {
+    prNumber,
+    repository: repo,
+  };
+
+  // In dry-run mode, skip worktree setup
+  if (dryRun) {
+    logResult(await runReviewPipeline(request, repoDir));
+    return;
+  }
+
+  // Fetch PR branch name
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+
+  const { stdout } = await execFileAsync(
+    "gh",
+    ["api", `repos/${repoSlug}/pulls/${prNumber}`, "--jq", ".head.ref"],
+    { cwd: repoDir, timeout: 30_000 },
   );
+  const prBranch = stdout.trim();
+  logger.info(`Review: checking out PR #${prNumber} branch: ${prBranch}`);
 
-  logResult(result);
+  // Create worktree on PR branch
+  const { createWorktreeForBranch, removeWorktree } = await import("./worktree.js");
+  const sessionId = `cli-review-${Date.now()}`;
+  const worktreePath = await createWorktreeForBranch(repoDir, sessionId, prBranch);
+
+  try {
+    logResult(await runReviewPipeline(request, worktreePath));
+  } finally {
+    await removeWorktree(repoDir, sessionId).catch((err: unknown) => {
+      logger.warn("Failed to cleanup worktree", err);
+    });
+  }
 }
 
 /**
