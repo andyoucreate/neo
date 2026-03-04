@@ -116,7 +116,7 @@ describe("postReviewComment", () => {
       await postReviewComment(makeResult({ repository: "github.com/acme/lib" }));
 
       const args = mockExecFile.mock.calls[0]?.[1] as string[];
-      expect(args[5]).toBe("acme/lib");
+      expect(args[4]).toBe("acme/lib");
     });
 
     it("should log success after posting", async () => {

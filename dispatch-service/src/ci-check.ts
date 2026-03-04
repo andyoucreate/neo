@@ -15,14 +15,21 @@ export interface CiCheckResult {
     | "pending"
     | "timeout"
     | "error";
-  failedChecks?: Array<{ name: string; conclusion: string }>;
+  failedChecks?: Array<{ name: string; state: string }>;
   details?: string;
 }
 
+/**
+ * gh pr checks --json fields:
+ * bucket: pass | fail | pending | skipping | cancel
+ * state: e.g. "SUCCESS", "FAILURE", "PENDING", ...
+ * name: check run name
+ * See https://cli.github.com/manual/gh_pr_checks
+ */
 interface GhCheck {
   name: string;
-  status: string;
-  conclusion: string;
+  state: string;
+  bucket: string;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -43,7 +50,7 @@ async function getCheckRuns(
         "--repo",
         repo,
         "--json",
-        "name,status,conclusion",
+        "name,state,bucket",
       ],
       { timeout: 15_000 },
     );
@@ -54,19 +61,13 @@ async function getCheckRuns(
       return { conclusion: "no_checks" };
     }
 
-    const pending = checks.some(
-      (c) => c.status !== "completed" && c.status !== "",
-    );
+    const pending = checks.some((c) => c.bucket === "pending");
     if (pending) {
       return { conclusion: "pending" };
     }
 
     const failed = checks.filter(
-      (c) =>
-        c.conclusion !== "success" &&
-        c.conclusion !== "skipped" &&
-        c.conclusion !== "neutral" &&
-        c.conclusion !== "",
+      (c) => c.bucket === "fail" || c.bucket === "cancel",
     );
 
     if (failed.length > 0) {
@@ -74,7 +75,7 @@ async function getCheckRuns(
         conclusion: "failure",
         failedChecks: failed.map((c) => ({
           name: c.name,
-          conclusion: c.conclusion,
+          state: c.state,
         })),
       };
     }
