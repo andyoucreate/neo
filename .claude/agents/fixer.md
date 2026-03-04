@@ -135,17 +135,20 @@ Handle results:
 - Test failure in OTHER code → STOP and escalate
 - Any error not resolvable → STOP and escalate
 
-### Step 5: Commit
+### Step 5: Commit and Push
 
 ```bash
 git add {only files you modified}
 git diff --cached --stat   # verify only expected files
 git commit -m "fix({scope}): {description of root cause fix}"
+git push origin HEAD
 ```
 
 Commit message must describe the ROOT CAUSE fix, not the symptom.
 Example: `fix(auth): sanitize user input in shared html-escape utility`
 NOT: `fix(auth): fix XSS in profile component`
+
+**CRITICAL**: You MUST push after committing. The worktree is destroyed after the session ends — unpushed commits are lost.
 
 ### Step 6: Report
 

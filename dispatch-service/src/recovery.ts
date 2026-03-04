@@ -68,9 +68,48 @@ function logSdkMessage(pipeline: string, sessionId: string, message: SDKMessage)
 }
 
 /**
+ * Log prompt and options for dry-run mode, return a mock result.
+ */
+function dryRunResult(pipeline: string, prompt: string, options: Options): SDKResultMessage {
+  console.log("\n" + "=".repeat(70));
+  console.log(`DRY RUN — ${pipeline} pipeline`);
+  console.log("=".repeat(70));
+  console.log("\n--- PROMPT ---\n");
+  console.log(prompt);
+  console.log("\n--- OPTIONS ---\n");
+  console.log(JSON.stringify({
+    cwd: options.cwd,
+    maxTurns: options.maxTurns,
+    permissionMode: options.permissionMode,
+    agents: options.agents ? Object.keys(options.agents) : [],
+    sandbox: options.sandbox?.enabled ? "(enabled)" : "(disabled)",
+  }, null, 2));
+  console.log("\n" + "=".repeat(70) + "\n");
+
+  return {
+    type: "result",
+    subtype: "success",
+    result: JSON.stringify({ status: "DRY_RUN", message: "No SDK call made." }),
+    total_cost_usd: 0,
+    session_id: `dry-run-${Date.now()}`,
+    is_error: false,
+    duration_ms: 0,
+    duration_api_ms: 0,
+    num_turns: 0,
+    modelUsage: {},
+    permission_denials: [],
+    stop_reason: "end_turn",
+    usage: {},
+    uuid: "dry-run",
+  } as unknown as SDKResultMessage;
+}
+
+/**
  * Run a query() with automatic session recovery.
  * On failure: resume the same session (attempt 2), then fresh session (attempt 3).
  * After maxRetries, throws and escalates.
+ *
+ * Set DRY_RUN=true to log prompt/options without calling the SDK.
  */
 export async function runWithRecovery(
   pipeline: string,
@@ -83,6 +122,13 @@ export async function runWithRecovery(
   },
   maxRetries = MAX_RECOVERY_RETRIES,
 ): Promise<SDKResultMessage> {
+  if (process.env.DRY_RUN === "true") {
+    const mock = dryRunResult(pipeline, prompt, options);
+    callbacks?.onSessionId?.(mock.session_id);
+    callbacks?.onCostRecord?.(mock);
+    return mock;
+  }
+
   let lastSessionId: string | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {

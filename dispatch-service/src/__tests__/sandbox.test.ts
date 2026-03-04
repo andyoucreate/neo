@@ -1,26 +1,28 @@
+import { homedir } from "node:os";
 import { describe, expect, it } from "vitest";
 import {
   createSandboxConfig,
   createReadonlySandboxConfig,
 } from "../sandbox.js";
 
+const IS_DARWIN = process.platform === "darwin";
+const HOME = homedir();
+
 describe("Sandbox Configuration", () => {
   describe("createSandboxConfig (read-write)", () => {
     it("should enable sandbox", () => {
-      const config = createSandboxConfig("/home/voltaire/repos/org/repo");
+      const config = createSandboxConfig("/tmp/repo");
       expect(config.enabled).toBe(true);
     });
 
     it("should auto-allow bash when sandboxed", () => {
-      const config = createSandboxConfig("/home/voltaire/repos/org/repo");
+      const config = createSandboxConfig("/tmp/repo");
       expect(config.autoAllowBashIfSandboxed).toBe(true);
     });
 
     it("should allow writes to repo directory", () => {
-      const config = createSandboxConfig("/home/voltaire/repos/org/repo");
-      expect(config.filesystem?.allowWrite).toContain(
-        "/home/voltaire/repos/org/repo/**",
-      );
+      const config = createSandboxConfig("/tmp/repo");
+      expect(config.filesystem?.allowWrite).toContain("/tmp/repo/**");
     });
 
     it("should allow writes to /tmp", () => {
@@ -28,16 +30,45 @@ describe("Sandbox Configuration", () => {
       expect(config.filesystem?.allowWrite).toContain("/tmp/**");
     });
 
-    it("should deny writes to system directories", () => {
+    it("should include package manager paths for current platform", () => {
       const config = createSandboxConfig("/any/path");
-      expect(config.filesystem?.denyWrite).toContain("/opt/voltaire/.env");
-      expect(config.filesystem?.denyWrite).toContain("/opt/voltaire/dispatch-service/**");
+      const allowWrite = config.filesystem?.allowWrite ?? [];
+
+      if (IS_DARWIN) {
+        expect(allowWrite).toContain(`${HOME}/Library/pnpm/**`);
+        expect(allowWrite).toContain(`${HOME}/Library/Caches/**`);
+      } else {
+        expect(allowWrite).toContain(`${HOME}/.local/share/pnpm/**`);
+        expect(allowWrite).toContain(`${HOME}/.cache/**`);
+      }
+    });
+
+    it("should deny writes to /etc on all platforms", () => {
+      const config = createSandboxConfig("/any/path");
       expect(config.filesystem?.denyWrite).toContain("/etc/**");
     });
 
-    it("should deny reads to secrets", () => {
+    it("should deny writes to production paths on Linux only", () => {
       const config = createSandboxConfig("/any/path");
-      expect(config.filesystem?.denyRead).toContain("/opt/voltaire/.env");
+      const denyWrite = config.filesystem?.denyWrite ?? [];
+
+      if (IS_DARWIN) {
+        expect(denyWrite).not.toContain("/opt/voltaire/.env");
+      } else {
+        expect(denyWrite).toContain("/opt/voltaire/.env");
+        expect(denyWrite).toContain("/opt/voltaire/dispatch-service/**");
+      }
+    });
+
+    it("should deny reads to secrets on Linux only", () => {
+      const config = createSandboxConfig("/any/path");
+      const denyRead = config.filesystem?.denyRead ?? [];
+
+      if (IS_DARWIN) {
+        expect(denyRead).toHaveLength(0);
+      } else {
+        expect(denyRead).toContain("/opt/voltaire/.env");
+      }
     });
 
     it("should allow essential network domains", () => {
@@ -69,9 +100,15 @@ describe("Sandbox Configuration", () => {
       expect(config.filesystem?.denyWrite).toContain("**/*");
     });
 
-    it("should deny reads to secrets", () => {
+    it("should deny reads to secrets on Linux only", () => {
       const config = createReadonlySandboxConfig("/any/path");
-      expect(config.filesystem?.denyRead).toContain("/opt/voltaire/.env");
+      const denyRead = config.filesystem?.denyRead ?? [];
+
+      if (IS_DARWIN) {
+        expect(denyRead).toHaveLength(0);
+      } else {
+        expect(denyRead).toContain("/opt/voltaire/.env");
+      }
     });
 
     it("should only allow npm registry for pnpm audit", () => {

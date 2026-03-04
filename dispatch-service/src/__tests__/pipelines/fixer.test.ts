@@ -292,6 +292,21 @@ describe("Fixer Pipeline", () => {
       expect(prompt).toContain("3 fix attempts");
       expect(prompt).toContain("100 lines");
     });
+
+    it("should include push instruction in prompt", async () => {
+      mockQuery.mockReturnValue(createMockSuccessStream());
+
+      const request: FixerRequest = {
+        prNumber: 42,
+        repository: "github.com/org/repo",
+        issues: sampleIssues,
+      };
+
+      await runFixerPipeline(request, "/tmp/repo");
+
+      const prompt = mockQuery.mock.calls[0]?.[0]?.prompt;
+      expect(prompt).toContain("git push origin HEAD");
+    });
   });
 
   describe("Issue severity handling", () => {

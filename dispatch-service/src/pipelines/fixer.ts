@@ -26,6 +26,7 @@ ${issuesJson}
 5. Run full test suite before committing
 6. If scope exceeds limits, STOP and report "ESCALATED"
 7. Add regression tests for every fix
+8. After committing, PUSH your changes: git push origin HEAD
 
 ## Output
 Report what was fixed and what was not, in structured JSON.`;

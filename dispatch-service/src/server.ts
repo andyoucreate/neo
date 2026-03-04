@@ -504,7 +504,26 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
     const worktreePath = await createWorktreeForBranch(repoDir, sessionId, prBranch);
 
     try {
-      return await runner(request, worktreePath);
+      const result = await runner(request, worktreePath);
+
+      // Verify the fixer actually pushed commits
+      try {
+        const { stdout: unpushed } = await execFileAsync(
+          "git",
+          ["log", "--oneline", `origin/${prBranch}..HEAD`],
+          { cwd: worktreePath, timeout: 10_000 },
+        );
+        if (unpushed.trim()) {
+          logger.warn(
+            `[${pipeline}] Session ${sessionId} has UNPUSHED commits — ` +
+              `they will be lost when the worktree is cleaned up:\n${unpushed.trim()}`,
+          );
+        }
+      } catch {
+        // Non-blocking: don't fail the pipeline over a verification check
+      }
+
+      return result;
     } finally {
       await removeWorktree(repoDir, sessionId).catch((err: unknown) => {
         logger.warn(`Failed to cleanup worktree for ${sessionId}`, err);

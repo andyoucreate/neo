@@ -1,4 +1,57 @@
+import { homedir } from "node:os";
 import type { SandboxSettings } from "@anthropic-ai/claude-agent-sdk";
+
+const IS_DARWIN = process.platform === "darwin";
+const HOME = homedir();
+
+/**
+ * Platform-aware writable paths for package managers and caches.
+ */
+function getPackageManagerPaths(): string[] {
+  if (IS_DARWIN) {
+    return [
+      `${HOME}/Library/pnpm/**`,
+      `${HOME}/Library/Caches/**`,
+      `${HOME}/.npm/**`,
+      `${HOME}/.local/share/pnpm/**`,
+    ];
+  }
+  return [
+    `${HOME}/.local/share/pnpm/**`,
+    `${HOME}/.cache/**`,
+    `${HOME}/.npm/**`,
+  ];
+}
+
+/**
+ * Platform-aware deny-write paths for production infrastructure.
+ * On macOS (local dev), these paths don't exist — skip them.
+ */
+function getDenyWritePaths(): string[] {
+  const paths = ["/etc/**"];
+
+  if (!IS_DARWIN) {
+    // Production server paths
+    paths.push(
+      "/opt/voltaire/.env",
+      "/opt/voltaire/dispatch-service/**",
+      "/opt/voltaire/costs/**",
+      "/opt/voltaire/events/**",
+      "/opt/voltaire/logs/**",
+      `${HOME}/.openclaw/**`,
+    );
+  }
+
+  return paths;
+}
+
+/**
+ * Platform-aware deny-read paths for secrets.
+ */
+function getDenyReadPaths(): string[] {
+  if (IS_DARWIN) return [];
+  return ["/opt/voltaire/.env"];
+}
 
 /**
  * Standard sandbox for developer and fixer agents.
@@ -10,24 +63,12 @@ export function createSandboxConfig(repoDir: string): SandboxSettings {
     autoAllowBashIfSandboxed: true,
     filesystem: {
       allowWrite: [
-        `${repoDir}/**`, // repo directory (rw)
-        "/tmp/**", // temp files
-        "/home/voltaire/.local/share/pnpm/**", // pnpm store
-        "/home/voltaire/.cache/**", // general cache (pnpm, etc.)
-        "/home/voltaire/.npm/**", // npm cache (fallback)
+        `${repoDir}/**`,
+        "/tmp/**",
+        ...getPackageManagerPaths(),
       ],
-      denyWrite: [
-        "/opt/voltaire/.env", // secrets
-        "/opt/voltaire/dispatch-service/**", // dispatch service code
-        "/opt/voltaire/costs/**", // cost journal
-        "/opt/voltaire/events/**", // event journal
-        "/opt/voltaire/logs/**", // logs
-        "/etc/**", // system files
-        "/home/voltaire/.openclaw/**", // openclaw data
-      ],
-      denyRead: [
-        "/opt/voltaire/.env", // secrets
-      ],
+      denyWrite: getDenyWritePaths(),
+      denyRead: getDenyReadPaths(),
     },
     network: {
       allowedDomains: [
@@ -37,7 +78,7 @@ export function createSandboxConfig(repoDir: string): SandboxSettings {
         "registry.npmjs.org",
         "mcp.notion.com",
       ],
-      allowLocalBinding: true, // for preview servers
+      allowLocalBinding: true,
     },
   };
 }
@@ -53,10 +94,10 @@ export function createReadonlySandboxConfig(_repoDir: string): SandboxSettings {
     filesystem: {
       allowWrite: [],
       denyWrite: ["**/*"],
-      denyRead: ["/opt/voltaire/.env"],
+      denyRead: getDenyReadPaths(),
     },
     network: {
-      allowedDomains: ["registry.npmjs.org"], // for pnpm audit
+      allowedDomains: ["registry.npmjs.org"],
     },
   };
 }
