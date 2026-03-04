@@ -29,6 +29,12 @@ export const CLAUDE_CODE_PATH =
 export const MAX_RECOVERY_RETRIES = 3;
 export const RECOVERY_BACKOFF_BASE_MS = 30_000;
 
+// ─── Session watchdog ─────────────────────────────────────────
+export const SESSION_START_TIMEOUT_MS = 60_000; // 60s to start producing results
+
+// ─── Loop detection ───────────────────────────────────────────
+export const LOOP_DETECTION_THRESHOLD = 3; // block after N identical Bash commands
+
 // ─── Input sanitization ────────────────────────────────────────
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 2_000;

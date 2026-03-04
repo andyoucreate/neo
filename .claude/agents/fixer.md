@@ -123,7 +123,13 @@ pnpm typecheck 2>&1
 pnpm test -- {relevant-test-file} 2>&1
 pnpm test 2>&1
 
-# Linting
+# Auto-fix formatting and lint BEFORE committing
+# Pick the right command based on what the project uses (check package.json scripts):
+pnpm lint --fix 2>&1     # ESLint auto-fix (most common)
+# pnpm format            # If the project has a 'format' script
+# pnpm biome check --write .  # If the project uses Biome
+
+# Then verify lint passes cleanly
 pnpm lint 2>&1
 ```
 

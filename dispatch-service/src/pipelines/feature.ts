@@ -50,6 +50,7 @@ Follow this sequence:
 4. **After all tasks are done**, run the full verification suite:
    - Type checking
    - Full test suite
+   - Auto-fix formatting: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
    - Linting
 5. **If any verification fails**, use the developer agent to fix the issue.
 6. **Push and create a pull request** following the instructions below.
@@ -66,6 +67,7 @@ You are implementing this feature directly. Follow these steps:
 5. **Run verification** after each change:
    - Type checking
    - Relevant test file, then full test suite
+   - Auto-fix formatting: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
    - Linting
 6. **Commit** with a conventional commit message.
 7. **Push and create a pull request** following the instructions below.

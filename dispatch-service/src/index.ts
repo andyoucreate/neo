@@ -69,7 +69,7 @@ async function shutdown(signal: string): Promise<void> {
   }
 
   // Record shutdown event
-  await appendEvent("service.stopped").catch(() => {});
+  await appendEvent("service.stopped").catch((err: unknown) => logger.error("Failed to log service stop event", err));
   notifyServiceLifecycle("stopped", {
     version: process.env.npm_package_version ?? "0.1.0",
     host: `${SERVER_HOST}:${String(SERVER_PORT)}`,

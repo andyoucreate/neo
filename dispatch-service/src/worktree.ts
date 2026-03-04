@@ -44,7 +44,7 @@ export async function createWorktree(
         await execFileAsync("git", ["branch", "-D", branchName], {
           cwd: repoDir,
           timeout: GIT_TIMEOUT,
-        }).catch(() => {});
+        }).catch((err: unknown) => logger.warn("Failed to delete branch during cleanup", err));
         await execFileAsync(
           "git",
           ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],

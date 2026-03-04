@@ -4,10 +4,10 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { z } from "zod";
 import { pollCiChecks } from "./ci-check.js";
-import { notifyPipelineResult } from "./callback.js";
+import { notifyPipelineResult, notifySubTickets } from "./callback.js";
 import { postReviewComment } from "./github-comment.js";
 import { Semaphore } from "./concurrency.js";
-import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
+import { COST_JOURNAL_DIR, REPOS_BASE_DIR, SESSION_START_TIMEOUT_MS } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { logger } from "./logger.js";
@@ -18,6 +18,7 @@ import { runHotfixPipeline } from "./pipelines/hotfix.js";
 import { runRefinePipeline } from "./pipelines/refine.js";
 import { runReviewPipeline } from "./pipelines/review.js";
 import { sanitize } from "./sanitize.js";
+import { clearLoopHistory } from "./hooks.js";
 import type {
   ActiveSession,
   FeatureRequest,
@@ -157,7 +158,7 @@ export function createServer(): express.Express {
         pipeline: "feature",
         ticketId: data.ticketId,
         repository: data.repository,
-      }).catch(() => {});
+      }).catch((err: unknown) => logger.error("Failed to log quarantine event", err));
       res.status(422).json({ error: "Content quarantined — invalid input" });
       return;
     }
@@ -254,7 +255,7 @@ export function createServer(): express.Express {
         pipeline: "refine",
         ticketId: data.ticketId,
         repository: data.repository,
-      }).catch(() => {});
+      }).catch((err: unknown) => logger.error("Failed to log quarantine event", err));
       res.status(422).json({ error: "Content quarantined — invalid input" });
       return;
     }
@@ -327,7 +328,7 @@ export function createServer(): express.Express {
       sessionId,
       pipeline: session.pipeline,
       repository: session.repository,
-    }).catch(() => {});
+    }).catch((err: unknown) => logger.error("Failed to log session kill event", err));
 
     res.json({ status: "killed", sessionId });
   });
@@ -336,7 +337,7 @@ export function createServer(): express.Express {
   app.post("/pause", (_req: Request, res: Response) => {
     paused = true;
     logger.warn("Dispatch service PAUSED");
-    appendEvent("service.paused").catch(() => {});
+    appendEvent("service.paused").catch((err: unknown) => logger.error("Failed to log pause event", err));
     res.json({ status: "paused" });
   });
 
@@ -344,7 +345,7 @@ export function createServer(): express.Express {
   app.post("/resume", (_req: Request, res: Response) => {
     paused = false;
     logger.info("Dispatch service RESUMED");
-    appendEvent("service.resumed").catch(() => {});
+    appendEvent("service.resumed").catch((err: unknown) => logger.error("Failed to log resume event", err));
     res.json({ status: "resumed" });
   });
 
@@ -414,7 +415,7 @@ async function dispatchPipeline(
       repository,
       ticketId: meta.ticketId,
       prNumber: meta.prNumber,
-    }).catch(() => {});
+    }).catch((err: unknown) => logger.error("Failed to log dispatch start event", err));
 
     res.status(200).json({
       status: "dispatched",
@@ -438,16 +439,39 @@ async function runPipelineInBackground(
   sessionId: string,
   runner: () => Promise<PipelineResult>,
 ): Promise<void> {
+  // Session start watchdog — if the runner doesn't resolve within the timeout,
+  // assume the session is stuck and clean up.
+  const startTimeout = setTimeout(() => {
+    logger.error(`Session ${sessionId} (${pipeline}) did not complete within ${String(SESSION_START_TIMEOUT_MS)}ms — assuming stuck`);
+    appendEvent("dispatch.failed", {
+      pipeline,
+      sessionId,
+      metadata: { reason: "start_timeout" },
+    }).catch((err: unknown) => logger.error("Failed to log start timeout event", err));
+    notifyPipelineResult({
+      sessionId,
+      pipeline,
+      status: "failure",
+      costUsd: 0,
+      durationMs: SESSION_START_TIMEOUT_MS,
+      timestamp: new Date().toISOString(),
+    });
+    releaseTicketId(sessionId);
+    cleanupSession(sessionId);
+  }, SESSION_START_TIMEOUT_MS);
+
   try {
     const result = await runner();
+    clearTimeout(startTimeout);
     await recordResult(sessionId, result);
     if (result.status !== "success") {
       // Allow retry on non-success (failure, timeout, cancelled)
       releaseTicketId(sessionId);
     }
   } catch (error) {
+    clearTimeout(startTimeout);
     logger.error(`Background ${pipeline} pipeline error`, error);
-    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
+    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch((err: unknown) => logger.error("Failed to log dispatch failure event", err));
     notifyPipelineResult({
       sessionId,
       pipeline,
@@ -587,12 +611,29 @@ async function recordResult(
       costUsd: result.costUsd,
       durationMs: result.durationMs,
     },
-  }).catch(() => {});
+  }).catch((err: unknown) => logger.error("Failed to log dispatch completion event", err));
 
   notifyPipelineResult(result);
 
+  // Send dedicated sub-ticket callback when refine produces decomposed tickets
+  if (result.pipeline === "refine" && result.summary) {
+    try {
+      const refineData = JSON.parse(result.summary) as RefineResult;
+      if (refineData.action === "decompose" && refineData.subTickets?.length) {
+        appendEvent("dispatch.subtasks_created", {
+          pipeline: "refine",
+          ticketId: result.ticketId,
+          metadata: { count: refineData.subTickets.length },
+        }).catch((err: unknown) => logger.error("Failed to log subtasks event", err));
+        notifySubTickets(refineData.ticketId, refineData.subTickets);
+      }
+    } catch {
+      // summary is not valid RefineResult JSON — skip sub-ticket notification
+    }
+  }
+
   if (result.pipeline === "review" && result.prNumber && result.repository) {
-    postReviewComment(result).catch(() => {});
+    postReviewComment(result).catch((err: unknown) => logger.error("Failed to post review comment", err));
   }
 
   cleanupSession(sessionId);
@@ -613,6 +654,7 @@ function releaseTicketId(sessionId: string): void {
 function cleanupSession(sessionId: string): void {
   activeSessions.delete(sessionId);
   semaphore.release(sessionId);
+  clearLoopHistory(sessionId);
 }
 
 // Export for testing

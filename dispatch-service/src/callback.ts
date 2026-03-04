@@ -3,6 +3,7 @@ import type {
   CallbackPayload,
   PipelineResult,
   ServiceEventData,
+  SubTicket,
 } from "./types.js";
 
 const CALLBACK_URL =
@@ -76,7 +77,7 @@ export function notifyPipelineResult(result: PipelineResult): void {
     event,
     timestamp: new Date().toISOString(),
     data: result,
-  }).catch(() => {});
+  }).catch((err: unknown) => logger.error("Failed to notify pipeline result", err));
 }
 
 /**
@@ -91,7 +92,22 @@ export function notifyServiceLifecycle(
     event: action === "started" ? "service.started" : "service.stopped",
     timestamp: new Date().toISOString(),
     data: { action, ...details },
-  }).catch(() => {});
+  }).catch((err: unknown) => logger.error("Failed to notify service lifecycle", err));
+}
+
+/**
+ * Notify OpenClaw of sub-tickets produced by the refine pipeline.
+ * Sends a dedicated callback so OpenClaw can create them as real entries.
+ */
+export function notifySubTickets(
+  ticketId: string,
+  subTickets: SubTicket[],
+): void {
+  sendCallback({
+    event: "refine.subtasks",
+    timestamp: new Date().toISOString(),
+    data: { ticketId, subTickets },
+  }).catch((err: unknown) => logger.error("Failed to notify sub-tickets", err));
 }
 
 /**
@@ -106,5 +122,5 @@ export function forwardAgentNotification(
     event: "agent.notification",
     timestamp: new Date().toISOString(),
     data: { sessionId, message },
-  }).catch(() => {});
+  }).catch((err: unknown) => logger.error("Failed to forward agent notification", err));
 }

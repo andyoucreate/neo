@@ -142,14 +142,20 @@ export interface ConcurrencyLimits {
 export type CallbackEvent =
   | "pipeline.completed"
   | "pipeline.failed"
+  | "refine.subtasks"
   | "service.started"
   | "service.stopped"
   | "agent.notification";
 
+export interface SubTicketsCallbackData {
+  ticketId: string;
+  subTickets: SubTicket[];
+}
+
 export interface CallbackPayload {
   event: CallbackEvent;
   timestamp: string;
-  data: PipelineResult | RefineResult | ServiceEventData | AgentNotificationData;
+  data: PipelineResult | RefineResult | ServiceEventData | AgentNotificationData | SubTicketsCallbackData;
 }
 
 export interface ServiceEventData {

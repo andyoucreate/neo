@@ -14,20 +14,6 @@
         model: "anthropic/claude-sonnet-4-6",
         // Triage tickets, dispatch to Claude Code, update status
       },
-      {
-        id: "reporter",
-        name: "Reporter",
-        workspace: "~/.openclaw/workspace-reporter",
-        model: "anthropic/claude-haiku-4-5",
-        // Generate reports, summaries, daily briefs
-      },
-      {
-        id: "watcher",
-        name: "Watcher",
-        workspace: "~/.openclaw/workspace-watcher",
-        model: "anthropic/claude-haiku-4-5",
-        // Monitor agent health, alert on failures, kill stuck processes
-      }
     ]
   },
 
@@ -39,8 +25,6 @@
     { agentId: "dispatcher", match: { path: "github-*" } },
     // Slack dev channel -> dispatcher
     { agentId: "dispatcher", match: { channel: "slack", peer: { kind: "channel", id: "C_DEV" } } },
-    // Slack alerts channel -> watcher
-    { agentId: "watcher", match: { channel: "slack", peer: { kind: "channel", id: "C_ALERTS" } } }
   ],
 
   // --- Concurrency & Rate Limits ---
@@ -98,34 +82,6 @@
   //      --every 600000 --session-target isolated \
   //      --model anthropic/claude-sonnet-4-6 \
   //      --message "Scan the Notion tickets database for new tickets in 'Backlog' status with 'auto' label. For each, classify and dispatch to Claude Code. Skip tickets already being processed (check memory)."
-  //
-  // 2. Morning brief — weekdays 9:00 Paris time
-  //    openclaw cron add morning-brief \
-  //      --cron "0 9 * * 1-5" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Generate morning brief: open PRs, in-progress tickets, agent activity last 24h, API costs yesterday. Format as clean Slack message." \
-  //      --delivery announce --channel slack --to channel:C_DEV_AGENTS
-  //
-  // 3. Health check — every 5 minutes
-  //    openclaw cron add health-check \
-  //      --every 300000 --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Check: (1) Are any ACPX sessions stuck >30min? (2) Are any Notion tickets in 'In Progress' >4h without PR? (3) Disk usage >80%? (4) Any process using >90% CPU? Report issues only." \
-  //      --delivery announce --channel slack --to channel:C_ALERTS --best-effort
-  //
-  // 4. Weekly cost report — Friday 17:00
-  //    openclaw cron add weekly-cost-report \
-  //      --cron "0 17 * * 5" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Generate weekly cost report: API tokens used per project, per pipeline, per agent type. Compare with last week. Write report to Notion 'Reports' database." \
-  //      --delivery announce --channel slack --to channel:C_DEV_AGENTS
-  //
-  // 5. End-to-end smoke test — daily 6:00
-  //    openclaw cron add e2e-smoke-test \
-  //      --cron "0 6 * * *" --tz Europe/Paris --session-target isolated \
-  //      --model anthropic/claude-haiku-4-5 \
-  //      --message "Run Voltaire e2e smoke test: (1) Create a test ticket in Notion, (2) Verify it gets dispatched, (3) Verify ACPX session starts, (4) Cancel the session, (5) Clean up test ticket. Report pass/fail." \
-  //      --delivery announce --channel slack --to channel:C_ALERTS
 
   // --- MCP Servers ---
   mcpServers: {

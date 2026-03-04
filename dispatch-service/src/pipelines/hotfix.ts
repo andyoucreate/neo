@@ -32,8 +32,9 @@ This is a hotfix — speed is critical but correctness is paramount.
 2. Implement the minimal fix
 3. Write a regression test that would have caught this bug
 4. Run the full test suite
-5. Create a conventional commit: fix(scope): description
-6. Push and create a pull request:
+5. Auto-fix formatting: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
+6. Create a conventional commit: fix(scope): description
+7. Push and create a pull request:
 
 \`\`\`bash
 git push -u origin ${branch}

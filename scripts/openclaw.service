@@ -11,6 +11,7 @@ ExecStart=/usr/bin/openclaw gateway
 Restart=always
 RestartSec=5
 EnvironmentFile=/opt/voltaire/.env
+EnvironmentFile=/opt/voltaire/.env.openclaw
 
 [Install]
 WantedBy=multi-user.target

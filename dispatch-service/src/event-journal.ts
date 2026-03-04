@@ -11,12 +11,14 @@ export type EventType =
   | "dispatch.failed"
   | "dispatch.queued"
   | "dispatch.quarantined"
+  | "dispatch.subtasks_created"
   | "session.killed"
   | "session.timeout"
   | "service.paused"
   | "service.resumed"
   | "service.started"
-  | "service.stopped";
+  | "service.stopped"
+  | "tool.invoked";
 
 export interface JournalEntry {
   ts: string;

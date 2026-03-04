@@ -114,7 +114,13 @@ pnpm typecheck
 pnpm test -- {specific-test-file}
 pnpm test
 
-# Linting
+# Auto-fix formatting and lint BEFORE committing
+# Pick the right command based on what the project uses (check package.json scripts):
+pnpm lint --fix          # ESLint auto-fix (most common)
+# pnpm format            # If the project has a 'format' script
+# pnpm biome check --write .  # If the project uses Biome
+
+# Then verify lint passes cleanly
 pnpm lint
 ```
 

@@ -24,9 +24,10 @@ ${issuesJson}
 3. Maximum 3 fix attempts
 4. Maximum 100 lines changed
 5. Run full test suite before committing
-6. If scope exceeds limits, STOP and report "ESCALATED"
-7. Add regression tests for every fix
-8. After committing, PUSH your changes: git push origin HEAD
+6. Auto-fix formatting before committing: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
+7. If scope exceeds limits, STOP and report "ESCALATED"
+8. Add regression tests for every fix
+9. After committing, PUSH your changes: git push origin HEAD
 
 ## Output
 Report what was fixed and what was not, in structured JSON.`;

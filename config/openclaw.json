@@ -16,20 +16,6 @@
         "workspace": "~/.openclaw/workspace-dispatcher",
         "agentDir": "~/.openclaw/agents/dispatcher/agent",
         "model": "anthropic/claude-sonnet-4-6"
-      },
-      {
-        "id": "reporter",
-        "name": "reporter",
-        "workspace": "~/.openclaw/workspace-reporter",
-        "agentDir": "~/.openclaw/agents/reporter/agent",
-        "model": "anthropic/claude-haiku-4-5"
-      },
-      {
-        "id": "watcher",
-        "name": "watcher",
-        "workspace": "~/.openclaw/workspace-watcher",
-        "agentDir": "~/.openclaw/agents/watcher/agent",
-        "model": "anthropic/claude-haiku-4-5"
       }
     ]
   },
@@ -40,7 +26,7 @@
     "token": "<OPENCLAW_HOOKS_TOKEN>",
     "defaultSessionKey": "main",
     "allowRequestSessionKey": false,
-    "allowedAgentIds": ["dispatcher", "watcher"],
+    "allowedAgentIds": ["dispatcher"],
     "allowedSessionKeyPrefixes": ["hook:", "main"],
     "mappings": [
       {

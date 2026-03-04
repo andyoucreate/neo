@@ -59,15 +59,25 @@ ufw --force enable
 mkdir -p /opt/voltaire/{backups,scripts,events,locks,costs,logs}
 chown -R voltaire:voltaire /opt/voltaire
 
-# 12. .env file with correct permissions (readable by voltaire via group)
+# 12. .env files with correct permissions (readable by voltaire via group)
+# Shared env (no ANTHROPIC_API_KEY — dispatch uses claude login credentials)
 touch /opt/voltaire/.env
 chown root:voltaire /opt/voltaire/.env
 chmod 640 /opt/voltaire/.env
+
+# OpenClaw-specific env (holds ANTHROPIC_API_KEY for OpenClaw agents only)
+touch /opt/voltaire/.env.openclaw
+chown root:voltaire /opt/voltaire/.env.openclaw
+chmod 640 /opt/voltaire/.env.openclaw
 
 # Write CLAUDE_CODE_PATH to .env (resolved from step 4)
 if ! grep -q "CLAUDE_CODE_PATH" /opt/voltaire/.env 2>/dev/null; then
   echo "CLAUDE_CODE_PATH=$CLAUDE_BIN" >> /opt/voltaire/.env
 fi
+
+# 12b. Claude Code credentials for dispatch service (Agent SDK)
+echo "Setting up Claude Code CLI credentials for voltaire user..."
+su - voltaire -c "claude login"
 
 # 13. Clone repo + build dispatch-service
 REPO_DIR=/home/voltaire/repos/voltaire-network
@@ -109,7 +119,8 @@ systemctl enable openclaw voltaire-dispatch
 
 echo "=== Bootstrap complete ==="
 echo "Next steps:"
-echo "1. Fill /opt/voltaire/.env with API keys (ANTHROPIC_API_KEY, DISPATCH_AUTH_TOKEN)"
+echo "1. Fill /opt/voltaire/.env with shared config (DISPATCH_AUTH_TOKEN, tokens, etc.)"
+echo "   Fill /opt/voltaire/.env.openclaw with ANTHROPIC_API_KEY (for OpenClaw only)"
 echo "2. Configure /home/voltaire/.openclaw/openclaw.json"
 echo "3. Create GitHub bot account (voltaire-bot) and add SSH key"
 echo "4. Start: systemctl start openclaw voltaire-dispatch"
