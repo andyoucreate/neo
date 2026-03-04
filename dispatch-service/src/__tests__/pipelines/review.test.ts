@@ -1,8 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SDKMessage, SDKResultMessage, SDKSystemMessage } from "@anthropic-ai/claude-agent-sdk";
-import { runReviewPipeline } from "../../pipelines/review.js";
 import type { ReviewRequest } from "../../types.js";
-import { execSync } from "node:child_process";
+
+// Create mock with custom promisify symbol so promisify(execFile) works correctly
+const { mockExecFile, mockExecFileAsync } = vi.hoisted(() => {
+  const fn = vi.fn();
+  const asyncFn = vi.fn();
+  const CUSTOM = Symbol.for("nodejs.util.promisify.custom");
+  Object.defineProperty(fn, CUSTOM, { value: asyncFn, writable: true, configurable: true });
+  return { mockExecFile: fn, mockExecFileAsync: asyncFn };
+});
 
 // Mock the claude-agent-sdk
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
@@ -16,10 +23,20 @@ vi.mock("../../hooks.js", () => ({
 
 // Mock child_process for gh CLI calls
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  execFile: mockExecFile,
+}));
+
+vi.mock("../../logger.js", () => ({
+  logger: {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+    debug: vi.fn(),
+  },
 }));
 
 import { query } from "@anthropic-ai/claude-agent-sdk";
+import { runReviewPipeline } from "../../pipelines/review.js";
 
 function createMockSuccessStream(approved = true): AsyncIterable<SDKMessage> {
   const messages: SDKMessage[] = [
@@ -59,14 +76,21 @@ function createMockSuccessStream(approved = true): AsyncIterable<SDKMessage> {
   };
 }
 
+function mockGhDiffSize(additions: number): void {
+  mockExecFileAsync.mockResolvedValue({ stdout: String(additions), stderr: "" });
+}
+
+function mockGhDiffError(): void {
+  mockExecFileAsync.mockRejectedValue(new Error("gh not found"));
+}
+
 describe("Review Pipeline", () => {
   const mockQuery = vi.mocked(query);
-  const mockExecSync = vi.mocked(execSync);
 
   beforeEach(() => {
     vi.clearAllMocks();
     // Default: return a small diff (XS)
-    mockExecSync.mockReturnValue("1 file changed, 10 insertions(+), 5 deletions(-)" as unknown as Buffer);
+    mockGhDiffSize(15);
   });
 
   afterEach(() => {
@@ -75,7 +99,7 @@ describe("Review Pipeline", () => {
 
   describe("Agent selection based on diff size", () => {
     it("should use 1 combined reviewer for XS PRs (<50 lines)", async () => {
-      mockExecSync.mockReturnValue("2 files changed, 20 insertions(+), 15 deletions(-)" as unknown as Buffer);
+      mockGhDiffSize(35);
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
@@ -92,7 +116,7 @@ describe("Review Pipeline", () => {
     });
 
     it("should use 2 reviewers for M PRs (50-300 lines)", async () => {
-      mockExecSync.mockReturnValue("5 files changed, 150 insertions(+), 50 deletions(-)" as unknown as Buffer);
+      mockGhDiffSize(200);
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
@@ -110,7 +134,7 @@ describe("Review Pipeline", () => {
     });
 
     it("should use 4 reviewers for L/XL PRs (>300 lines)", async () => {
-      mockExecSync.mockReturnValue("20 files changed, 500 insertions(+), 200 deletions(-)" as unknown as Buffer);
+      mockGhDiffSize(700);
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
@@ -130,7 +154,7 @@ describe("Review Pipeline", () => {
     });
 
     it("should default to M size when diff cannot be parsed", async () => {
-      mockExecSync.mockReturnValue("error: could not get diff" as unknown as Buffer);
+      mockExecFileAsync.mockResolvedValue({ stdout: "not a number", stderr: "" });
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
@@ -144,6 +168,24 @@ describe("Review Pipeline", () => {
       const agents = callOptions?.agents as Record<string, unknown>;
       // Default 100 lines = M size = 2 reviewers
       expect(Object.keys(agents)).toHaveLength(2);
+    });
+
+    it("should strip github.com/ prefix when calling gh api", async () => {
+      mockGhDiffSize(10);
+      mockQuery.mockReturnValue(createMockSuccessStream());
+
+      const request: ReviewRequest = {
+        prNumber: 42,
+        repository: "github.com/acme/lib",
+      };
+
+      await runReviewPipeline(request, "/tmp/repo");
+
+      expect(mockExecFileAsync).toHaveBeenCalledWith(
+        "gh",
+        ["api", "repos/acme/lib/pulls/42", "--jq", ".additions + .deletions"],
+        expect.objectContaining({ timeout: 30_000 }),
+      );
     });
   });
 
@@ -199,9 +241,7 @@ describe("Review Pipeline", () => {
 
   describe("Error handling", () => {
     it("should handle gh CLI failure gracefully", async () => {
-      mockExecSync.mockImplementation(() => {
-        throw new Error("gh not found");
-      });
+      mockGhDiffError();
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {

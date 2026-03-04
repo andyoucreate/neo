@@ -491,9 +491,10 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
 
+    const repo = request.repository.replace("github.com/", "");
     const { stdout } = await execFileAsync(
       "gh",
-      ["api", `repos/${request.repository}/pulls/${request.prNumber}`, "--jq", ".head.ref"],
+      ["api", `repos/${repo}/pulls/${request.prNumber}`, "--jq", ".head.ref"],
       { cwd: repoDir, timeout: 30_000 },
     );
     const prBranch = stdout.trim();

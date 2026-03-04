@@ -62,26 +62,26 @@ Also review for test coverage gaps: missing tests, edge cases, error paths.`,
 }
 
 /**
- * Estimate PR diff size from the repository.
+ * Estimate PR diff size via GitHub API (additions + deletions).
  */
 async function getPrDiffSize(
   prNumber: number,
+  repository: string,
   repoDir: string,
 ): Promise<number> {
-  const { execSync } = await import("node:child_process");
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const execFileAsync = promisify(execFile);
+  const repo = repository.replace("github.com/", "");
+
   try {
-    const output = execSync(
-      `gh pr diff ${prNumber} --stat | tail -1`,
-      { cwd: repoDir, encoding: "utf-8", timeout: 30_000 },
+    const { stdout } = await execFileAsync(
+      "gh",
+      ["api", `repos/${repo}/pulls/${prNumber}`, "--jq", ".additions + .deletions"],
+      { cwd: repoDir, timeout: 30_000 },
     );
-    // Parse "X files changed, Y insertions(+), Z deletions(-)"
-    const match = output.match(/(\d+)\s+insertion|(\d+)\s+deletion/g);
-    if (!match) return 100; // default to M
-    const total = match.reduce((sum, m) => {
-      const num = m.match(/\d+/);
-      return sum + (num ? parseInt(num[0], 10) : 0);
-    }, 0);
-    return total;
+    const total = parseInt(stdout.trim(), 10);
+    return Number.isFinite(total) ? total : 100;
   } catch {
     logger.warn(`Could not get diff size for PR #${prNumber}, defaulting to M`);
     return 100;
@@ -95,7 +95,7 @@ export async function runReviewPipeline(
   request: ReviewRequest,
   repoDir: string,
 ): Promise<PipelineResult> {
-  const diffSize = await getPrDiffSize(request.prNumber, repoDir);
+  const diffSize = await getPrDiffSize(request.prNumber, request.repository, repoDir);
   const reviewAgents = selectReviewAgents(diffSize);
   const agentCount = Object.keys(reviewAgents).length;
 
