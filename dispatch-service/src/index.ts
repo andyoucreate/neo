@@ -1,9 +1,9 @@
 import type { Server } from "node:http";
-import { createServer, activeSessions } from "./server.js";
-import { SERVER_PORT, SERVER_HOST } from "./config.js";
+import { notifyServiceLifecycle } from "./callback.js";
+import { SERVER_HOST, SERVER_PORT } from "./config.js";
 import { appendEvent, replayJournal } from "./event-journal.js";
 import { logger } from "./logger.js";
-import { notifyServiceLifecycle } from "./callback.js";
+import { activeSessions, createServer } from "./server.js";
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 let server: Server | null = null;
