@@ -38,6 +38,6 @@ Report what was fixed and what was not, in structured JSON.`;
       agents: { fixer: agents.fixer },
       maxTurns: 50,
     },
-    { prNumber: request.prNumber },
+    { prNumber: request.prNumber, repository: request.repository },
   );
 }

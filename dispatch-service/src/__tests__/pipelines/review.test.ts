@@ -161,6 +161,7 @@ describe("Review Pipeline", () => {
       expect(result.status).toBe("success");
       expect(result.pipeline).toBe("review");
       expect(result.prNumber).toBe(42);
+      expect(result.repository).toBe("github.com/org/repo");
       expect(result.costUsd).toBe(12.50);
     });
 

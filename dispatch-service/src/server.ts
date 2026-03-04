@@ -5,6 +5,7 @@ import fs from "node:fs";
 import { z } from "zod";
 import { pollCiChecks } from "./ci-check.js";
 import { notifyPipelineResult } from "./callback.js";
+import { postReviewComment } from "./github-comment.js";
 import { Semaphore } from "./concurrency.js";
 import { COST_JOURNAL_DIR, REPOS_BASE_DIR } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
@@ -447,6 +448,14 @@ async function runPipelineInBackground(
   } catch (error) {
     logger.error(`Background ${pipeline} pipeline error`, error);
     await appendEvent("dispatch.failed", { pipeline, sessionId }).catch(() => {});
+    notifyPipelineResult({
+      sessionId,
+      pipeline,
+      status: "failure",
+      costUsd: 0,
+      durationMs: 0,
+      timestamp: new Date().toISOString(),
+    });
     releaseTicketId(sessionId);
     cleanupSession(sessionId);
   }
@@ -574,6 +583,10 @@ async function recordResult(
   }).catch(() => {});
 
   notifyPipelineResult(result);
+
+  if (result.pipeline === "review" && result.prNumber && result.repository) {
+    postReviewComment(result).catch(() => {});
+  }
 
   cleanupSession(sessionId);
 

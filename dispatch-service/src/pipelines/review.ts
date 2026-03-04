@@ -124,6 +124,6 @@ Output a structured JSON review report with:
       maxTurns: 100,
       sandbox: "readonly",
     },
-    { prNumber: request.prNumber },
+    { prNumber: request.prNumber, repository: request.repository },
   );
 }
