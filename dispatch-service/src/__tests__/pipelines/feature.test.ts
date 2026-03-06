@@ -115,7 +115,7 @@ describe("Feature Pipeline", () => {
     const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
     expect(callOptions?.agents).toHaveProperty("developer");
     expect(callOptions?.agents).not.toHaveProperty("architect");
-    expect(callOptions?.maxTurns).toBe(50); // low complexity limit
+    expect(callOptions?.maxTurns).toBeUndefined(); // unlimited turns
   });
 
   it("should use architect + developer for complexity >= 5", async () => {
@@ -139,7 +139,7 @@ describe("Feature Pipeline", () => {
     const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
     expect(callOptions?.agents).toHaveProperty("architect");
     expect(callOptions?.agents).toHaveProperty("developer");
-    expect(callOptions?.maxTurns).toBe(150); // high complexity limit
+    expect(callOptions?.maxTurns).toBeUndefined(); // unlimited turns
   });
 
   it("should handle pipeline failure gracefully", async () => {

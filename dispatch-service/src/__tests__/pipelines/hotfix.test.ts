@@ -145,7 +145,7 @@ describe("Hotfix Pipeline", () => {
       expect(callOptions?.agents).not.toHaveProperty("architect");
     });
 
-    it("should have maxTurns set to 75 (fast-tracked)", async () => {
+    it("should have unlimited turns (no maxTurns)", async () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: HotfixRequest = {
@@ -159,7 +159,7 @@ describe("Hotfix Pipeline", () => {
       await runHotfixPipeline(request, "/tmp/repo");
 
       const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
-      expect(callOptions?.maxTurns).toBe(75);
+      expect(callOptions?.maxTurns).toBeUndefined();
     });
 
     it("should set correct sandbox config for repo directory", async () => {

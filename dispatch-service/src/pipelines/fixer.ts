@@ -37,7 +37,7 @@ Report what was fixed and what was not, in structured JSON.`;
       prompt,
       repoDir,
       agents: { fixer: agents.fixer },
-      maxTurns: 50,
+      // No maxTurns — unlimited (SESSION_MAX_DURATION_MS is the safety net)
     },
     { prNumber: request.prNumber, repository: request.repository },
     onInit,

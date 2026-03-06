@@ -126,7 +126,7 @@ export async function runFeaturePipeline(
       prompt: buildFeaturePrompt(ticket, hasArchitect, branch, baseBranch),
       repoDir,
       agents: selectedAgents,
-      maxTurns: hasArchitect ? 150 : 50,
+      // No maxTurns — unlimited (SESSION_MAX_DURATION_MS is the safety net)
       branch,
     },
     { ticketId: ticket.ticketId, repository: ticket.repository },

@@ -57,7 +57,7 @@ PR_URL: <the full GitHub PR URL>
       prompt,
       repoDir,
       agents: { developer: agents.developer },
-      maxTurns: 75,
+      // No maxTurns — unlimited (SESSION_MAX_DURATION_MS is the safety net)
       branch,
     },
     { ticketId: request.ticketId, repository: request.repository },

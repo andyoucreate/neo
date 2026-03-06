@@ -12,7 +12,7 @@ export interface PipelineConfig {
   prompt: string;
   repoDir: string;
   agents: Record<string, AgentDefinition>;
-  maxTurns: number;
+  maxTurns?: number;
   sandbox?: "writable" | "readonly";
   mcpServers?: Options["mcpServers"];
   branch?: string;
@@ -83,7 +83,7 @@ function buildOptions(config: PipelineConfig): Options {
     agents: config.agents,
     tools: { type: "preset", preset: "claude_code" },
     cwd: config.repoDir,
-    maxTurns: config.maxTurns,
+    ...(config.maxTurns && { maxTurns: config.maxTurns }),
     ...(config.mcpServers && { mcpServers: config.mcpServers }),
   };
 }

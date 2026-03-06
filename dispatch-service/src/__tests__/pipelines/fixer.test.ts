@@ -231,7 +231,7 @@ describe("Fixer Pipeline", () => {
       expect(callOptions?.agents).toHaveProperty("fixer");
     });
 
-    it("should have maxTurns set to 50", async () => {
+    it("should have unlimited turns (no maxTurns)", async () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
@@ -244,7 +244,7 @@ describe("Fixer Pipeline", () => {
       await runFixerPipeline(request, "/tmp/repo");
 
       const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
-      expect(callOptions?.maxTurns).toBe(50);
+      expect(callOptions?.maxTurns).toBeUndefined();
     });
 
     it("should include issues in the prompt as JSON", async () => {
