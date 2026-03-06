@@ -94,6 +94,7 @@ async function getPrDiffSize(
 export async function runReviewPipeline(
   request: ReviewRequest,
   repoDir: string,
+  onInit?: () => void,
 ): Promise<PipelineResult> {
   const diffSize = await getPrDiffSize(request.prNumber, request.repository, repoDir);
   const reviewAgents = selectReviewAgents(diffSize);
@@ -125,5 +126,6 @@ Output a structured JSON review report with:
       sandbox: "readonly",
     },
     { prNumber: request.prNumber, repository: request.repository },
+    onInit,
   );
 }

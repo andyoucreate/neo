@@ -95,6 +95,7 @@ function buildOptions(config: PipelineConfig): Options {
  */
 export async function executePipeline(
   config: PipelineConfig,
+  onInit?: () => void,
 ): Promise<ExecutionResult> {
   const startTime = Date.now();
   const options = buildOptions(config);
@@ -105,6 +106,7 @@ export async function executePipeline(
   const result = await runWithRecovery(config.pipeline, config.prompt, options, {
     onSessionId: (id) => {
       sessionId = id;
+      onInit?.();
     },
     onCostRecord: (msg) => {
       costUsd = msg.total_cost_usd;
@@ -129,6 +131,7 @@ export async function executePipeline(
 export async function runPipeline(
   config: PipelineConfig,
   meta: PipelineMeta,
+  onInit?: () => void,
 ): Promise<PipelineResult> {
   const startTime = Date.now();
 
@@ -136,7 +139,7 @@ export async function runPipeline(
   let costUsd = 0;
 
   try {
-    const exec = await executePipeline(config);
+    const exec = await executePipeline(config, onInit);
     sessionId = exec.sessionId;
     costUsd = exec.costUsd;
 

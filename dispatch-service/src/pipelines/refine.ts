@@ -147,16 +147,20 @@ function parseRefineOutput(
 export async function runRefinePipeline(
   request: RefineRequest,
   repoDir: string,
+  onInit?: () => void,
 ): Promise<RefineResult> {
   try {
-    const exec = await executePipeline({
-      pipeline: "refine",
-      prompt: buildRefinePrompt(request),
-      repoDir,
-      agents: { refiner: agents.refiner },
-      maxTurns: 50,
-      sandbox: "readonly",
-    });
+    const exec = await executePipeline(
+      {
+        pipeline: "refine",
+        prompt: buildRefinePrompt(request),
+        repoDir,
+        agents: { refiner: agents.refiner },
+        maxTurns: 50,
+        sandbox: "readonly",
+      },
+      onInit,
+    );
 
     return parseRefineOutput(
       exec.output,

@@ -8,6 +8,7 @@ import { runPipeline } from "./run-pipeline.js";
 export async function runFixerPipeline(
   request: FixerRequest,
   repoDir: string,
+  onInit?: () => void,
 ): Promise<PipelineResult> {
   const issuesJson = JSON.stringify(request.issues, null, 2);
 
@@ -41,5 +42,6 @@ Report what was fixed and what was not, in structured JSON.`;
       maxTurns: 50,
     },
     { prNumber: request.prNumber, repository: request.repository },
+    onInit,
   );
 }

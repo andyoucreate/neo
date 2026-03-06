@@ -330,8 +330,8 @@ export function createServer(): express.Express {
       { ticketId: data.ticketId },
       (sessionId) => {
         const repoDir = resolveRepoDir(data.repository);
-        void runPipelineInBackground("refine", sessionId, async () => {
-          const result = await runRefinePipeline(data as RefineRequest, repoDir);
+        void runPipelineInBackground("refine", sessionId, async (onInit) => {
+          const result = await runRefinePipeline(data as RefineRequest, repoDir, onInit);
           return refineResultToPipelineResult(result);
         });
       },
@@ -508,9 +508,14 @@ async function dispatchPipeline(
 async function runPipelineInBackground(
   pipeline: PipelineType,
   sessionId: string,
-  runner: () => Promise<PipelineResult>,
+  runner: (onInit: () => void) => Promise<PipelineResult>,
 ): Promise<void> {
   let sessionInitialized = false;
+  const markInitialized = () => {
+    if (sessionInitialized) return;
+    sessionInitialized = true;
+    clearTimeout(initTimeout);
+  };
 
   // Phase 1: init timeout — if the SDK never starts responding
   const initTimeout = setTimeout(() => {
@@ -565,9 +570,8 @@ async function runPipelineInBackground(
   }, SESSION_MAX_DURATION_MS);
 
   try {
-    const result = await runner();
-    sessionInitialized = true;
-    clearTimeout(initTimeout);
+    const result = await runner(markInitialized);
+    markInitialized();
     clearTimeout(maxDurationTimeout);
     await recordResult(sessionId, result);
     if (result.status !== "success") {
@@ -575,8 +579,7 @@ async function runPipelineInBackground(
       releaseTicketId(sessionId);
     }
   } catch (error) {
-    sessionInitialized = true;
-    clearTimeout(initTimeout);
+    markInitialized();
     clearTimeout(maxDurationTimeout);
     const session = activeSessions.get(sessionId);
     logger.error(`Background ${pipeline} pipeline error`, error);
@@ -605,11 +608,11 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
   pipeline: PipelineType,
   sessionId: string,
   request: T,
-  runner: (req: T, repoDir: string) => Promise<PipelineResult>,
+  runner: (req: T, repoDir: string, onInit?: () => void) => Promise<PipelineResult>,
 ): void {
   const repoDir = resolveRepoDir(request.repository);
 
-  void runPipelineInBackground(pipeline, sessionId, async () => {
+  void runPipelineInBackground(pipeline, sessionId, async (onInit) => {
     const { execFile } = await import("node:child_process");
     const { promisify } = await import("node:util");
     const execFileAsync = promisify(execFile);
@@ -634,7 +637,7 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
     }
 
     try {
-      const result = await runner(request, worktreePath);
+      const result = await runner(request, worktreePath, onInit);
 
       // Verify the fixer actually pushed commits
       try {
@@ -670,11 +673,11 @@ function dispatchWithWorktree<T extends { repository: string; ticketId: string }
   pipeline: "feature" | "hotfix",
   sessionId: string,
   request: T,
-  runner: (req: T, repoDir: string, branch: string, baseBranch: string) => Promise<PipelineResult>,
+  runner: (req: T, repoDir: string, branch: string, baseBranch: string, onInit?: () => void) => Promise<PipelineResult>,
 ): void {
   const repoDir = resolveRepoDir(request.repository);
 
-  void runPipelineInBackground(pipeline, sessionId, async () => {
+  void runPipelineInBackground(pipeline, sessionId, async (onInit) => {
     const branch = buildBranchName(pipeline, request.ticketId);
     const worktreePath = await createWorktree(repoDir, sessionId, branch);
 
@@ -687,7 +690,7 @@ function dispatchWithWorktree<T extends { repository: string; ticketId: string }
 
     try {
       const baseBranch = await getDefaultBranch(repoDir);
-      return await runner(request, worktreePath, branch, baseBranch);
+      return await runner(request, worktreePath, branch, baseBranch, onInit);
     } finally {
       await removeWorktree(repoDir, sessionId).catch((err: unknown) => {
         logger.warn(`Failed to cleanup worktree for ${sessionId}`, err);

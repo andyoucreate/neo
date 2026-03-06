@@ -112,6 +112,7 @@ export async function runFeaturePipeline(
   repoDir: string,
   branch: string,
   baseBranch: string,
+  onInit?: () => void,
 ): Promise<PipelineResult> {
   const hasArchitect = ticket.complexity >= 5;
 
@@ -129,5 +130,6 @@ export async function runFeaturePipeline(
       branch,
     },
     { ticketId: ticket.ticketId, repository: ticket.repository },
+    onInit,
   );
 }

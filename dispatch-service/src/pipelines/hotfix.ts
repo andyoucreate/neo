@@ -11,6 +11,7 @@ export async function runHotfixPipeline(
   repoDir: string,
   branch: string,
   _baseBranch: string,
+  onInit?: () => void,
 ): Promise<PipelineResult> {
   const prompt = `HOTFIX — Priority: ${request.priority.toUpperCase()}
 
@@ -60,5 +61,6 @@ PR_URL: <the full GitHub PR URL>
       branch,
     },
     { ticketId: request.ticketId, repository: request.repository },
+    onInit,
   );
 }
