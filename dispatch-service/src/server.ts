@@ -6,7 +6,13 @@ import { z } from "zod";
 import { notifyPipelineResult, notifySubTickets } from "./callback.js";
 import { pollCiChecks } from "./ci-check.js";
 import { Semaphore } from "./concurrency.js";
-import { COST_JOURNAL_DIR, DAILY_BUDGET_CAP_USD, REPOS_BASE_DIR, SESSION_START_TIMEOUT_MS } from "./config.js";
+import {
+  COST_JOURNAL_DIR,
+  DAILY_BUDGET_CAP_USD,
+  REPOS_BASE_DIR,
+  SESSION_INIT_TIMEOUT_MS,
+  SESSION_MAX_DURATION_MS,
+} from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
 import { postReviewComment } from "./github-comment.js";
@@ -123,12 +129,27 @@ function resolveRepoDir(repository: string): string {
 export function createServer(): express.Express {
   const app = express();
 
-  app.use(express.json({ limit: "100kb" }));
+  app.use(express.json({ limit: "500kb" }));
 
   // ─── Middleware: request ID ───────────────────────────────────
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader("X-Request-Id", crypto.randomUUID());
     next();
+  });
+
+  // ─── Middleware: JSON parse error handler ─────────────────────
+  // Must come right after express.json() to catch malformed JSON bodies
+  app.use((err: Error & { type?: string }, _req: Request, res: Response, next: NextFunction) => {
+    if (err.type === "entity.parse.failed") {
+      logger.warn("JSON parse error in request body", { error: err.message });
+      res.status(400).json({
+        error: "Invalid JSON in request body",
+        errorType: "JSON_PARSE_ERROR",
+        details: err.message,
+      });
+      return;
+    }
+    next(err);
   });
 
   // ─── Middleware: auth token check ─────────────────────────────
@@ -342,11 +363,17 @@ export function createServer(): express.Express {
   // ─── GET /status ─────────────────────────────────────────────
   app.get("/status", async (_req: Request, res: Response) => {
     const todayCost = await costJournal.getTodayCost();
+    const remaining = Math.max(0, DAILY_BUDGET_CAP_USD - todayCost);
     const status: ServiceStatus = {
       paused,
       activeSessions: Array.from(activeSessions.values()),
       queueDepth: semaphore.queueDepth,
       totalCostToday: todayCost,
+      budgetCapUsd: DAILY_BUDGET_CAP_USD,
+      budgetRemainingUsd: remaining,
+      budgetUtilizationPct: DAILY_BUDGET_CAP_USD > 0
+        ? Math.round((todayCost / DAILY_BUDGET_CAP_USD) * 100)
+        : 0,
       uptime: Date.now() - startedAt,
     };
     res.json(status);
@@ -475,55 +502,98 @@ async function dispatchPipeline(
   }
 }
 
-// ─── Background pipeline runners ───────────────────────────────
+// ─── Two-phase watchdog for background pipelines ───────────────
+// Phase 1 (init): SESSION_INIT_TIMEOUT_MS — cancelled when SDK responds
+// Phase 2 (max duration): SESSION_MAX_DURATION_MS — absolute safety net
 async function runPipelineInBackground(
   pipeline: PipelineType,
   sessionId: string,
   runner: () => Promise<PipelineResult>,
 ): Promise<void> {
-  // Session start watchdog — if the runner doesn't resolve within the timeout,
-  // assume the session is stuck and clean up.
-  const startTimeout = setTimeout(() => {
-    logger.error(`Session ${sessionId} (${pipeline}) did not complete within ${String(SESSION_START_TIMEOUT_MS)}ms — assuming stuck`);
+  let sessionInitialized = false;
+
+  // Phase 1: init timeout — if the SDK never starts responding
+  const initTimeout = setTimeout(() => {
+    if (sessionInitialized) return;
+    const session = activeSessions.get(sessionId);
+    logger.error(`Session ${sessionId} (${pipeline}) did not initialize within ${String(SESSION_INIT_TIMEOUT_MS)}ms — assuming stuck`);
     appendEvent("dispatch.failed", {
       pipeline,
       sessionId,
-      metadata: { reason: "start_timeout" },
-    }).catch((err: unknown) => logger.error("Failed to log start timeout event", err));
+      ticketId: session?.ticketId,
+      metadata: { reason: "init_timeout" },
+    }).catch((err: unknown) => logger.error("Failed to log init timeout event", err));
     notifyPipelineResult({
       sessionId,
       pipeline,
-      status: "failure",
+      status: "timeout",
+      ticketId: session?.ticketId,
+      errorType: "INIT_TIMEOUT",
+      errorMessage: `Session did not initialize within ${SESSION_INIT_TIMEOUT_MS}ms`,
       costUsd: 0,
-      durationMs: Number(SESSION_START_TIMEOUT_MS),
+      durationMs: SESSION_INIT_TIMEOUT_MS,
       timestamp: new Date().toISOString(),
     });
     releaseTicketId(sessionId);
-    cleanupSession(sessionId);
-  }, Number(SESSION_START_TIMEOUT_MS));
+    void cleanupSession(sessionId);
+  }, SESSION_INIT_TIMEOUT_MS);
+
+  // Phase 2: max duration timeout — absolute safety net
+  const maxDurationTimeout = setTimeout(() => {
+    const session = activeSessions.get(sessionId);
+    if (!session) return; // already cleaned up
+    logger.error(`Session ${sessionId} (${pipeline}) exceeded max duration ${String(SESSION_MAX_DURATION_MS)}ms — force killing`);
+    appendEvent("dispatch.failed", {
+      pipeline,
+      sessionId,
+      ticketId: session.ticketId,
+      metadata: { reason: "max_duration" },
+    }).catch((err: unknown) => logger.error("Failed to log max duration event", err));
+    notifyPipelineResult({
+      sessionId,
+      pipeline,
+      status: "timeout",
+      ticketId: session.ticketId,
+      errorType: "MAX_DURATION",
+      errorMessage: `Session exceeded max duration of ${SESSION_MAX_DURATION_MS}ms`,
+      costUsd: 0,
+      durationMs: SESSION_MAX_DURATION_MS,
+      timestamp: new Date().toISOString(),
+    });
+    releaseTicketId(sessionId);
+    void cleanupSession(sessionId);
+  }, SESSION_MAX_DURATION_MS);
 
   try {
     const result = await runner();
-    clearTimeout(startTimeout);
+    sessionInitialized = true;
+    clearTimeout(initTimeout);
+    clearTimeout(maxDurationTimeout);
     await recordResult(sessionId, result);
     if (result.status !== "success") {
       // Allow retry on non-success (failure, timeout, cancelled)
       releaseTicketId(sessionId);
     }
   } catch (error) {
-    clearTimeout(startTimeout);
+    sessionInitialized = true;
+    clearTimeout(initTimeout);
+    clearTimeout(maxDurationTimeout);
+    const session = activeSessions.get(sessionId);
     logger.error(`Background ${pipeline} pipeline error`, error);
-    await appendEvent("dispatch.failed", { pipeline, sessionId }).catch((err: unknown) => logger.error("Failed to log dispatch failure event", err));
+    await appendEvent("dispatch.failed", { pipeline, sessionId, ticketId: session?.ticketId }).catch((err: unknown) => logger.error("Failed to log dispatch failure event", err));
     notifyPipelineResult({
       sessionId,
       pipeline,
       status: "failure",
+      ticketId: session?.ticketId,
+      errorType: "PIPELINE_ERROR",
+      errorMessage: error instanceof Error ? error.message : String(error),
       costUsd: 0,
       durationMs: 0,
       timestamp: new Date().toISOString(),
     });
     releaseTicketId(sessionId);
-    cleanupSession(sessionId);
+    await cleanupSession(sessionId);
   }
 }
 
@@ -555,6 +625,13 @@ function dispatchWithPrWorktree<T extends { repository: string; prNumber: number
     logger.info(`${pipeline}: checking out PR #${request.prNumber} branch: ${prBranch}`);
 
     const worktreePath = await createWorktreeForBranch(repoDir, sessionId, prBranch);
+
+    // Track worktree in session for cleanup on timeout
+    const session = activeSessions.get(sessionId);
+    if (session) {
+      session.worktreePath = worktreePath;
+      session.repoDir = repoDir;
+    }
 
     try {
       const result = await runner(request, worktreePath);
@@ -600,6 +677,13 @@ function dispatchWithWorktree<T extends { repository: string; ticketId: string }
   void runPipelineInBackground(pipeline, sessionId, async () => {
     const branch = buildBranchName(pipeline, request.ticketId);
     const worktreePath = await createWorktree(repoDir, sessionId, branch);
+
+    // Track worktree in session for cleanup on timeout
+    const session = activeSessions.get(sessionId);
+    if (session) {
+      session.worktreePath = worktreePath;
+      session.repoDir = repoDir;
+    }
 
     try {
       const baseBranch = await getDefaultBranch(repoDir);
@@ -678,7 +762,7 @@ async function recordResult(
     postReviewComment(result).catch((err: unknown) => logger.error("Failed to post review comment", err));
   }
 
-  cleanupSession(sessionId);
+  await cleanupSession(sessionId);
 
   logger.info(
     `Pipeline ${result.pipeline} completed: ${result.status} ($${result.costUsd.toFixed(2)})`,
@@ -693,7 +777,16 @@ function releaseTicketId(sessionId: string): void {
   }
 }
 
-function cleanupSession(sessionId: string): void {
+async function cleanupSession(sessionId: string): Promise<void> {
+  const session = activeSessions.get(sessionId);
+
+  // Clean up worktree if tracked on the session
+  if (session?.worktreePath && session.repoDir) {
+    await removeWorktree(session.repoDir, sessionId).catch((err: unknown) => {
+      logger.warn(`Failed to cleanup worktree for ${sessionId} during session cleanup`, err);
+    });
+  }
+
   activeSessions.delete(sessionId);
   semaphore.release(sessionId);
   clearLoopHistory(sessionId);

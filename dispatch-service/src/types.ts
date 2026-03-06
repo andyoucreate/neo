@@ -96,6 +96,9 @@ export interface PipelineResult {
     medium: number;
     low: number;
   };
+  stopReason?: string;
+  errorType?: string;
+  errorMessage?: string;
   durationMs: number;
   costUsd: number;
   timestamp: string;
@@ -110,6 +113,8 @@ export interface ActiveSession {
   prNumber?: number;
   startedAt: string;
   status: "running" | "queued";
+  worktreePath?: string;
+  repoDir?: string;
 }
 
 // ─── Status response ───────────────────────────────────────────
@@ -118,6 +123,9 @@ export interface ServiceStatus {
   activeSessions: ActiveSession[];
   queueDepth: number;
   totalCostToday: number;
+  budgetCapUsd: number;
+  budgetRemainingUsd: number;
+  budgetUtilizationPct: number;
   uptime: number;
 }
 

@@ -1,11 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { CI_POLL_MAX_WAIT_MS } from "./config.js";
 import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
 const POLL_INTERVAL_MS = 30_000;
-const MAX_WAIT_MS = 2 * 60_000;
 
 export interface CiCheckResult {
   conclusion:
@@ -100,7 +100,7 @@ export async function pollCiChecks(
   repository: string,
 ): Promise<CiCheckResult> {
   const repo = repository.replace("github.com/", "");
-  const deadline = Date.now() + MAX_WAIT_MS;
+  const deadline = Date.now() + CI_POLL_MAX_WAIT_MS;
 
   const initial = await getCheckRuns(prNumber, repo);
   if (initial.conclusion !== "pending") {
@@ -108,7 +108,7 @@ export async function pollCiChecks(
   }
 
   logger.info(
-    `CI checks pending for PR #${String(prNumber)}, polling (max ${String(MAX_WAIT_MS / 1000)}s)...`,
+    `CI checks pending for PR #${String(prNumber)}, polling (max ${String(CI_POLL_MAX_WAIT_MS / 1000)}s)...`,
   );
 
   while (Date.now() + POLL_INTERVAL_MS < deadline) {

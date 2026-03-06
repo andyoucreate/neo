@@ -1,13 +1,68 @@
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { withGitLock } from "./git-lock.js";
 import { logger } from "./logger.js";
 
 const execFileAsync = promisify(execFile);
 
 const WORKTREE_BASE = process.env.WORKTREE_BASE || "/tmp/voltaire-worktrees";
 const GIT_TIMEOUT = 60_000;
+
+/**
+ * Proactively clean up a worktree path if it already exists on disk.
+ * Handles orphaned worktrees left behind by crashed/timed-out sessions.
+ */
+async function cleanupStaleWorktree(
+  repoDir: string,
+  worktreePath: string,
+): Promise<void> {
+  if (!existsSync(worktreePath)) return;
+
+  logger.warn(`Stale worktree found at ${worktreePath}, cleaning up proactively`);
+  try {
+    await execFileAsync("git", ["worktree", "remove", worktreePath, "--force"], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    });
+  } catch {
+    await rm(worktreePath, { recursive: true, force: true }).catch(() => {});
+    await execFileAsync("git", ["worktree", "prune"], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    }).catch(() => {});
+  }
+}
+
+/**
+ * Force-remove a worktree lock on a branch so it can be reused.
+ * Extracts the stale worktree path from the error message and removes it.
+ */
+async function unlockBranchWorktree(
+  repoDir: string,
+  errorMessage: string,
+): Promise<void> {
+  // Extract path from: "already used by worktree at '/tmp/voltaire-worktrees/dispatch-xxx'"
+  const match = errorMessage.match(/already used by worktree at '([^']+)'/);
+  if (!match) return;
+
+  const stalePath = match[1];
+  logger.warn(`Removing stale worktree lock at ${stalePath}`);
+  try {
+    await execFileAsync("git", ["worktree", "remove", stalePath, "--force"], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    });
+  } catch {
+    await rm(stalePath, { recursive: true, force: true }).catch(() => {});
+    await execFileAsync("git", ["worktree", "prune"], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    }).catch(() => {});
+  }
+}
 
 /**
  * Create an isolated git worktree for an agent session.
@@ -22,11 +77,16 @@ export async function createWorktree(
   const branchName = branch ?? `voltaire/${sessionId}`;
 
   try {
-    // Fetch latest from remote
-    await execFileAsync("git", ["fetch", "origin"], {
-      cwd: repoDir,
-      timeout: GIT_TIMEOUT,
-    });
+    // Clean up any stale worktree at this path
+    await cleanupStaleWorktree(repoDir, worktreePath);
+
+    // Fetch latest from remote (serialised per repo)
+    await withGitLock(repoDir, () =>
+      execFileAsync("git", ["fetch", "origin"], {
+        cwd: repoDir,
+        timeout: GIT_TIMEOUT,
+      }),
+    );
 
     // Create worktree with a new branch from develop (or main)
     const baseBranch = await getDefaultBranch(repoDir);
@@ -38,7 +98,26 @@ export async function createWorktree(
       );
     } catch (branchError: unknown) {
       const msg = branchError instanceof Error ? branchError.message : "";
-      if (msg.includes("already exists")) {
+      if (msg.includes("already used by worktree")) {
+        // Branch is locked by an orphaned worktree — clean it up and retry
+        await unlockBranchWorktree(repoDir, msg);
+        await execFileAsync(
+          "git",
+          ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
+          { cwd: repoDir, timeout: GIT_TIMEOUT },
+        ).catch(async () => {
+          // Branch may still exist without worktree lock — delete and retry
+          await execFileAsync("git", ["branch", "-D", branchName], {
+            cwd: repoDir,
+            timeout: GIT_TIMEOUT,
+          }).catch(() => {});
+          await execFileAsync(
+            "git",
+            ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
+            { cwd: repoDir, timeout: GIT_TIMEOUT },
+          );
+        });
+      } else if (msg.includes("already exists")) {
         // Branch exists from a previous failed run — delete it and retry
         logger.warn(`Branch ${branchName} already exists, cleaning up and retrying`);
         await execFileAsync("git", ["branch", "-D", branchName], {
@@ -177,10 +256,15 @@ export async function createWorktreeForBranch(
   const worktreePath = join(WORKTREE_BASE, sessionId);
 
   try {
-    await execFileAsync("git", ["fetch", "origin", branch], {
-      cwd: repoDir,
-      timeout: GIT_TIMEOUT,
-    });
+    // Clean up any stale worktree at this path
+    await cleanupStaleWorktree(repoDir, worktreePath);
+
+    await withGitLock(repoDir, () =>
+      execFileAsync("git", ["fetch", "origin", branch], {
+        cwd: repoDir,
+        timeout: GIT_TIMEOUT,
+      }),
+    );
 
     await execFileAsync(
       "git",
@@ -188,7 +272,15 @@ export async function createWorktreeForBranch(
       { cwd: repoDir, timeout: GIT_TIMEOUT },
     ).catch(async (err: unknown) => {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("already exists")) {
+      if (msg.includes("already used by worktree")) {
+        // Branch locked by orphaned worktree — clean up and retry
+        await unlockBranchWorktree(repoDir, msg);
+        await execFileAsync(
+          "git",
+          ["worktree", "add", worktreePath, branch],
+          { cwd: repoDir, timeout: GIT_TIMEOUT },
+        );
+      } else if (msg.includes("already exists")) {
         await execFileAsync(
           "git",
           ["worktree", "add", worktreePath, branch],

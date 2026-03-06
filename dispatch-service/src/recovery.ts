@@ -49,9 +49,16 @@ function logSdkMessage(pipeline: string, sessionId: string, message: SDKMessage)
       case "rate_limit_event":
         if ("rate_limit_info" in message) {
           const info = message.rate_limit_info;
+          // Validate resetsAt — ignore nonsensical values (epoch, far past)
+          let resetsAtDisplay: string | undefined;
+          if (info.resetsAt) {
+            const resetsDate = new Date(info.resetsAt);
+            const isValid = resetsDate.getFullYear() >= 2024 && resetsDate.getTime() > Date.now() - 60_000;
+            resetsAtDisplay = isValid ? resetsDate.toISOString() : "unknown";
+          }
           logger.warn(`[${pipeline}] Session ${sessionId} rate limit: ${info.status}`, {
             utilization: info.utilization,
-            resetsAt: info.resetsAt ? new Date(info.resetsAt).toISOString() : undefined,
+            resetsAt: resetsAtDisplay,
           });
         }
         break;
@@ -156,9 +163,18 @@ export async function runWithRecovery(
         // Forward all messages to caller
         callbacks?.onMessage?.(message);
 
-        // Success — return the result
+        // Result — return immediately (success or terminal failure)
         if (message.type === "result") {
           callbacks?.onCostRecord?.(message);
+
+          // error_max_turns is terminal — retrying won't help
+          if (message.subtype === "error_max_turns") {
+            logger.warn(
+              `[${pipeline}] Session ${lastSessionId ?? "?"} hit max turns limit — not retrying`,
+            );
+            return message;
+          }
+
           return message;
         }
       }

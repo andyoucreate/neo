@@ -30,13 +30,20 @@ export const MAX_RECOVERY_RETRIES = 3;
 export const RECOVERY_BACKOFF_BASE_MS = 30_000;
 
 // ─── Session watchdog ─────────────────────────────────────────
-export const SESSION_START_TIMEOUT_MS = 60_000; // 60s to start producing results
+export const SESSION_INIT_TIMEOUT_MS =
+  Number(process.env.SESSION_INIT_TIMEOUT_MS) || 120_000; // 2 min to get first SDK response
+export const SESSION_MAX_DURATION_MS =
+  Number(process.env.SESSION_MAX_DURATION_MS) || 30 * 60_000; // 30 min absolute safety net
+
+// ─── CI polling ──────────────────────────────────────────────
+export const CI_POLL_MAX_WAIT_MS =
+  Number(process.env.CI_POLL_MAX_WAIT_MS) || 10 * 60_000; // 10 min max wait for CI
 
 // ─── Loop detection ───────────────────────────────────────────
 export const LOOP_DETECTION_THRESHOLD = 3; // block after N identical Bash commands
 
 // ─── Budget guard ──────────────────────────────────────────────
-export const DAILY_BUDGET_CAP_USD = Number(process.env.DAILY_BUDGET_CAP_USD) || 100;
+export const DAILY_BUDGET_CAP_USD = Number(process.env.DAILY_BUDGET_CAP_USD) || 500;
 
 // ─── Input sanitization ────────────────────────────────────────
 export const MAX_TITLE_LENGTH = 200;

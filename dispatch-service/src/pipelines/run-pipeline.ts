@@ -31,6 +31,7 @@ export interface ExecutionResult {
   durationMs: number;
   success: boolean;
   output: string | undefined;
+  stopReason?: string;
 }
 
 // ─── PR info parsing ────────────────────────────────────────
@@ -116,6 +117,7 @@ export async function executePipeline(
     durationMs: Date.now() - startTime,
     success: result.subtype === "success",
     output: result.subtype === "success" ? result.result : undefined,
+    stopReason: result.subtype !== "success" ? result.subtype : undefined,
   };
 }
 
@@ -148,6 +150,11 @@ export async function runPipeline(
       summary: exec.output,
       branch: config.branch,
       ...prInfo,
+      ...(exec.stopReason && {
+        stopReason: exec.stopReason,
+        errorType: exec.stopReason.toUpperCase(),
+        errorMessage: `Session ended with ${exec.stopReason}`,
+      }),
       costUsd,
       durationMs: exec.durationMs,
       timestamp: new Date().toISOString(),
@@ -159,6 +166,8 @@ export async function runPipeline(
       sessionId,
       pipeline: config.pipeline,
       status: "failure",
+      errorType: "PIPELINE_ERROR",
+      errorMessage: error instanceof Error ? error.message : String(error),
       branch: config.branch,
       costUsd,
       durationMs: Date.now() - startTime,
