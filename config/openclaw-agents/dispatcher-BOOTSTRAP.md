@@ -207,7 +207,11 @@ This section defines the complete flow from ticket pickup to completion. Follow 
 
 ### 2. Refine Result Callback
 
-When callback has `pipeline == "refine"`, parse `data.summary` (JSON-serialized RefineResult):
+The Dispatch Service sends two callbacks for refine:
+1. `pipeline.completed` — generic result with `summary` containing JSON-serialized RefineResult.
+2. `refine.subtasks` — dedicated callback with `data.ticketId` and `data.subTickets[]` (only when action is "decompose").
+
+You will receive both. Use the `refine.subtasks` callback (it has structured sub-ticket data). For the generic callback, parse `data.summary`:
 
 - **action == "pass_through"**: Dispatch to `/dispatch/feature` with enriched data.
 - **action == "decompose"**: For each sub-ticket:
