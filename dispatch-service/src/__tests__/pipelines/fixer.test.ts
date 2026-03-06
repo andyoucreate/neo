@@ -157,6 +157,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream(true));
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -175,6 +176,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream(false));
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 55,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -191,6 +193,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockEscalatedStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 77,
         repository: "github.com/org/repo",
         issues: [
@@ -216,6 +219,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -231,6 +235,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -246,6 +251,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -263,6 +269,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -279,6 +286,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -297,6 +305,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -314,6 +323,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: [
@@ -336,6 +346,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: [
@@ -361,6 +372,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockFailureStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,
@@ -376,6 +388,7 @@ describe("Fixer Pipeline", () => {
       mockQuery.mockReturnValue(createMockFailureStream());
 
       const request: FixerRequest = {
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: sampleIssues,

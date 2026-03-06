@@ -96,7 +96,7 @@ describe("Feature Pipeline", () => {
       title: "Add user avatar",
       type: "feature",
       priority: "medium",
-      size: "s",
+      complexity: 2,
       repository: "github.com/org/repo",
       criteria: "Users can upload avatars",
       description: "Add avatar upload functionality",
@@ -111,14 +111,14 @@ describe("Feature Pipeline", () => {
     expect(result.sessionId).toBe("test-session-123");
     expect(mockQuery).toHaveBeenCalledTimes(1);
 
-    // For XS/S, only developer agent should be used
+    // For complexity < 5, only developer agent should be used
     const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
     expect(callOptions?.agents).toHaveProperty("developer");
     expect(callOptions?.agents).not.toHaveProperty("architect");
-    expect(callOptions?.maxTurns).toBe(50); // XS/S limit
+    expect(callOptions?.maxTurns).toBe(50); // low complexity limit
   });
 
-  it("should use architect + developer for M/L/XL tickets", async () => {
+  it("should use architect + developer for complexity >= 5", async () => {
     mockQuery.mockReturnValue(createMockSuccessStream());
 
     const request: FeatureRequest = {
@@ -126,7 +126,7 @@ describe("Feature Pipeline", () => {
       title: "Build payment system",
       type: "feature",
       priority: "high",
-      size: "l",
+      complexity: 8,
       repository: "github.com/org/repo",
       criteria: "Full payment flow",
       description: "Integrate Stripe",
@@ -139,7 +139,7 @@ describe("Feature Pipeline", () => {
     const callOptions = mockQuery.mock.calls[0]?.[0]?.options;
     expect(callOptions?.agents).toHaveProperty("architect");
     expect(callOptions?.agents).toHaveProperty("developer");
-    expect(callOptions?.maxTurns).toBe(150); // M/L/XL limit
+    expect(callOptions?.maxTurns).toBe(150); // high complexity limit
   });
 
   it("should handle pipeline failure gracefully", async () => {
@@ -150,7 +150,7 @@ describe("Feature Pipeline", () => {
       title: "Complex refactor",
       type: "refactor",
       priority: "low",
-      size: "xl",
+      complexity: 13,
       repository: "github.com/org/repo",
       criteria: "",
       description: "",
@@ -176,7 +176,7 @@ describe("Feature Pipeline", () => {
       title: "Test",
       type: "feature",
       priority: "low",
-      size: "xs",
+      complexity: 1,
       repository: "github.com/org/repo",
       criteria: "",
       description: "",

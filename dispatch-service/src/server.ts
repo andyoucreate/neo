@@ -3,22 +3,21 @@ import express from "express";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { z } from "zod";
-import { pollCiChecks } from "./ci-check.js";
 import { notifyPipelineResult, notifySubTickets } from "./callback.js";
-import { postReviewComment } from "./github-comment.js";
+import { pollCiChecks } from "./ci-check.js";
 import { Semaphore } from "./concurrency.js";
-import { COST_JOURNAL_DIR, REPOS_BASE_DIR, SESSION_START_TIMEOUT_MS } from "./config.js";
+import { COST_JOURNAL_DIR, DAILY_BUDGET_CAP_USD, REPOS_BASE_DIR, SESSION_START_TIMEOUT_MS } from "./config.js";
 import { CostJournal } from "./cost-journal.js";
 import { appendEvent } from "./event-journal.js";
+import { postReviewComment } from "./github-comment.js";
+import { clearLoopHistory } from "./hooks.js";
 import { logger } from "./logger.js";
-import { buildBranchName, createWorktree, createWorktreeForBranch, getDefaultBranch, removeWorktree } from "./worktree.js";
 import { runFeaturePipeline } from "./pipelines/feature.js";
 import { runFixerPipeline } from "./pipelines/fixer.js";
 import { runHotfixPipeline } from "./pipelines/hotfix.js";
 import { runRefinePipeline } from "./pipelines/refine.js";
 import { runReviewPipeline } from "./pipelines/review.js";
 import { sanitize } from "./sanitize.js";
-import { clearLoopHistory } from "./hooks.js";
 import type {
   ActiveSession,
   FeatureRequest,
@@ -31,14 +30,24 @@ import type {
   ReviewRequest,
   ServiceStatus,
 } from "./types.js";
+import { buildBranchName, createWorktree, createWorktreeForBranch, getDefaultBranch, removeWorktree } from "./worktree.js";
 
 // ─── Zod schemas for request validation ────────────────────────
+// Coerce string enums to lowercase before validation
+const ticketTypeSchema = z.string().transform((v) => v.toLowerCase()).pipe(z.enum(["feature", "bug", "refactor", "chore"]));
+const prioritySchema = z.string().transform((v) => v.toLowerCase()).pipe(z.enum(["critical", "high", "medium", "low"]));
+const FIBONACCI_POINTS = [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144] as const;
+const complexitySchema = z.coerce.number().refine(
+  (v): v is (typeof FIBONACCI_POINTS)[number] => (FIBONACCI_POINTS as readonly number[]).includes(v),
+  { message: "Complexity must be a Fibonacci number: 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144" },
+);
+
 const featureSchema = z.object({
   ticketId: z.string().min(1),
   title: z.string().min(1),
-  type: z.enum(["feature", "bug", "refactor", "chore"]),
-  priority: z.enum(["critical", "high", "medium", "low"]),
-  size: z.enum(["xs", "s", "m", "l", "xl"]).optional().default("m"),
+  type: ticketTypeSchema,
+  priority: prioritySchema,
+  complexity: complexitySchema.optional().default(3),
   repository: z.string().min(1),
   criteria: z.string().optional().default(""),
   description: z.string().optional().default(""),
@@ -46,6 +55,7 @@ const featureSchema = z.object({
 });
 
 const reviewSchema = z.object({
+  ticketId: z.string().min(1),
   prNumber: z.number().int().positive(),
   repository: z.string().min(1),
   skills: z.array(z.string()).optional(),
@@ -54,15 +64,17 @@ const reviewSchema = z.object({
 const hotfixSchema = z.object({
   ticketId: z.string().min(1),
   title: z.string().min(1),
-  priority: z.enum(["critical", "high", "medium", "low"]),
+  priority: prioritySchema,
   repository: z.string().min(1),
   description: z.string().optional().default(""),
   skills: z.array(z.string()).optional(),
 });
 
+const severitySchema = z.string().transform((v) => v.toUpperCase()).pipe(z.enum(["CRITICAL", "HIGH", "WARNING"]));
+
 const fixerIssueSchema = z.object({
   source: z.string(),
-  severity: z.enum(["CRITICAL", "HIGH", "WARNING"]),
+  severity: severitySchema,
   file: z.string(),
   line: z.number(),
   description: z.string(),
@@ -70,6 +82,7 @@ const fixerIssueSchema = z.object({
 });
 
 const fixerSchema = z.object({
+  ticketId: z.string().min(1),
   prNumber: z.number().int().positive(),
   repository: z.string().min(1),
   issues: z.array(fixerIssueSchema).min(1),
@@ -78,9 +91,9 @@ const fixerSchema = z.object({
 const refineSchema = z.object({
   ticketId: z.string().min(1),
   title: z.string().min(1),
-  type: z.enum(["feature", "bug", "refactor", "chore"]),
-  priority: z.enum(["critical", "high", "medium", "low"]),
-  size: z.enum(["xs", "s", "m", "l", "xl"]).optional(),
+  type: ticketTypeSchema,
+  priority: prioritySchema,
+  complexity: complexitySchema.optional(),
   repository: z.string().min(1),
   criteria: z.string().optional(),
   description: z.string().optional(),
@@ -137,6 +150,25 @@ export function createServer(): express.Express {
     next();
   });
 
+  // ─── Middleware: daily budget guard ─────────────────────────
+  app.use("/dispatch", async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const todayCost = await costJournal.getTodayCost();
+      if (todayCost >= DAILY_BUDGET_CAP_USD) {
+        logger.warn(`Daily budget cap reached: $${todayCost.toFixed(2)} >= $${DAILY_BUDGET_CAP_USD}`);
+        res.status(429).json({
+          error: "Daily budget cap reached",
+          todayCost: todayCost.toFixed(2),
+          cap: DAILY_BUDGET_CAP_USD,
+        });
+        return;
+      }
+    } catch (err) {
+      logger.warn("Budget check failed, allowing dispatch", err);
+    }
+    next();
+  });
+
   // ─── POST /dispatch/feature ──────────────────────────────────
   app.post("/dispatch/feature", async (req: Request, res: Response) => {
     const parsed = featureSchema.safeParse(req.body);
@@ -182,11 +214,16 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
+    if (dispatchedTickets.has(data.ticketId)) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+      return;
+    }
+
     await dispatchPipeline(
       "review",
       data.repository,
       res,
-      { prNumber: data.prNumber },
+      { ticketId: data.ticketId, prNumber: data.prNumber },
       (sessionId) => dispatchWithPrWorktree("review", sessionId, data as ReviewRequest, runReviewPipeline),
     );
   });
@@ -225,11 +262,16 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
+    if (dispatchedTickets.has(data.ticketId)) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+      return;
+    }
+
     await dispatchPipeline(
       "fixer",
       data.repository,
       res,
-      { prNumber: data.prNumber },
+      { ticketId: data.ticketId, prNumber: data.prNumber },
       (sessionId) => dispatchWithPrWorktree("fixer", sessionId, data as FixerRequest, runFixerPipeline),
     );
   });
@@ -246,7 +288,7 @@ export function createServer(): express.Express {
 
     const sanitized = sanitize({
       ...data,
-      size: data.size ?? "m",
+      complexity: data.complexity ?? 3,
       criteria: data.criteria ?? "",
       description: data.description ?? "",
     });
@@ -453,12 +495,12 @@ async function runPipelineInBackground(
       pipeline,
       status: "failure",
       costUsd: 0,
-      durationMs: SESSION_START_TIMEOUT_MS,
+      durationMs: Number(SESSION_START_TIMEOUT_MS),
       timestamp: new Date().toISOString(),
     });
     releaseTicketId(sessionId);
     cleanupSession(sessionId);
-  }, SESSION_START_TIMEOUT_MS);
+  }, Number(SESSION_START_TIMEOUT_MS));
 
   try {
     const result = await runner();

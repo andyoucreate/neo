@@ -7,7 +7,7 @@ function validTicket(overrides: Record<string, unknown> = {}) {
     title: "Add dark mode toggle",
     type: "feature",
     priority: "medium",
-    size: "m",
+    complexity: 3,
     criteria: "User can toggle dark mode from settings",
     description: "Implement dark mode with persistent preference",
     repository: "github.com/org/my-app",
@@ -26,7 +26,7 @@ describe("sanitize", () => {
       expect(result.title).toBe("Add dark mode toggle");
       expect(result.type).toBe("feature");
       expect(result.priority).toBe("medium");
-      expect(result.size).toBe("m");
+      expect(result.complexity).toBe(3);
     });
 
     it("should accept all valid ticket types", () => {
@@ -43,20 +43,20 @@ describe("sanitize", () => {
       }
     });
 
-    it("should accept all valid sizes", () => {
-      for (const size of ["xs", "s", "m", "l", "xl"]) {
-        const result = sanitize(validTicket({ size }));
+    it("should accept all valid complexity points", () => {
+      for (const complexity of [1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144]) {
+        const result = sanitize(validTicket({ complexity }));
         expect(result).not.toBe("quarantined");
         if (result === "quarantined") return;
-        expect(result.size).toBe(size);
+        expect(result.complexity).toBe(complexity);
       }
     });
 
-    it("should default size to m if missing", () => {
-      const result = sanitize(validTicket({ size: undefined }));
+    it("should default complexity to 3 if missing", () => {
+      const result = sanitize(validTicket({ complexity: undefined }));
       expect(result).not.toBe("quarantined");
       if (result === "quarantined") return;
-      expect(result.size).toBe("m");
+      expect(result.complexity).toBe(3);
     });
 
     it("should accept full GitHub URL for repository", () => {

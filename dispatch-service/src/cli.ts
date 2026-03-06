@@ -56,7 +56,7 @@ const { values, positionals } = parseArgs({
     title: { type: "string", default: "CLI test ticket" },
     description: { type: "string", default: "Triggered from local CLI" },
     priority: { type: "string", default: "medium" },
-    size: { type: "string", default: "s" },
+    complexity: { type: "string", default: "3" },
     type: { type: "string", default: "feature" },
     "dry-run": { type: "boolean", default: false },
     severity: { type: "string", default: "HIGH" },
@@ -103,8 +103,9 @@ function resolveRepoDir(repository: string): string {
  */
 async function runFixer(): Promise<void> {
   const pr = values.pr;
-  if (!pr) {
-    console.error("Fixer requires --pr <number>");
+  const ticket = values.ticket;
+  if (!pr || !ticket) {
+    console.error("Fixer requires --pr <number> --ticket <id>");
     process.exit(1);
   }
 
@@ -114,6 +115,7 @@ async function runFixer(): Promise<void> {
   const repoSlug = repo.replace("github.com/", "");
 
   const request = {
+    ticketId: ticket,
     prNumber,
     repository: repo,
     issues: [
@@ -187,8 +189,9 @@ async function runFixer(): Promise<void> {
  */
 async function runReview(): Promise<void> {
   const pr = values.pr;
-  if (!pr) {
-    console.error("Review requires --pr <number>");
+  const ticket = values.ticket;
+  if (!pr || !ticket) {
+    console.error("Review requires --pr <number> --ticket <id>");
     process.exit(1);
   }
 
@@ -198,6 +201,7 @@ async function runReview(): Promise<void> {
   const repoSlug = repo.replace("github.com/", "");
 
   const request = {
+    ticketId: ticket,
     prNumber,
     repository: repo,
   };
@@ -255,7 +259,7 @@ async function runFeature(): Promise<void> {
     title: values.title,
     type: values.type as "feature" | "bug" | "refactor" | "chore",
     priority: values.priority as "critical" | "high" | "medium" | "low",
-    size: values.size as "xs" | "s" | "m" | "l" | "xl",
+    complexity: parseInt(values.complexity, 10) as 1 | 2 | 3 | 5 | 8 | 13 | 21 | 34 | 55 | 89 | 144,
     repository: repo,
     criteria: "",
     description: values.description,

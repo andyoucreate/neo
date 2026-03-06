@@ -71,7 +71,7 @@ describe("HTTP Server — Extended", () => {
 
       const res = await request(app)
         .post("/dispatch/review")
-        .send({ prNumber: 1, repository: "github.com/org/repo" });
+        .send({ ticketId: "REV-1", prNumber: 1, repository: "github.com/org/repo" });
 
       expect(res.status).toBe(401);
 
@@ -84,7 +84,7 @@ describe("HTTP Server — Extended", () => {
       const res = await request(app)
         .post("/dispatch/review")
         .set("Authorization", "Bearer test-secret-token")
-        .send({ prNumber: 1, repository: "github.com/org/repo" });
+        .send({ ticketId: "REV-1", prNumber: 1, repository: "github.com/org/repo" });
 
       // Should get past auth — may succeed (200) or queue-related response
       expect(res.status).not.toBe(401);
@@ -97,7 +97,7 @@ describe("HTTP Server — Extended", () => {
 
       const res = await request(app)
         .post("/dispatch/review")
-        .send({ prNumber: 1, repository: "github.com/org/repo" });
+        .send({ ticketId: "REV-1", prNumber: 1, repository: "github.com/org/repo" });
 
       expect(res.status).not.toBe(401);
     });
@@ -119,6 +119,7 @@ describe("HTTP Server — Extended", () => {
 
     it("should reject fixer with empty issues array", async () => {
       const res = await request(app).post("/dispatch/fixer").send({
+        ticketId: "FIX-1",
         prNumber: 42,
         repository: "github.com/org/repo",
         issues: [],

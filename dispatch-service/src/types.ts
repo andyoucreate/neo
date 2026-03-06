@@ -3,7 +3,7 @@
 // ─── Ticket types ──────────────────────────────────────────────
 export type TicketType = "feature" | "bug" | "refactor" | "chore";
 export type Priority = "critical" | "high" | "medium" | "low";
-export type Size = "xs" | "s" | "m" | "l" | "xl";
+export type Complexity = 1 | 2 | 3 | 5 | 8 | 13 | 21 | 34 | 55 | 89 | 144;
 export type PipelineType = "feature" | "review" | "hotfix" | "fixer" | "refine";
 
 export interface SanitizedTicket {
@@ -11,7 +11,7 @@ export interface SanitizedTicket {
   title: string;
   type: TicketType;
   priority: Priority;
-  size: Size;
+  complexity: Complexity;
   criteria: string;
   description: string;
   repository: string;
@@ -24,7 +24,7 @@ export interface FeatureRequest {
   title: string;
   type: TicketType;
   priority: Priority;
-  size: Size;
+  complexity: Complexity;
   repository: string;
   criteria: string;
   description: string;
@@ -32,6 +32,7 @@ export interface FeatureRequest {
 }
 
 export interface ReviewRequest {
+  ticketId: string;
   prNumber: number;
   repository: string;
   skills?: string[];
@@ -56,6 +57,7 @@ export interface FixerIssue {
 }
 
 export interface FixerRequest {
+  ticketId: string;
   prNumber: number;
   repository: string;
   issues: FixerIssue[];
@@ -176,7 +178,7 @@ export interface RefineRequest {
   title: string;
   type: TicketType;
   priority: Priority;
-  size?: Size;
+  complexity?: Complexity;
   repository: string;
   criteria?: string;
   description?: string;
@@ -187,7 +189,7 @@ export interface SubTicket {
   title: string;
   type: TicketType;
   priority: Priority;
-  size: "xs" | "s";
+  complexity: 1 | 2;
   files: string[];
   criteria: string[];
   depends_on: string[];

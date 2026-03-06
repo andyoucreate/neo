@@ -49,20 +49,41 @@ If no explicit config is provided, detect the test framework and commands from
 3. Read the full content of implementation files AND their corresponding test files
 4. If a test file does not exist for a changed implementation file, note it immediately
 
-### Step 2: Run Test Suite
+### Step 2: Prove It Works — Behavioral Verification
 
-Run the project's test suite to understand the current state:
+Your primary job is NOT to list what's missing. It's to **prove the code works**
+by showing concrete evidence. Compare behavior between `main` and the feature branch.
+
+#### 2a. Baseline on main
 
 ```bash
-# Run tests with coverage report
-pnpm test -- --coverage 2>&1 | tail -50
-
-# Or run only tests related to changed files
-pnpm test -- --coverage {changed-files} 2>&1
+# Checkout main and run tests for the changed modules
+git stash && git checkout main
+pnpm test -- --coverage {changed-files} 2>&1 | tail -80
 ```
 
-Parse the coverage output. Note files with low coverage (<80% by default,
-or the threshold from the dispatcher config).
+Record: which tests exist, which pass, what coverage looks like.
+
+#### 2b. Feature branch verification
+
+```bash
+# Switch back to the feature branch
+git checkout - && git stash pop
+pnpm test -- --coverage {changed-files} 2>&1 | tail -80
+```
+
+Record: new tests added, pass/fail delta, coverage delta.
+
+#### 2c. Show the proof
+
+Your output MUST include a `proof` section with:
+- **Tests before** (main): count, pass/fail, coverage %
+- **Tests after** (feature): count, pass/fail, coverage %
+- **Delta**: what improved, what regressed, what's unchanged
+- **Verdict**: does the evidence prove the feature works?
+
+If the feature branch has NO new tests for new behavior, that's not a suggestion —
+that's a **CRITICAL** issue. New behavior without proof is unverified behavior.
 
 ### Step 3: Coverage Checklist
 
@@ -144,8 +165,14 @@ Produce a structured review as JSON:
 {
   "verdict": "APPROVED | CHANGES_REQUESTED",
   "summary": "1-2 sentence coverage assessment",
+  "proof": {
+    "main_branch": { "tests": 42, "passing": 42, "failing": 0, "coverage": "85%" },
+    "feature_branch": { "tests": 47, "passing": 47, "failing": 0, "coverage": "88%" },
+    "delta": "+5 tests, +3% coverage, 0 regressions",
+    "behavior_verified": true
+  },
   "coverage": {
-    "overall": "85%",
+    "overall": "88%",
     "changed_files": {
       "src/path/module.ts": "72%",
       "src/path/other.ts": "100%"

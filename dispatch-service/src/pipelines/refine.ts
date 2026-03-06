@@ -17,7 +17,7 @@ for a developer agent to implement on the first try.
 - **Title**: ${ticket.title}
 - **Type**: ${ticket.type}
 - **Priority**: ${ticket.priority}
-${ticket.size ? `- **Size**: ${ticket.size}` : ""}
+${ticket.complexity ? `- **Complexity**: ${ticket.complexity} points` : ""}
 
 ### Acceptance Criteria
 ${ticket.criteria || "_No criteria provided_"}
@@ -49,7 +49,7 @@ ${ticket.description || "_No description provided_"}
 
 IMPORTANT: Each sub-ticket must have EXACT file paths (from your codebase analysis),
 testable acceptance criteria, and a rich description referencing existing patterns.
-Sub-ticket sizes must be XS or S only.`;
+Sub-ticket complexity must be 1 or 2 points only.`;
 }
 
 /**
@@ -114,7 +114,7 @@ function parseRefineOutput(
           title: typeof st.title === "string" ? st.title : "",
           type: st.type as SubTicket["type"],
           priority: st.priority as SubTicket["priority"],
-          size: (st.size === "xs" ? "xs" : "s") satisfies SubTicket["size"],
+          complexity: (st.complexity === 1 ? 1 : 2) satisfies SubTicket["complexity"],
           files: Array.isArray(st.files) ? st.files.map((f) => typeof f === "string" ? f : "") : [],
           criteria: Array.isArray(st.criteria) ? st.criteria.map((c) => typeof c === "string" ? c : "") : [],
           depends_on: Array.isArray(st.depends_on) ? st.depends_on.map((d) => typeof d === "string" ? d : "") : [],

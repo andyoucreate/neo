@@ -35,6 +35,9 @@ export const SESSION_START_TIMEOUT_MS = 60_000; // 60s to start producing result
 // ─── Loop detection ───────────────────────────────────────────
 export const LOOP_DETECTION_THRESHOLD = 3; // block after N identical Bash commands
 
+// ─── Budget guard ──────────────────────────────────────────────
+export const DAILY_BUDGET_CAP_USD = Number(process.env.DAILY_BUDGET_CAP_USD) || 100;
+
 // ─── Input sanitization ────────────────────────────────────────
 export const MAX_TITLE_LENGTH = 200;
 export const MAX_DESCRIPTION_LENGTH = 2_000;

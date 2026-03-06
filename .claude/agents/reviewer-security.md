@@ -123,6 +123,50 @@ pnpm audit --json 2>/dev/null || npm audit --json 2>/dev/null
 
 Parse the output and include findings with severity levels in your report.
 
+### Step 4: Prove It Works — Behavioral Verification
+
+Don't just flag theoretical vulnerabilities — **prove the security posture** by
+comparing main vs feature branch with concrete evidence.
+
+#### 4a. Dependency audit comparison
+
+```bash
+# Audit on feature branch
+pnpm audit 2>&1 | tail -20
+
+# Compare with main
+git stash && git checkout main
+pnpm audit 2>&1 | tail -20
+git checkout - && git stash pop
+```
+
+Did the PR introduce new vulnerabilities? Did it fix existing ones? Show the delta.
+
+#### 4b. Secrets scan proof
+
+```bash
+# Scan for hardcoded secrets in changed files
+git diff main --name-only | xargs grep -inE '(api_key|secret|password|token|private_key)\s*[:=]' 2>/dev/null || echo "No secrets found"
+```
+
+Don't assume — scan and show the result.
+
+#### 4c. Auth coverage proof
+
+```bash
+# Verify new routes have auth middleware
+grep -rn 'router\.\(get\|post\|put\|delete\|patch\)' {changed-files} 2>/dev/null | head -20
+grep -rn 'auth\|guard\|middleware\|protect' {changed-files} 2>/dev/null | head -20
+```
+
+Are new endpoints protected? Show the evidence.
+
+Your output MUST include a `proof` section showing:
+- **Audit delta**: vulnerabilities before/after (main vs feature)
+- **Secrets scan**: clean or flagged, with file references
+- **Auth coverage**: new endpoints and their protection status
+- **Verdict**: does the evidence prove the security posture is maintained?
+
 ## Output Format
 
 Produce a structured review as JSON:
@@ -132,6 +176,12 @@ Produce a structured review as JSON:
   "verdict": "APPROVED | CHANGES_REQUESTED",
   "summary": "1-2 sentence security assessment",
   "risk_level": "HIGH | MEDIUM | LOW",
+  "proof": {
+    "audit_delta": { "main_vulns": 3, "feature_vulns": 3, "delta": 0 },
+    "secrets_scan": { "clean": true, "flagged_files": [] },
+    "auth_coverage": { "new_endpoints": 2, "protected": 2, "unprotected": 0 },
+    "security_verified": true
+  },
   "issues": [
     {
       "severity": "CRITICAL | HIGH | MEDIUM | LOW",

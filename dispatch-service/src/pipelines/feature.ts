@@ -85,7 +85,7 @@ The PR will target \`${baseBranch}\`.
 - **Title**: ${ticket.title}
 - **Type**: ${ticket.type}
 - **Priority**: ${ticket.priority}
-- **Size**: ${ticket.size}
+- **Complexity**: ${ticket.complexity} points
 
 ## Acceptance Criteria
 ${ticket.criteria || "_No specific criteria provided — infer from the title and description._"}
@@ -113,7 +113,7 @@ export async function runFeaturePipeline(
   branch: string,
   baseBranch: string,
 ): Promise<PipelineResult> {
-  const hasArchitect = ticket.size !== "xs" && ticket.size !== "s";
+  const hasArchitect = ticket.complexity >= 5;
 
   const selectedAgents: Record<string, AgentDefinition> = hasArchitect
     ? { architect: agents.architect, developer: agents.developer }

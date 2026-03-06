@@ -103,6 +103,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/org/repo",
       };
@@ -120,6 +121,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 100,
         repository: "github.com/org/repo",
       };
@@ -138,6 +140,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 200,
         repository: "github.com/org/repo",
       };
@@ -158,6 +161,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 99,
         repository: "github.com/org/repo",
       };
@@ -175,6 +179,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/acme/lib",
       };
@@ -194,6 +199,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream(true));
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/org/repo",
       };
@@ -211,6 +217,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream(false));
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/org/repo",
       };
@@ -225,6 +232,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/org/repo",
       };
@@ -245,6 +253,7 @@ describe("Review Pipeline", () => {
       mockQuery.mockReturnValue(createMockSuccessStream());
 
       const request: ReviewRequest = {
+        ticketId: "REV-1",
         prNumber: 42,
         repository: "github.com/org/repo",
       };

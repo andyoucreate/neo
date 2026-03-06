@@ -21,7 +21,7 @@ describe("HTTP Server", () => {
       title: "Add dark mode",
       type: "feature",
       priority: "medium",
-      size: "m",
+      complexity: 3,
       repository: "github.com/org/my-app",
       criteria: "User can toggle dark mode",
       description: "Implement dark mode",
@@ -58,7 +58,7 @@ describe("HTTP Server", () => {
     it("should reject invalid payload", async () => {
       const res = await request(app)
         .post("/dispatch/review")
-        .send({ prNumber: "not-a-number" });
+        .send({ ticketId: "REV-1", prNumber: "not-a-number" });
 
       expect(res.status).toBe(400);
     });
@@ -93,7 +93,7 @@ describe("HTTP Server", () => {
       // Verify dispatch is blocked
       res = await request(app)
         .post("/dispatch/review")
-        .send({ prNumber: 1, repository: "github.com/org/repo" });
+        .send({ ticketId: "REV-1", prNumber: 1, repository: "github.com/org/repo" });
       expect(res.status).toBe(503);
 
       // Resume
