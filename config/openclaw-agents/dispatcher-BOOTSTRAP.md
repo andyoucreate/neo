@@ -235,7 +235,7 @@ Reviewers auto-selected by diff size (<50 lines: 1, 50-300: 2, >300: 4).
 ```json
 { "ticketId": "T-42", "prNumber": 42, "repository": "github.com/andyoucreate/standards", "issues": [{ "source": "review", "severity": "HIGH", "file": "src/x.ts", "line": 42, "description": "...", "suggestion": "..." }] }
 ```
-Limits: 3 files, 3 attempts, 100 lines. Exceeds → ESCALATED.
+Limits: 6 attempts. Exceeds → ESCALATED.
 </payload-formats>
 
 ## Rules

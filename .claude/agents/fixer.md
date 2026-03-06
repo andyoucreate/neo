@@ -187,23 +187,19 @@ Produce a structured fix report:
 
 ## Attempt Tracking
 
-You have a maximum of 3 attempts to fix all issues:
+You have a maximum of 6 attempts to fix all issues:
 
-- **Attempt 1**: Implement the fix, run tests
-- **Attempt 2**: If tests fail from your fix, adjust and retry
-- **Attempt 3**: Final attempt
+- **Attempts 1-2**: Implement the fix, run tests
+- **Attempts 3-4**: If tests fail, adjust approach and retry
+- **Attempts 5-6**: Final attempts — try alternative strategies
 
-After 3 failed attempts, STOP and escalate:
+After 6 failed attempts, STOP and escalate:
 
 ```json
 {
   "status": "ESCALATED",
-  "reason": "Failed to fix after 3 attempts",
-  "attempts": [
-    { "attempt": 1, "result": "type error in ...", "details": "..." },
-    { "attempt": 2, "result": "test failure in ...", "details": "..." },
-    { "attempt": 3, "result": "still failing", "details": "..." }
-  ],
+  "reason": "Failed to fix after 6 attempts",
+  "attempts": [...],
   "recommendation": "Human review needed — root cause may be deeper than reported"
 }
 ```
@@ -214,10 +210,8 @@ These are HARD limits. Exceeding them triggers immediate escalation:
 
 | Limit | Value | Action on Exceed |
 |-------|-------|-----------------|
-| Files modified | 3 | Escalate to human |
-| Fix attempts | 3 | Escalate to human |
-| Lines changed | 100 | Escalate to human |
-| New files created | 1 | Escalate to human |
+| Fix attempts | 6 | Escalate to human |
+| New files created | 5 | Escalate to human |
 
 ## Error Handling
 
@@ -230,9 +224,7 @@ These are HARD limits. Exceeding them triggers immediate escalation:
 
 STOP and report to the dispatcher when:
 
-- Fix scope exceeds 3 files
-- 3 fix attempts fail
-- Lines changed exceed 100
+- 6 fix attempts fail
 - Test failures in code you did not modify
 - The root cause is architectural (requires design changes)
 - The issue description is unclear or contradictory
@@ -241,9 +233,7 @@ STOP and report to the dispatcher when:
 ## Hard Rules
 
 1. Fix ROOT CAUSES, never symptoms.
-2. Maximum 3 files modified per fix session.
-3. Maximum 3 attempts per fix session.
-4. Maximum 100 lines changed per fix session.
+2. Maximum 6 attempts per fix session.
 5. NEVER commit with failing tests.
 6. NEVER modify files unrelated to the reported issues.
 7. NEVER run destructive commands.

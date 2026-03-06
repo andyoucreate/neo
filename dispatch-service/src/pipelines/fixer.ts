@@ -21,14 +21,12 @@ ${issuesJson}
 
 ## Rules
 1. Fix ROOT CAUSES, never symptoms
-2. Maximum 3 files modified
-3. Maximum 3 fix attempts
-4. Maximum 100 lines changed
-5. Run full test suite before committing
-6. Auto-fix formatting before committing: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
-7. If scope exceeds limits, STOP and report "ESCALATED"
-8. Add regression tests for every fix
-9. After committing, PUSH your changes: git push origin HEAD
+2. Maximum 6 fix attempts
+3. Run full test suite before committing
+4. Auto-fix formatting before committing: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
+5. If you cannot fix after 6 attempts, STOP and report "ESCALATED"
+6. Add regression tests for every fix
+7. After committing, PUSH your changes: git push origin HEAD
 
 ## Output
 Report what was fixed and what was not, in structured JSON.`;

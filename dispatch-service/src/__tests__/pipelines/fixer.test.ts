@@ -296,9 +296,7 @@ describe("Fixer Pipeline", () => {
 
       const prompt = mockQuery.mock.calls[0]?.[0]?.prompt;
       expect(prompt).toContain("ROOT CAUSES");
-      expect(prompt).toContain("3 files");
-      expect(prompt).toContain("3 fix attempts");
-      expect(prompt).toContain("100 lines");
+      expect(prompt).toContain("6 fix attempts");
     });
 
     it("should include push instruction in prompt", async () => {
