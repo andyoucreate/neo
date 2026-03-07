@@ -44,7 +44,7 @@ describe("HTTP Server", () => {
     });
 
     it("should reject duplicate ticket dispatch", async () => {
-      dispatchedTickets.add("PROJ-42");
+      dispatchedTickets.add("feature:PROJ-42");
 
       const res = await request(app)
         .post("/dispatch/feature")

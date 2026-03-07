@@ -105,7 +105,7 @@ describe("HTTP Server — Extended", () => {
 
   describe("Dispatch endpoints — additional validation", () => {
     it("should reject hotfix with duplicate ticket", async () => {
-      dispatchedTickets.add("HOTFIX-1");
+      dispatchedTickets.add("hotfix:HOTFIX-1");
 
       const res = await request(app).post("/dispatch/hotfix").send({
         ticketId: "HOTFIX-1",

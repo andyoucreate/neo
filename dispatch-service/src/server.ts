@@ -112,8 +112,12 @@ const activeSessions = new Map<string, ActiveSession>();
 const startedAt = Date.now();
 let paused = false;
 
-// Track dispatched ticket IDs for idempotency
+// Track dispatched tickets for idempotency (scoped by pipeline:ticketId)
 const dispatchedTickets = new Set<string>();
+
+function idempotencyKey(pipeline: PipelineType, ticketId: string): string {
+  return `${pipeline}:${ticketId}`;
+}
 
 /**
  * Resolve the local repo directory from a repository identifier.
@@ -200,8 +204,8 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    if (dispatchedTickets.has(data.ticketId)) {
-      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+    if (dispatchedTickets.has(idempotencyKey("feature", data.ticketId))) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId, pipeline: "feature" });
       return;
     }
 
@@ -235,8 +239,8 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    if (dispatchedTickets.has(data.ticketId)) {
-      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+    if (dispatchedTickets.has(idempotencyKey("review", data.ticketId))) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId, pipeline: "review" });
       return;
     }
 
@@ -259,8 +263,8 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    if (dispatchedTickets.has(data.ticketId)) {
-      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+    if (dispatchedTickets.has(idempotencyKey("hotfix", data.ticketId))) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId, pipeline: "hotfix" });
       return;
     }
 
@@ -283,8 +287,8 @@ export function createServer(): express.Express {
 
     const data = parsed.data;
 
-    if (dispatchedTickets.has(data.ticketId)) {
-      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId });
+    if (dispatchedTickets.has(idempotencyKey("fixer", data.ticketId))) {
+      res.status(409).json({ error: "Ticket already dispatched", ticketId: data.ticketId, pipeline: "fixer" });
       return;
     }
 
@@ -464,7 +468,7 @@ async function dispatchPipeline(
     const sessionId = await semaphore.acquire(repository);
 
     if (meta.ticketId) {
-      dispatchedTickets.add(meta.ticketId);
+      dispatchedTickets.add(idempotencyKey(pipeline, meta.ticketId));
     }
 
     const session: ActiveSession = {
@@ -574,10 +578,9 @@ async function runPipelineInBackground(
     markInitialized();
     clearTimeout(maxDurationTimeout);
     await recordResult(sessionId, result);
-    if (result.status !== "success") {
-      // Allow retry on non-success (failure, timeout, cancelled)
-      releaseTicketId(sessionId);
-    }
+    // Always release idempotency lock after completion (success or failure)
+    // to allow pipeline chaining (e.g. review → fixer → review)
+    releaseTicketId(sessionId);
   } catch (error) {
     markInitialized();
     clearTimeout(maxDurationTimeout);
@@ -775,8 +778,8 @@ async function recordResult(
 function releaseTicketId(sessionId: string): void {
   const session = activeSessions.get(sessionId);
   if (session?.ticketId) {
-    dispatchedTickets.delete(session.ticketId);
-    logger.info(`Released ticket ${session.ticketId} for retry`);
+    dispatchedTickets.delete(idempotencyKey(session.pipeline, session.ticketId));
+    logger.info(`Released ${session.pipeline}:${session.ticketId} for retry`);
   }
 }
 
