@@ -76,6 +76,35 @@ async function unlockBranchWorktree(
 }
 
 /**
+ * Force-clean a branch that already exists: remove any worktree locking it,
+ * prune stale references, then delete the branch.
+ */
+async function forceCleanBranch(
+  repoDir: string,
+  branchName: string,
+): Promise<void> {
+  try {
+    await execFileAsync("git", ["branch", "-D", branchName], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (delErr: unknown) {
+    const delMsg = delErr instanceof Error ? delErr.message : "";
+    if (delMsg.includes("used by worktree")) {
+      // Branch is locked by an orphaned worktree — remove it first
+      await unlockBranchWorktree(repoDir, delMsg);
+      // Retry branch deletion after worktree removal
+      await execFileAsync("git", ["branch", "-D", branchName], {
+        cwd: repoDir,
+        timeout: GIT_TIMEOUT,
+      }).catch(() => {});
+    } else {
+      logger.warn("Failed to delete branch during cleanup", delErr);
+    }
+  }
+}
+
+/**
  * Create an isolated git worktree for an agent session.
  * Returns the path to the new worktree directory.
  */
@@ -129,12 +158,9 @@ export async function createWorktree(
           );
         });
       } else if (msg.includes("already exists")) {
-        // Branch exists from a previous failed run — delete it and retry
+        // Branch exists from a previous failed run — remove any worktree locking it first
         logger.warn(`Branch ${branchName} already exists, cleaning up and retrying`);
-        await execFileAsync("git", ["branch", "-D", branchName], {
-          cwd: repoDir,
-          timeout: GIT_TIMEOUT,
-        }).catch((err: unknown) => logger.warn("Failed to delete branch during cleanup", err));
+        await forceCleanBranch(repoDir, branchName);
         await execFileAsync(
           "git",
           ["worktree", "add", "-b", branchName, worktreePath, `origin/${baseBranch}`],
@@ -292,11 +318,20 @@ export async function createWorktreeForBranch(
           { cwd: repoDir, timeout: GIT_TIMEOUT },
         );
       } else if (msg.includes("already exists")) {
+        // Branch exists locally — remove any worktree locking it, then checkout
+        await forceCleanBranch(repoDir, branch);
         await execFileAsync(
           "git",
-          ["worktree", "add", worktreePath, branch],
+          ["worktree", "add", "--track", "-b", branch, worktreePath, `origin/${branch}`],
           { cwd: repoDir, timeout: GIT_TIMEOUT },
-        );
+        ).catch(async () => {
+          // If -b still fails, try without creating a new branch
+          await execFileAsync(
+            "git",
+            ["worktree", "add", worktreePath, branch],
+            { cwd: repoDir, timeout: GIT_TIMEOUT },
+          );
+        });
       } else {
         throw err;
       }
