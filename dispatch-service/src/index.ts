@@ -1,16 +1,52 @@
 import type { Server } from "node:http";
 import { notifyServiceLifecycle } from "./callback.js";
-import { SERVER_HOST, SERVER_PORT } from "./config.js";
+import { REPOS_BASE_DIR, SERVER_HOST, SERVER_PORT } from "./config.js";
 import { appendEvent, replayJournal } from "./event-journal.js";
 import { logger } from "./logger.js";
 import { activeSessions, createServer } from "./server.js";
+import { pruneWorktrees } from "./worktree.js";
 
 const SHUTDOWN_TIMEOUT_MS = 30_000;
 let server: Server | null = null;
 let shuttingDown = false;
 
+/**
+ * Prune stale worktrees for all repo directories found under REPOS_BASE_DIR.
+ */
+async function pruneAllRepoWorktrees(): Promise<void> {
+  const { readdir, stat } = await import("node:fs/promises");
+  const { join } = await import("node:path");
+
+  let totalPruned = 0;
+  try {
+    const orgs = await readdir(REPOS_BASE_DIR);
+    for (const org of orgs) {
+      const orgPath = join(REPOS_BASE_DIR, org);
+      const orgStat = await stat(orgPath).catch(() => null);
+      if (!orgStat?.isDirectory()) continue;
+      const repos = await readdir(orgPath);
+      for (const repo of repos) {
+        const repoPath = join(orgPath, repo);
+        const repoStat = await stat(join(repoPath, ".git")).catch(() => null);
+        if (!repoStat) continue;
+        totalPruned += await pruneWorktrees(repoPath);
+      }
+    }
+  } catch {
+    // REPOS_BASE_DIR might not exist locally — that's fine
+  }
+  if (totalPruned > 0) {
+    logger.info(`Startup: pruned ${totalPruned} stale worktree(s) across all repos`);
+  }
+}
+
 async function start(): Promise<void> {
   const app = createServer();
+
+  // Prune stale worktrees from crashed/timed-out sessions
+  await pruneAllRepoWorktrees().catch((err: unknown) =>
+    logger.warn("Startup worktree prune failed (non-fatal)", err),
+  );
 
   // Replay journal to detect unfinished sessions from previous run
   const pending = await replayJournal();

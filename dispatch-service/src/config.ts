@@ -33,7 +33,7 @@ export const RECOVERY_BACKOFF_BASE_MS = 30_000;
 export const SESSION_INIT_TIMEOUT_MS =
   Number(process.env.SESSION_INIT_TIMEOUT_MS) || 120_000; // 2 min to get first SDK response
 export const SESSION_MAX_DURATION_MS =
-  Number(process.env.SESSION_MAX_DURATION_MS) || 30 * 60_000; // 30 min absolute safety net
+  Number(process.env.SESSION_MAX_DURATION_MS) || 60 * 60_000; // 60 min absolute safety net
 
 // ─── CI polling ──────────────────────────────────────────────
 export const CI_POLL_MAX_WAIT_MS =

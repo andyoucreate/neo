@@ -39,6 +39,7 @@ async function cleanupStaleWorktree(
 /**
  * Force-remove a worktree lock on a branch so it can be reused.
  * Extracts the stale worktree path from the error message and removes it.
+ * Uses aggressive cleanup: git remove, then rm + prune as fallback, always prune at end.
  */
 async function unlockBranchWorktree(
   repoDir: string,
@@ -46,7 +47,14 @@ async function unlockBranchWorktree(
 ): Promise<void> {
   // Extract path from: "already used by worktree at '/tmp/voltaire-worktrees/dispatch-xxx'"
   const match = errorMessage.match(/already used by worktree at '([^']+)'/);
-  if (!match) return;
+  if (!match) {
+    logger.warn("Could not extract stale worktree path from error — running global prune");
+    await execFileAsync("git", ["worktree", "prune"], {
+      cwd: repoDir,
+      timeout: GIT_TIMEOUT,
+    }).catch(() => {});
+    return;
+  }
 
   const stalePath = match[1];
   logger.warn(`Removing stale worktree lock at ${stalePath}`);
@@ -55,13 +63,16 @@ async function unlockBranchWorktree(
       cwd: repoDir,
       timeout: GIT_TIMEOUT,
     });
-  } catch {
+  } catch (removeErr) {
+    logger.warn(`git worktree remove failed for ${stalePath}, forcing cleanup`, removeErr);
     await rm(stalePath, { recursive: true, force: true }).catch(() => {});
-    await execFileAsync("git", ["worktree", "prune"], {
-      cwd: repoDir,
-      timeout: GIT_TIMEOUT,
-    }).catch(() => {});
   }
+
+  // Always prune to clear any dangling references
+  await execFileAsync("git", ["worktree", "prune"], {
+    cwd: repoDir,
+    timeout: GIT_TIMEOUT,
+  }).catch(() => {});
 }
 
 /**
