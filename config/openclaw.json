@@ -33,7 +33,9 @@
         "match": { "path": "notion-ticket" },
         "action": "agent",
         "agentId": "dispatcher",
-        "messageTemplate": "Notion webhook received. Event type: {{type}}. Ticket data: {{json}}. Read the full ticket from Notion, resolve the repository from the Project Registry, assess ticket clarity, and route to the appropriate pipeline (refine for vague tickets, feature for clear ones, hotfix for critical bugs)."
+        "transform": {
+          "module": "notion-ticket.js"
+        }
       },
       {
         "match": { "path": "github-pr" },
