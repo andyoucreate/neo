@@ -1,0 +1,12 @@
+name: fixer
+description: "Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms."
+model: opus
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+sandbox: writable
+prompt: ../prompts/fixer.md

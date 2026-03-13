@@ -1,0 +1,10 @@
+name: reviewer-perf
+description: "Performance reviewer. Flags N+1 and O(n^2) on unbounded data in changed code only. Approves by default."
+model: sonnet
+tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+sandbox: readonly
+prompt: ../prompts/reviewer-perf.md

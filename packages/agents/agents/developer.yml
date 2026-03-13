@@ -1,0 +1,12 @@
+name: developer
+description: "Implementation worker. Executes atomic tasks from specs in isolated worktrees. Follows strict scope discipline."
+model: opus
+tools:
+  - Read
+  - Write
+  - Edit
+  - Bash
+  - Glob
+  - Grep
+sandbox: writable
+prompt: ../prompts/developer.md

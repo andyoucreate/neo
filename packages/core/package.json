@@ -12,5 +12,12 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
     "test": "vitest run"
+  },
+  "dependencies": {
+    "yaml": "^2.8.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0"
   }
 }

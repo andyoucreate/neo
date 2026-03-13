@@ -1,0 +1,11 @@
+name: architect
+description: "Strategic planner and decomposer. Analyzes features, designs architecture, creates roadmaps, and decomposes work into atomic tasks. Never writes code."
+model: opus
+tools:
+  - Read
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+sandbox: readonly
+prompt: ../prompts/architect.md

@@ -1,0 +1,11 @@
+name: refiner
+description: "Ticket quality evaluator and decomposer. Reads the target codebase to assess ticket clarity and split vague tickets into precise, implementable sub-tickets."
+model: opus
+tools:
+  - Read
+  - Glob
+  - Grep
+  - WebSearch
+  - WebFetch
+sandbox: readonly
+prompt: ../prompts/refiner.md
