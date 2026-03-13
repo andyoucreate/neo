@@ -20,13 +20,14 @@ ${issuesJson}
 \`\`\`
 
 ## Rules
-1. Fix ROOT CAUSES, never symptoms
-2. Maximum 6 fix attempts
-3. Run full test suite before committing
-4. Auto-fix formatting before committing: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available)
-5. If you cannot fix after 6 attempts, STOP and report "ESCALATED"
-6. Add regression tests for every fix
-7. After committing, PUSH your changes: git push origin HEAD
+1. Fix ONLY the issues listed above. Do not refactor or improve anything else.
+2. Fix ROOT CAUSES, never symptoms.
+3. Run the test suite before committing to verify nothing is broken.
+4. Auto-fix formatting before committing: \`pnpm lint --fix\` (or \`pnpm format\` / \`pnpm biome check --write .\` if available).
+5. If you cannot fix an issue after 2 attempts, skip it and report it as unresolved.
+6. Only add a regression test if the issue is a BUG FIX. Do NOT add tests for style/quality fixes.
+7. After committing, PUSH your changes: git push origin HEAD.
+8. STOP as soon as all issues are addressed. Do not explore or improve further.
 
 ## Output
 Report what was fixed and what was not, in structured JSON.`;

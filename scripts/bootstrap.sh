@@ -80,10 +80,10 @@ echo "Setting up Claude Code CLI credentials for voltaire user..."
 su - voltaire -c "claude login"
 
 # 13. Clone repo + build dispatch-service
-REPO_DIR=/home/voltaire/repos/voltaire-network
+REPO_DIR=/home/voltaire/repos/neo
 if [ ! -d "$REPO_DIR/.git" ]; then
   su - voltaire -c "mkdir -p /home/voltaire/repos"
-  su - voltaire -c "git clone git@github.com:andyoucreate/voltaire-network.git $REPO_DIR"
+  su - voltaire -c "git clone git@github.com:andyoucreate/neo.git $REPO_DIR"
 fi
 su - voltaire -c "cd $REPO_DIR/dispatch-service && pnpm install --frozen-lockfile && pnpm build"
 

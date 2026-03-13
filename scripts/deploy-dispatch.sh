@@ -2,7 +2,7 @@
 # deploy-dispatch.sh — Pull latest code, rebuild, and restart the dispatch service
 set -euo pipefail
 
-REPO_DIR=/home/voltaire/repos/voltaire-network
+REPO_DIR=/home/voltaire/repos/neo
 SERVICE=voltaire-dispatch
 
 echo "=== Deploying Voltaire Dispatch Service ==="

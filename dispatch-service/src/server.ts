@@ -532,6 +532,7 @@ async function runPipelineInBackground(
       ticketId: session?.ticketId,
       metadata: { reason: "init_timeout" },
     }).catch((err: unknown) => logger.error("Failed to log init timeout event", err));
+    releaseTicketId(sessionId);
     notifyPipelineResult({
       sessionId,
       pipeline,
@@ -543,7 +544,6 @@ async function runPipelineInBackground(
       durationMs: SESSION_INIT_TIMEOUT_MS,
       timestamp: new Date().toISOString(),
     });
-    releaseTicketId(sessionId);
     void cleanupSession(sessionId);
   }, SESSION_INIT_TIMEOUT_MS);
 
@@ -558,6 +558,7 @@ async function runPipelineInBackground(
       ticketId: session.ticketId,
       metadata: { reason: "max_duration" },
     }).catch((err: unknown) => logger.error("Failed to log max duration event", err));
+    releaseTicketId(sessionId);
     notifyPipelineResult({
       sessionId,
       pipeline,
@@ -569,7 +570,6 @@ async function runPipelineInBackground(
       durationMs: SESSION_MAX_DURATION_MS,
       timestamp: new Date().toISOString(),
     });
-    releaseTicketId(sessionId);
     void cleanupSession(sessionId);
   }, SESSION_MAX_DURATION_MS);
 
@@ -577,16 +577,18 @@ async function runPipelineInBackground(
     const result = await runner(markInitialized);
     markInitialized();
     clearTimeout(maxDurationTimeout);
-    await recordResult(sessionId, result);
-    // Always release idempotency lock after completion (success or failure)
-    // to allow pipeline chaining (e.g. review → fixer → review)
+    // Release idempotency lock BEFORE sending callback to avoid race condition:
+    // callback → dispatcher re-dispatches → 409 because lock still held
     releaseTicketId(sessionId);
+    await recordResult(sessionId, result);
+    await cleanupSession(sessionId);
   } catch (error) {
     markInitialized();
     clearTimeout(maxDurationTimeout);
     const session = activeSessions.get(sessionId);
     logger.error(`Background ${pipeline} pipeline error`, error);
     await appendEvent("dispatch.failed", { pipeline, sessionId, ticketId: session?.ticketId }).catch((err: unknown) => logger.error("Failed to log dispatch failure event", err));
+    releaseTicketId(sessionId);
     notifyPipelineResult({
       sessionId,
       pipeline,
@@ -598,7 +600,6 @@ async function runPipelineInBackground(
       durationMs: 0,
       timestamp: new Date().toISOString(),
     });
-    releaseTicketId(sessionId);
     await cleanupSession(sessionId);
   }
 }

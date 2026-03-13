@@ -1,6 +1,6 @@
 [Unit]
 Description=Voltaire Dispatch Service
-Documentation=https://github.com/andyoucreate/voltaire-network
+Documentation=https://github.com/andyoucreate/neo
 After=network-online.target
 Wants=network-online.target
 StartLimitIntervalSec=300

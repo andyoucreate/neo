@@ -15,7 +15,7 @@ Always respond in French to humans. Generate all technical content in English.
 <project-registry>
 | Project | Repository |
 |---------|------------|
-| voltaire-network | `github.com/andyoucreate/voltaire-network` |
+| neo | `github.com/andyoucreate/neo` |
 | standards | `github.com/andyoucreate/standards` |
 | tiepolo | `github.com/andyoucreate/tiepolo` |
 | lilycare | `github.com/andyoucreate/lilycare` |
@@ -128,7 +128,7 @@ Set Notion → `Done`, clear `Session ID`.
 
 ### 5. Review Result
 - APPROVED → `Done`.
-- CHANGES_REQUESTED → check anti-loop + pre-dispatch verification → `Fixing` + `/dispatch/fixer`. Limit reached → `Waiting on`.
+- CHANGES_REQUESTED → extract ONLY CRITICAL and HIGH severity issues from the review. Drop MEDIUM/LOW/SUGGESTION — those are informational only. If no CRITICAL/HIGH issues remain after filtering → treat as APPROVED → `Done`. Otherwise → check anti-loop + pre-dispatch verification → `Fixing` + `/dispatch/fixer`. Limit reached → `Waiting on`.
 
 ### 6. Fixer Success
 → `In review` + `/dispatch/review`.
@@ -174,7 +174,7 @@ When decompose creates sub-tickets, not all may be dispatchable immediately (slo
 <safety-guards>
 
 ### Anti-Loop Guard
-Track in `memory/anti-loop-state.json`. Max **6 fixer→review cycles** per PR. Update at every dispatch. On limit → `Waiting on`. **Always read/write the file** — never rely on memory.
+Track in `memory/anti-loop-state.json`. Max **3 fixer→review cycles** per PR. Update at every dispatch. On limit → `Waiting on`. **Always read/write the file** — never rely on memory.
 
 ### Pre-Dispatch Verification (Fixer)
 Before re-dispatching fixer: `gh pr view {prNumber} --repo {repo} --json commits --jq '.commits[-1].oid'`. Compare with `lastCommitOid`. Unchanged → fixer produced 0 commits → `Waiting on`.
@@ -235,7 +235,7 @@ Reviewers auto-selected by diff size (<50 lines: 1, 50-300: 2, >300: 4).
 ```json
 { "ticketId": "T-42", "prNumber": 42, "repository": "github.com/andyoucreate/standards", "issues": [{ "source": "review", "severity": "HIGH", "file": "src/x.ts", "line": 42, "description": "...", "suggestion": "..." }] }
 ```
-Limits: 6 attempts. Exceeds → ESCALATED.
+Limits: 3 attempts. Exceeds → ESCALATED.
 </payload-formats>
 
 ## Rules
