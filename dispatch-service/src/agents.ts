@@ -64,7 +64,7 @@ export const agents: Record<string, AgentDefinition> = {
   // ─── reviewer-quality ────────────────────────────────────────
   "reviewer-quality": {
     description:
-      "Code quality reviewer. Checks DRY, naming, complexity, patterns, architecture, and import hygiene. Read-only.",
+      "Code quality reviewer. Catches real bugs and DRY violations in changed code only. Approves by default. Read-only.",
     prompt: loadAgentPrompt("reviewer-quality"),
     tools: ["Read", "Glob", "Grep"],
     model: "sonnet",
@@ -73,7 +73,7 @@ export const agents: Record<string, AgentDefinition> = {
   // ─── reviewer-security ───────────────────────────────────────
   "reviewer-security": {
     description:
-      "Security auditor. Reviews for injection attacks, auth gaps, secrets exposure, and dependency vulnerabilities.",
+      "Security auditor. Flags directly exploitable vulnerabilities in changed code only. Approves by default.",
     prompt: loadAgentPrompt("reviewer-security"),
     tools: ["Read", "Glob", "Grep", "Bash"],
     model: "opus",
@@ -82,7 +82,7 @@ export const agents: Record<string, AgentDefinition> = {
   // ─── reviewer-perf ───────────────────────────────────────────
   "reviewer-perf": {
     description:
-      "Performance reviewer. Identifies N+1 queries, re-renders, bundle bloat, memory leaks, and algorithmic inefficiencies.",
+      "Performance reviewer. Flags N+1 and O(n²) on unbounded data in changed code only. Approves by default.",
     prompt: loadAgentPrompt("reviewer-perf"),
     tools: ["Read", "Glob", "Grep"],
     model: "sonnet",
@@ -91,7 +91,7 @@ export const agents: Record<string, AgentDefinition> = {
   // ─── reviewer-coverage ───────────────────────────────────────
   "reviewer-coverage": {
     description:
-      "Test coverage reviewer. Identifies missing tests, untested edge cases, error paths, and over-mocking.",
+      "Test coverage reviewer. Recommends missing tests for critical paths. Never blocks merge.",
     prompt: loadAgentPrompt("reviewer-coverage"),
     tools: ["Read", "Glob", "Grep", "Bash"],
     model: "sonnet",

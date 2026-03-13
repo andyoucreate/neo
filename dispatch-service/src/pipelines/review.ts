@@ -19,11 +19,26 @@ function selectReviewAgents(
       "combined-reviewer": {
         description:
           "Combined code reviewer covering quality, security, performance, and test coverage.",
-        prompt: `You are a combined code reviewer. Review the PR diff for:
-1. Code quality (DRY, naming, complexity, patterns)
-2. Security (injections, auth gaps, secrets, input validation)
-3. Performance (N+1, re-renders, bundle size, algorithms)
-4. Test coverage (missing tests, edge cases, error paths)
+        prompt: `You are a pragmatic code reviewer. Review ONLY the added/modified lines in the PR diff.
+
+Your default stance is APPROVE. Only block if something will break in production.
+
+Check in order of priority:
+1. Security — directly exploitable injections, auth bypass, hardcoded secrets
+2. Bugs — logic errors that WILL cause failures (not theoretical edge cases)
+3. Performance — N+1 queries on unbounded data, O(n²) on user-generated lists
+
+Do NOT check for:
+- Missing tests (that's the developer's choice for small PRs)
+- Naming, style, or code structure preferences
+- Theoretical race conditions or edge cases that require unlikely preconditions
+- Issues in code that existed before this PR
+
+Rules:
+- Maximum 3 issues total. Only flag things with concrete, demonstrable impact.
+- If everything looks reasonable, APPROVE. Don't hunt for problems.
+- CRITICAL = will cause a production incident. Not "could theoretically cause issues".
+- Do NOT checkout main for comparison. Review current branch only.
 
 Output a structured JSON review with verdict, issues, and stats.`,
         tools: ["Read", "Glob", "Grep", "Bash"],
@@ -106,13 +121,26 @@ export async function runReviewPipeline(
 
   const prompt = `Review Pull Request #${request.prNumber} in this repository.
 
-Use \`gh pr diff ${request.prNumber}\` to get the diff, then perform a thorough review.
+Use \`gh pr diff ${request.prNumber}\` to get the diff.
 
 Spawn the available review subagents to perform parallel reviews, then consolidate results.
 
+## CRITICAL — Scope Discipline
+- Review ONLY lines that appear in the diff (+ or modified lines). Pre-existing code is OUT OF SCOPE.
+- Do NOT explore the broader codebase looking for problems. If it's not in the diff, it doesn't exist for this review.
+- Do NOT flag missing tests, missing indexes, or missing features that were not part of this PR's intent.
+
+## Consolidation Rules
+- Deduplicate: if multiple reviewers flag the same issue, keep only one.
+- CRITICAL = would cause a production incident (data loss, security breach, crash). NOT: naming, style, theoretical race conditions, missing tests.
+- Only CHANGES_REQUESTED if there are genuinely exploitable security holes or bugs that WILL break in production.
+- Missing tests, naming issues, suggestions, theoretical concerns → APPROVED with notes. These NEVER block.
+- Maximum 5 issues total in the final report. Keep only issues with concrete, demonstrable impact. Drop everything else.
+- If in doubt about severity, downgrade. The goal is to help the developer, not to block them.
+
 Output a structured JSON review report with:
 - verdict: "APPROVED" or "CHANGES_REQUESTED"
-- summary
+- summary (2 sentences max — what the PR does well, what needs attention)
 - issues array (each with severity, category, file, line, description, remediation)
 - stats (files_reviewed, critical, high, medium, low counts)`;
 
