@@ -1,0 +1,11 @@
+{
+  "name": "@neo-cli/agents",
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'no build needed'",
+    "typecheck": "echo 'no typecheck needed'",
+    "lint": "echo 'no lint needed'",
+    "test": "echo 'no tests needed'"
+  }
+}

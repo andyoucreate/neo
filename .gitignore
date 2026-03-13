@@ -34,8 +34,11 @@ locks/
 # Events journal (runtime)
 events/
 
-# Dispatch service build output
-dispatch-service/dist/
+# Build output
+dist/
+
+# Archive (legacy code, kept for reference)
+archive/
 
 # Test coverage reports
 coverage/

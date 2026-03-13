@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "composite": true
+  },
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/cli" }
+  ]
+}

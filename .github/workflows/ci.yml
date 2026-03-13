@@ -2,29 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
     branches: [main]
+  pull_request:
 
 jobs:
-  shellcheck:
-    name: ShellCheck
+  check:
+    name: Typecheck, Lint & Test
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install ShellCheck
-        run: sudo apt-get install -y shellcheck
-      - name: Run ShellCheck on scripts
-        run: shellcheck scripts/*.sh
-      - name: Run ShellCheck on hooks
-        run: shellcheck .claude/hooks/*.sh
-
-  dispatch-service:
-    name: Dispatch Service
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: dispatch-service
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,15 +21,7 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm typecheck
+      - name: Lint
+        run: pnpm lint
       - name: Test
         run: pnpm test
-
-  validate-configs:
-    name: Validate Configs
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install validators
-        run: npm install -g jsonlint
-      - name: Validate JSON
-        run: jsonlint config/openclaw.json
