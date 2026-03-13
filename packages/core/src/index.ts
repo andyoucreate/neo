@@ -14,4 +14,24 @@ export {
   neoConfigSchema,
   repoConfigSchema,
 } from "./config.js";
+export {
+  createBranch,
+  deleteBranch,
+  fetchRemote,
+  getBranchName,
+  getCurrentBranch,
+  pushBranch,
+} from "./isolation/git.js";
+
+// ─── Isolation ──────────────────────────────────────────
+export { withGitLock } from "./isolation/git-mutex.js";
+export type { SandboxConfig } from "./isolation/sandbox.js";
+export { buildSandboxConfig } from "./isolation/sandbox.js";
+export type { WorktreeInfo } from "./isolation/worktree.js";
+export {
+  cleanupOrphanedWorktrees,
+  createWorktree,
+  listWorktrees,
+  removeWorktree,
+} from "./isolation/worktree.js";
 export * from "./types.js";
