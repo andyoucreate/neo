@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { addRepoToGlobalConfig, getDataDir, loadGlobalConfig } from "@neo-cli/core";
+import { addRepoToGlobalConfig, getDataDir, loadGlobalConfig } from "@neotx/core";
 import { defineCommand } from "citty";
 import { detectDefaultBranch } from "../git-utils.js";
 import { printError, printSuccess } from "../output.js";

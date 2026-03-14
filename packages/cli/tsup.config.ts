@@ -4,12 +4,13 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "daemon/worker": "src/daemon/worker.ts",
+    "daemon/supervisor-worker": "src/daemon/supervisor-worker.ts",
   },
   format: ["esm"],
   target: "es2022",
   clean: true,
   sourcemap: true,
-  external: ["@neo-cli/core"],
+  external: ["@neotx/core"],
   esbuildOptions(options) {
     options.banner = {
       // Only add shebang to the CLI entry, not the worker

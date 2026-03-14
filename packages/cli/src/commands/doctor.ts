@@ -10,7 +10,7 @@ import {
   listReposFromGlobalConfig,
   loadGlobalConfig,
   toRepoSlug,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -100,6 +100,19 @@ async function checkLegacyConfig(): Promise<CheckResult | null> {
   return null;
 }
 
+async function checkTmux(): Promise<CheckResult> {
+  try {
+    const { stdout } = await execFileAsync("tmux", ["-V"]);
+    return { name: "tmux", status: "pass", message: stdout.trim() };
+  } catch {
+    return {
+      name: "tmux",
+      status: "info",
+      message: "not installed (required for neo supervise)",
+    };
+  }
+}
+
 async function checkClaudeCli(): Promise<CheckResult> {
   try {
     const { stdout } = await execFileAsync("claude", ["--version"]);
@@ -166,6 +179,7 @@ export default defineCommand({
         checkGlobalConfig(),
         checkRepoRegistered(),
         checkLegacyConfig(),
+        checkTmux(),
         checkClaudeCli(),
         checkAgents(),
         checkJournalDirs(),

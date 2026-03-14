@@ -108,6 +108,10 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
       queryOptions.resume = options.resumeSessionId;
     }
 
+    if (options.mcpServers?.length) {
+      queryOptions.mcpServers = options.mcpServers;
+    }
+
     let output = "";
     let costUsd = 0;
     let turnCount = 0;

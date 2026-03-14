@@ -50,3 +50,44 @@ export function getRunDispatchPath(repoSlug: string, runId: string): string {
 export function getRunLogPath(repoSlug: string, runId: string): string {
   return path.join(getRepoRunsDir(repoSlug), `${runId}.log`);
 }
+
+/**
+ * Directory for all supervisor instances: ~/.neo/supervisors/
+ */
+export function getSupervisorsDir(): string {
+  return path.join(getDataDir(), "supervisors");
+}
+
+/**
+ * Directory for a specific supervisor instance: ~/.neo/supervisors/<name>/
+ */
+export function getSupervisorDir(name: string): string {
+  return path.join(getSupervisorsDir(), name);
+}
+
+/**
+ * Path to a supervisor state file: ~/.neo/supervisors/<name>/state.json
+ */
+export function getSupervisorStatePath(name: string): string {
+  return path.join(getSupervisorDir(name), "state.json");
+}
+
+export function getSupervisorMemoryPath(name: string): string {
+  return path.join(getSupervisorDir(name), "memory.md");
+}
+
+export function getSupervisorActivityPath(name: string): string {
+  return path.join(getSupervisorDir(name), "activity.jsonl");
+}
+
+export function getSupervisorInboxPath(name: string): string {
+  return path.join(getSupervisorDir(name), "inbox.jsonl");
+}
+
+export function getSupervisorEventsPath(name: string): string {
+  return path.join(getSupervisorDir(name), "events.jsonl");
+}
+
+export function getSupervisorLockPath(name: string): string {
+  return path.join(getSupervisorDir(name), "daemon.lock");
+}

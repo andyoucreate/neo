@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { NeoEvent, PersistedRun } from "@neo-cli/core";
+import type { NeoEvent, PersistedRun } from "@neotx/core";
 import {
   AgentRegistry,
   getRepoRunsDir,
@@ -12,7 +12,7 @@ import {
   loadGlobalConfig,
   Orchestrator,
   toRepoSlug,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -46,7 +46,7 @@ function parseMetadata(meta: string | undefined): Record<string, unknown> | unde
   }
 }
 
-function printResult(result: import("@neo-cli/core").TaskResult, agentName: string): void {
+function printResult(result: import("@neotx/core").TaskResult, agentName: string): void {
   console.log("");
   console.log(`Run:      ${result.runId}`);
   console.log(`Agent:    ${agentName}`);

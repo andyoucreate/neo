@@ -1,6 +1,6 @@
 # Neo — Supervisor Skills
 
-Claude Code skills that teach the supervisor how to use neo effectively. These ship with `@neo-cli/cli` and are installed into the user's Claude Code environment when they run `neo init`.
+Claude Code skills that teach the supervisor how to use neo effectively. These ship with `neotx` and are installed into the user's Claude Code environment when they run `neo init`.
 
 ## Why Skills?
 
@@ -443,7 +443,7 @@ neo logs --level error                # errors only
 
 ### Skill files are versioned
 
-When the user upgrades `@neo-cli/cli`, running `neo init --upgrade-skills` updates the skill files without touching the rest of the config.
+When the user upgrades `neotx`, running `neo init --upgrade-skills` updates the skill files without touching the rest of the config.
 
 ### Skills are project-scoped
 

@@ -16,11 +16,11 @@ First public release.
 - **Run persistence** - `.neo/runs/<runId>.json` written after every step for cross-process recovery
 - **CLI** - `neo init`, `neo run <agent>`, `neo runs`, `neo logs`, `neo cost`, `neo agents`, `neo doctor`
 - **Supervisor monitoring** - `neo runs --short`, `neo logs --short`, `neo cost --short` with token-efficient output for supervisor agents
-- **Programmatic API** - full `@neo-cli/core` library for custom orchestration
+- **Programmatic API** - full `@neotx/core` library for custom orchestration
 
 ### Architecture
 
-- Monorepo with 3 packages: `@neo-cli/core`, `@neo-cli/cli`, `@neo-cli/agents`
+- Monorepo with 3 packages: `@neotx/core`, `neotx`, `@neotx/agents`
 - Zero infrastructure - no database, no Redis, no Docker
 - Zod schemas as single source of truth for all types
 - ESM only, TypeScript strict, Biome for linting

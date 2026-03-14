@@ -79,6 +79,14 @@ export {
   getRunDispatchPath,
   getRunLogPath,
   getRunsDir,
+  getSupervisorActivityPath,
+  getSupervisorDir,
+  getSupervisorEventsPath,
+  getSupervisorInboxPath,
+  getSupervisorLockPath,
+  getSupervisorMemoryPath,
+  getSupervisorStatePath,
+  getSupervisorsDir,
   toRepoSlug,
 } from "@/paths";
 export type { ParsedOutput } from "@/runner/output-parser";
@@ -92,6 +100,36 @@ export type {
   SessionResult,
 } from "@/runner/session";
 export { runSession, SessionError } from "@/runner/session";
+// ─── Supervisor (legacy) ──────────────────────────────
+export type { SupervisorState } from "@/supervisor";
+export { supervisorStateSchema } from "@/supervisor";
+// ─── Supervisor (daemon) ──────────────────────────────
+export type {
+  ActivityEntry,
+  HeartbeatLoopOptions,
+  HeartbeatPromptOptions,
+  InboxMessage,
+  QueuedEvent,
+  SupervisorDaemonOptions,
+  SupervisorDaemonState,
+  WebhookIncomingEvent,
+} from "@/supervisor/index";
+export {
+  ActivityLog,
+  activityEntrySchema,
+  buildHeartbeatPrompt,
+  checkMemorySize,
+  EventQueue,
+  extractMemoryFromResponse,
+  HeartbeatLoop,
+  inboxMessageSchema,
+  loadMemory,
+  SupervisorDaemon,
+  saveMemory,
+  supervisorDaemonStateSchema,
+  WebhookServer,
+  webhookIncomingEventSchema,
+} from "@/supervisor/index";
 export * from "@/types";
 // ─── Workflows ─────────────────────────────────────────
 export { loadWorkflow, workflowGateDefSchema, workflowStepDefSchema } from "@/workflows/loader";

@@ -11,7 +11,7 @@ One prompt per phase. Each prompt is designed to be passed directly to a `/onesh
 ```markdown
 # Task: Scaffold the neo monorepo
 
-Create a pnpm monorepo with 3 packages: `@neo-cli/core`, `@neo-cli/cli`, and `@neo-cli/agents`.
+Create a pnpm monorepo with 3 packages: `@neotx/core`, `neotx`, and `@neotx/agents`.
 
 ## Context
 
@@ -25,7 +25,7 @@ Read these documents before starting:
 
 - `pnpm-workspace.yaml` referencing `packages/*`
 - Root `package.json` with:
-  - `name: "neo-monorepo"` (private: true)
+  - `name: "neotx-monorepo"` (private: true)
   - Workspace scripts: `build`, `test`, `lint`, `typecheck` (run across all packages)
   - Dev dependencies: `typescript`, `vitest`, `eslint`, `@typescript-eslint/eslint-plugin`, `@typescript-eslint/parser`
 - Root `tsconfig.json` — strict mode base config:
@@ -36,21 +36,21 @@ Read these documents before starting:
 
 ### 2. packages/core/
 
-- `package.json`: name `@neo-cli/core`, type `module`, main/types pointing to `dist/`
+- `package.json`: name `@neotx/core`, type `module`, main/types pointing to `dist/`
 - `tsconfig.json` extending root, `outDir: "dist"`, `rootDir: "src"`
 - `src/index.ts` — empty export (`export {}`)
 - `vitest.config.ts` configured for this package
 
 ### 3. packages/cli/
 
-- `package.json`: name `@neo-cli/cli`, type `module`, bin entry `neo` → `dist/index.js`
+- `package.json`: name `neotx`, type `module`, bin entry `neo` → `dist/index.js`
 - `tsconfig.json` extending root
 - `src/index.ts` — `#!/usr/bin/env node` + placeholder
-- Dependency on `@neo-cli/core` via `workspace:*`
+- Dependency on `@neotx/core` via `workspace:*`
 
 ### 4. packages/agents/
 
-- `package.json`: name `@neo-cli/agents`, type `module`
+- `package.json`: name `@neotx/agents`, type `module`
 - `prompts/` directory with placeholder `.gitkeep`
 - No TypeScript compilation needed — this package only contains .md and .yml files
 
@@ -171,7 +171,7 @@ export { loadConfig } from "./config.js";
 - `pnpm typecheck` passes
 - `pnpm test` passes — all config tests green
 - `loadConfig()` returns typed `NeoConfig` from a valid YAML file
-- Types exported from `@neo-cli/core`
+- Types exported from `@neotx/core`
 ```
 
 ---
@@ -774,7 +774,7 @@ Re-export all event types from `types.ts`. Add:
 ```markdown
 # Task: Wire all subsystems into the Orchestrator class
 
-The Orchestrator is the main public API of @neo-cli/core. It composes agents, isolation, concurrency, runner, middleware, events, and cost into a single class.
+The Orchestrator is the main public API of @neotx/core. It composes agents, isolation, concurrency, runner, middleware, events, and cost into a single class.
 
 ## Context
 
@@ -873,7 +873,7 @@ static middleware = {
 
 ### 8. Public API export — `packages/core/src/index.ts`
 
-Export the Orchestrator and all public types. This is the complete public API of `@neo-cli/core`.
+Export the Orchestrator and all public types. This is the complete public API of `@neotx/core`.
 
 ### 9. Tests — `packages/core/src/__tests__/orchestrator.test.ts`
 
@@ -1651,7 +1651,7 @@ Review ALL user-facing error messages across all packages:
 
 Quick start guide:
 ```
-npm install -g @neo-cli/cli
+npm install -g neotx
 cd my-project
 neo init
 neo run feature --prompt "Add user authentication"
@@ -1661,7 +1661,7 @@ Sections: Installation, Quick Start, Configuration, Agents, Workflows, CLI Refer
 
 ### 3. TSDoc on public exports
 
-Add JSDoc/TSDoc to ALL exported types, classes, and functions in `@neo-cli/core`:
+Add JSDoc/TSDoc to ALL exported types, classes, and functions in `@neotx/core`:
 - One-line description
 - @param descriptions
 - @returns description
@@ -1685,11 +1685,11 @@ For each package:
 ### 6. Verify end-to-end
 
 ```bash
-npx @neo-cli/neo init
-npx @neo-cli/neo doctor
-npx @neo-cli/neo agents
-npx @neo-cli/neo workflows
-npx @neo-cli/neo run feature --prompt "Add auth" --step plan
+npx neotx init
+npx neotx doctor
+npx neotx agents
+npx neotx workflows
+npx neotx run feature --prompt "Add auth" --step plan
 ```
 
 ## Checkpoint
@@ -1700,5 +1700,5 @@ npx @neo-cli/neo run feature --prompt "Add auth" --step plan
 - README.md exists with quick start
 - `neo doctor` gives actionable suggestions
 - Package.json files are publish-ready
-- `npx @neo-cli/neo --help` works from a clean install
+- `npx neotx --help` works from a clean install
 ```

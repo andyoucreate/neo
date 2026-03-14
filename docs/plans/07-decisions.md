@@ -6,7 +6,7 @@ Key decisions and their rationale. Updated as the project evolves.
 
 ## ADR-001: Framework, not product
 
-**Decision:** Neo is an orchestration framework (`@neo-cli/core`), not a complete product with UI/dashboard/tracker.
+**Decision:** Neo is an orchestration framework (`@neotx/core`), not a complete product with UI/dashboard/tracker.
 
 **Context:** The initial vision included a terminal UI supervisor, ticket tracker integrations, and webhook server. This would make neo compete with project management tools and force opinions about workflow.
 

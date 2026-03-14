@@ -97,6 +97,14 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
     sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000 },
     webhooks: [],
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
+    supervisor: {
+      port: 7777,
+      idleIntervalMs: 60_000,
+      heartbeatTimeoutMs: 300_000,
+      maxConsecutiveFailures: 3,
+      maxEventsPerSec: 10,
+      dailyCapUsd: 50,
+    },
     ...overrides,
   };
 }

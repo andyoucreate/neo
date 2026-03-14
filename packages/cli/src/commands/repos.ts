@@ -4,7 +4,7 @@ import {
   listReposFromGlobalConfig,
   removeRepoFromGlobalConfig,
   toRepoSlug,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { defineCommand } from "citty";
 import { detectDefaultBranch, isGitRepo } from "../git-utils.js";
 import { printError, printJson, printSuccess, printTable } from "../output.js";
