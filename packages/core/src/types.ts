@@ -371,21 +371,3 @@ export interface CostEntry {
   models: Record<string, number>;
   durationMs: number;
 }
-
-export interface MetricsSnapshot {
-  activeSessions: number;
-  queueDepth: number;
-  costToday: number;
-  successRate: number;
-  avgDurationMs: number;
-  totalRuns: number;
-}
-
-export interface AgentMetrics {
-  agent: string;
-  totalRuns: number;
-  successRate: number;
-  avgCostUsd: number;
-  avgDurationMs: number;
-  retryRate: number;
-}

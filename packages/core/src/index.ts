@@ -13,7 +13,6 @@ export {
   agentToolSchema,
 } from "@/agents/schema";
 // ─── Concurrency ────────────────────────────────────────
-export { PriorityQueue } from "@/concurrency/queue";
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
