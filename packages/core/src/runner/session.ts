@@ -1,6 +1,6 @@
-import type { McpServerConfig } from "../config.js";
-import type { SandboxConfig } from "../isolation/sandbox.js";
-import type { ResolvedAgent } from "../types.js";
+import type { McpServerConfig } from "@/config";
+import type { SandboxConfig } from "@/isolation/sandbox";
+import type { ResolvedAgent } from "@/types";
 
 // ─── Types ──────────────────────────────────────────────
 

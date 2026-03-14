@@ -1,5 +1,5 @@
-import type { AgentDefinition, ResolvedAgent } from "../types.js";
-import type { AgentConfig, AgentTool } from "./schema.js";
+import type { AgentConfig, AgentTool } from "@/agents/schema";
+import type { AgentDefinition, ResolvedAgent } from "@/types";
 
 /**
  * Resolve an agent config into a fully-merged ResolvedAgent.

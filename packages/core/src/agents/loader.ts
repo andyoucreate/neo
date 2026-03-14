@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { AgentConfig } from "./schema.js";
-import { agentConfigSchema } from "./schema.js";
+import type { AgentConfig } from "@/agents/schema";
+import { agentConfigSchema } from "@/agents/schema";
 
 /**
  * Load a single agent definition from a YAML file.

@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import { withGitLock } from "./git-mutex.js";
+import { withGitLock } from "@/isolation/git-mutex";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;

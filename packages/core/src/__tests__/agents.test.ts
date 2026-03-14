@@ -1,10 +1,10 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadAgentFile } from "../agents/loader.js";
-import { AgentRegistry } from "../agents/registry.js";
-import { resolveAgent } from "../agents/resolver.js";
-import type { AgentConfig } from "../agents/schema.js";
+import { loadAgentFile } from "@/agents/loader";
+import { AgentRegistry } from "@/agents/registry";
+import { resolveAgent } from "@/agents/resolver";
+import type { AgentConfig } from "@/agents/schema";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_agents_test__");
 const BUILT_IN_DIR = path.join(TMP_DIR, "built-in");

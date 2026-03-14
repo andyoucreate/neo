@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
-import type { RepoConfig } from "../config.js";
-import { withGitLock } from "./git-mutex.js";
+import type { RepoConfig } from "@/config";
+import { withGitLock } from "@/isolation/git-mutex";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;

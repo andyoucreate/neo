@@ -1,3 +1,8 @@
+export { auditLog } from "@/middleware/audit-log";
+export { budgetGuard } from "@/middleware/budget-guard";
+export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
+export { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
+export { loopDetection } from "@/middleware/loop-detection";
 export type {
   HookEvent,
   Middleware,
@@ -6,9 +11,4 @@ export type {
   MiddlewareEvent,
   MiddlewareHandler,
   MiddlewareResult,
-} from "../types.js";
-export { auditLog } from "./audit-log.js";
-export { budgetGuard } from "./budget-guard.js";
-export type { MiddlewareChain, SDKHooks } from "./chain.js";
-export { buildMiddlewareChain, buildSDKHooks } from "./chain.js";
-export { loopDetection } from "./loop-detection.js";
+} from "@/types";

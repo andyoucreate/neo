@@ -4,12 +4,12 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { RepoConfig } from "../config.js";
-import { createBranch, getBranchName, getCurrentBranch } from "../isolation/git.js";
-import { withGitLock } from "../isolation/git-mutex.js";
-import { buildSandboxConfig } from "../isolation/sandbox.js";
-import { createWorktree, listWorktrees, removeWorktree } from "../isolation/worktree.js";
-import type { ResolvedAgent } from "../types.js";
+import type { RepoConfig } from "@/config";
+import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
+import { withGitLock } from "@/isolation/git-mutex";
+import { buildSandboxConfig } from "@/isolation/sandbox";
+import { createWorktree, listWorktrees, removeWorktree } from "@/isolation/worktree";
+import type { ResolvedAgent } from "@/types";
 
 const execFileAsync = promisify(execFile);
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_isolation_test__");

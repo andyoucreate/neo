@@ -1,5 +1,5 @@
-import type { Priority } from "../types.js";
-import { PriorityQueue } from "./queue.js";
+import { PriorityQueue } from "@/concurrency/queue";
+import type { Priority } from "@/types";
 
 export interface SemaphoreConfig {
   maxSessions: number;

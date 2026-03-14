@@ -1,11 +1,11 @@
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { auditLog } from "../middleware/audit-log.js";
-import { budgetGuard } from "../middleware/budget-guard.js";
-import { buildMiddlewareChain, buildSDKHooks } from "../middleware/chain.js";
-import { loopDetection } from "../middleware/loop-detection.js";
-import type { Middleware, MiddlewareContext, MiddlewareEvent } from "../types.js";
+import { auditLog } from "@/middleware/audit-log";
+import { budgetGuard } from "@/middleware/budget-guard";
+import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
+import { loopDetection } from "@/middleware/loop-detection";
+import type { Middleware, MiddlewareContext, MiddlewareEvent } from "@/types";
 
 // ─── Helpers ───────────────────────────────────────────
 

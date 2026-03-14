@@ -6,8 +6,8 @@ export type {
   AgentModel,
   AgentTool,
   AgentToolEntry,
-} from "./agents/schema.js";
-export type { McpServerConfig, NeoConfig, RepoConfig } from "./config.js";
+} from "@/agents/schema";
+export type { McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 
 // ─── Agent Definition (SDK-compatible) ───────────────────
 

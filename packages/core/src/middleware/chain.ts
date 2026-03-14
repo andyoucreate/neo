@@ -11,7 +11,7 @@ import type {
   MiddlewareContext,
   MiddlewareEvent,
   MiddlewareResult,
-} from "../types.js";
+} from "@/types";
 
 export interface MiddlewareChain {
   execute(event: MiddlewareEvent, context: MiddlewareContext): Promise<MiddlewareResult>;

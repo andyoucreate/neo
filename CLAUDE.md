@@ -26,7 +26,7 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 - Middleware converts to SDK hooks format via buildSDKHooks() — not a custom hook system
 
 # Patterns to follow
-- ESM only: "type": "module" everywhere, .js extensions in all imports (Node16 resolution)
+- ESM only: "type": "module" everywhere, tsup for bundling, `@/` path aliases for internal imports (Bundler resolution)
 - Recovery escalation: normal → resume session → fresh session (3 levels, per ADR-020)
 - Persisted runs: .neo/runs/<runId>.json written after EVERY step — enables cross-process resume
 - Agent extends: $inherited token in tools array keeps parent tools, promptAppend adds to inherited prompt

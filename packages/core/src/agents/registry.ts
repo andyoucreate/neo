@@ -1,9 +1,9 @@
 import { readdir } from "node:fs/promises";
 import path from "node:path";
-import type { ResolvedAgent } from "../types.js";
-import { loadAgentFile } from "./loader.js";
-import { resolveAgent } from "./resolver.js";
-import type { AgentConfig } from "./schema.js";
+import { loadAgentFile } from "@/agents/loader";
+import { resolveAgent } from "@/agents/resolver";
+import type { AgentConfig } from "@/agents/schema";
+import type { ResolvedAgent } from "@/types";
 
 export class AgentRegistry {
   private readonly builtInDir: string;

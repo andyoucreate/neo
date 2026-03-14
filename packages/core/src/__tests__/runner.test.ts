@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { parseOutput } from "../runner/output-parser.js";
-import { runWithRecovery } from "../runner/recovery.js";
-import { runSession, SessionError, type SessionOptions } from "../runner/session.js";
+import { parseOutput } from "@/runner/output-parser";
+import { runWithRecovery } from "@/runner/recovery";
+import { runSession, SessionError, type SessionOptions } from "@/runner/session";
 
 // ─── SDK Mock ───────────────────────────────────────────
 
@@ -258,7 +258,7 @@ describe("runWithRecovery", () => {
     }));
 
     // Re-import to get fresh modules with new mock
-    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
 
     const result = await freshRunWithRecovery({
       ...makeSessionOptions(),
@@ -297,7 +297,7 @@ describe("runWithRecovery", () => {
       }),
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
 
     const attempts: number[] = [];
 
@@ -335,7 +335,7 @@ describe("runWithRecovery", () => {
       },
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
 
     const start = Date.now();
     await freshRunWithRecovery({
@@ -377,7 +377,7 @@ describe("runWithRecovery", () => {
       },
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
 
     const result = await freshRunWithRecovery({
       ...makeSessionOptions(),

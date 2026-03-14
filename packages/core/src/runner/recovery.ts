@@ -1,4 +1,9 @@
-import { runSession, SessionError, type SessionOptions, type SessionResult } from "./session.js";
+import {
+  runSession,
+  SessionError,
+  type SessionOptions,
+  type SessionResult,
+} from "@/runner/session";
 
 // ─── Types ──────────────────────────────────────────────
 

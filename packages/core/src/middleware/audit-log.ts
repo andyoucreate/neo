@@ -1,6 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { Middleware } from "../types.js";
+import type { Middleware } from "@/types";
 
 const DEFAULT_FLUSH_INTERVAL_MS = 500;
 const DEFAULT_FLUSH_SIZE = 20;

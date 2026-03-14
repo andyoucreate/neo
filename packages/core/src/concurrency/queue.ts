@@ -1,4 +1,4 @@
-import type { Priority } from "../types.js";
+import type { Priority } from "@/types";
 
 const PRIORITY_ORDER: Record<Priority, number> = {
   critical: 0,

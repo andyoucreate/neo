@@ -34,7 +34,7 @@
         "useConst": "error",
         "useExportType": "error",
         "useImportType": "error",
-        "useNodejsImportProtocol": "error",
+        "useNodejsImportProtocol": "off",
         "useNumberNamespace": "error",
         "useTemplate": "error"
       },

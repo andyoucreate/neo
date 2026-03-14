@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PriorityQueue } from "../concurrency/queue.js";
-import { Semaphore } from "../concurrency/semaphore.js";
+import { PriorityQueue } from "@/concurrency/queue";
+import { Semaphore } from "@/concurrency/semaphore";
 
 // ─── PriorityQueue ──────────────────────────────────────
 

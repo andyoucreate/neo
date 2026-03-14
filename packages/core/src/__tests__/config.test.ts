@@ -1,7 +1,7 @@
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../config.js";
+import { loadConfig } from "@/config";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_config_test__");
 const CONFIG_PATH = path.join(TMP_DIR, "config.yml");

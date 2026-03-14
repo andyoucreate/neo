@@ -1,5 +1,5 @@
 import { resolve } from "node:path";
-import type { ResolvedAgent } from "../types.js";
+import type { ResolvedAgent } from "@/types";
 
 /**
  * SDK-compatible sandbox configuration.

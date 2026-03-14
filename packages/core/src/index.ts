@@ -1,26 +1,26 @@
-export { loadAgentFile } from "./agents/loader.js";
-export { AgentRegistry } from "./agents/registry.js";
-export { resolveAgent } from "./agents/resolver.js";
+export { loadAgentFile } from "@/agents/loader";
+export { AgentRegistry } from "@/agents/registry";
+export { resolveAgent } from "@/agents/resolver";
 export {
   agentConfigSchema,
   agentModelSchema,
   agentSandboxSchema,
   agentToolEntrySchema,
   agentToolSchema,
-} from "./agents/schema.js";
+} from "@/agents/schema";
 // ─── Concurrency ────────────────────────────────────────
-export { PriorityQueue } from "./concurrency/queue.js";
+export { PriorityQueue } from "@/concurrency/queue";
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
-} from "./concurrency/semaphore.js";
-export { Semaphore } from "./concurrency/semaphore.js";
+} from "@/concurrency/semaphore";
+export { Semaphore } from "@/concurrency/semaphore";
 export {
   loadConfig,
   mcpServerConfigSchema,
   neoConfigSchema,
   repoConfigSchema,
-} from "./config.js";
+} from "@/config";
 export {
   createBranch,
   deleteBranch,
@@ -28,35 +28,35 @@ export {
   getBranchName,
   getCurrentBranch,
   pushBranch,
-} from "./isolation/git.js";
+} from "@/isolation/git";
 // ─── Isolation ──────────────────────────────────────────
-export { withGitLock } from "./isolation/git-mutex.js";
-export type { SandboxConfig } from "./isolation/sandbox.js";
-export { buildSandboxConfig } from "./isolation/sandbox.js";
-export type { WorktreeInfo } from "./isolation/worktree.js";
+export { withGitLock } from "@/isolation/git-mutex";
+export type { SandboxConfig } from "@/isolation/sandbox";
+export { buildSandboxConfig } from "@/isolation/sandbox";
+export type { WorktreeInfo } from "@/isolation/worktree";
 export {
   cleanupOrphanedWorktrees,
   createWorktree,
   listWorktrees,
   removeWorktree,
-} from "./isolation/worktree.js";
+} from "@/isolation/worktree";
+export type { AuditLogMiddleware } from "@/middleware/audit-log";
 // ─── Middleware ─────────────────────────────────────────
-export { auditLog } from "./middleware/audit-log.js";
-export type { AuditLogMiddleware } from "./middleware/audit-log.ts";
-export { budgetGuard } from "./middleware/budget-guard.js";
-export type { MiddlewareChain, SDKHooks } from "./middleware/chain.js";
-export { buildMiddlewareChain, buildSDKHooks } from "./middleware/chain.js";
-export type { LoopDetectionMiddleware } from "./middleware/loop-detection.js";
-export { loopDetection } from "./middleware/loop-detection.js";
-export type { ParsedOutput } from "./runner/output-parser.js";
+export { auditLog } from "@/middleware/audit-log";
+export { budgetGuard } from "@/middleware/budget-guard";
+export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
+export { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
+export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
+export { loopDetection } from "@/middleware/loop-detection";
+export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
-export { parseOutput } from "./runner/output-parser.js";
-export type { RecoveryOptions } from "./runner/recovery.js";
-export { runWithRecovery } from "./runner/recovery.js";
+export { parseOutput } from "@/runner/output-parser";
+export type { RecoveryOptions } from "@/runner/recovery";
+export { runWithRecovery } from "@/runner/recovery";
 export type {
   SessionEvent,
   SessionOptions,
   SessionResult,
-} from "./runner/session.js";
-export { runSession, SessionError } from "./runner/session.js";
-export * from "./types.js";
+} from "@/runner/session";
+export { runSession, SessionError } from "@/runner/session";
+export * from "@/types";
