@@ -1,7 +1,14 @@
 {
   "name": "@neo-cli/core",
-  "version": "0.0.0",
+  "version": "0.1.0",
+  "description": "Orchestration framework for autonomous developer agents",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/voltaire-network/neo.git",
+    "directory": "packages/core"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
@@ -9,6 +16,12 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "engines": {
     "node": ">=22"
