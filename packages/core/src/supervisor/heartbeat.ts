@@ -2,11 +2,20 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { GlobalConfig } from "@/config";
 import { getDataDir } from "@/paths";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
-import { checkMemorySize, extractMemoryFromResponse, loadMemory, saveMemory } from "./memory.js";
+import {
+  checkMemorySize,
+  extractKnowledgeFromResponse,
+  extractMemoryFromResponse,
+  loadKnowledge,
+  loadMemory,
+  saveKnowledge,
+  saveMemory,
+} from "./memory.js";
 import { buildHeartbeatPrompt } from "./prompt-builder.js";
 import type { SupervisorDaemonState } from "./schemas.js";
 
@@ -122,11 +131,27 @@ export class HeartbeatLoop {
       return;
     }
 
-    // Drain events
-    const events = this.eventQueue.drain();
+    // Drain and group events (deduplicates messages by content)
+    const grouped = this.eventQueue.drainAndGroup();
+    const totalEventCount =
+      grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
 
-    // Load memory
+    // Skip idle heartbeats (no events) unless forced every N skips
+    const idleSkipCount = state?.idleSkipCount ?? 0;
+    if (totalEventCount === 0 && idleSkipCount < this.config.supervisor.idleSkipMax) {
+      await this.updateState({ idleSkipCount: idleSkipCount + 1 });
+      await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
+      return;
+    }
+
+    // Reset idle skip counter (we're running a real heartbeat)
+    if (idleSkipCount > 0) {
+      await this.updateState({ idleSkipCount: 0 });
+    }
+
+    // Load memory + knowledge
     const memory = await loadMemory(this.supervisorDir);
+    const knowledge = await loadKnowledge(this.supervisorDir);
     const memoryCheck = checkMemorySize(memory);
 
     // Build prompt
@@ -135,8 +160,9 @@ export class HeartbeatLoop {
     const prompt = buildHeartbeatPrompt({
       repos: this.config.repos,
       memory,
+      knowledge,
       memorySizeKB: memoryCheck.sizeKB,
-      events,
+      grouped,
       budgetStatus: {
         todayUsd: todayCost,
         capUsd: this.config.supervisor.dailyCapUsd,
@@ -152,8 +178,10 @@ export class HeartbeatLoop {
 
     await this.activityLog.log("heartbeat", `Heartbeat #${state?.heartbeatCount ?? 0} starting`, {
       heartbeatId,
-      eventCount: events.length,
-      triggeredBy: events.map((e) => e.kind),
+      eventCount: totalEventCount,
+      messages: grouped.messages.length,
+      webhooks: grouped.webhooks.length,
+      runCompletions: grouped.runCompletions.length,
     });
 
     // Call SDK with timeout + shutdown abort
@@ -171,12 +199,27 @@ export class HeartbeatLoop {
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
       // Build allowed tools list — include MCP tool patterns for configured servers
-      const allowedTools: string[] = ["Bash", "Read"];
+      const allowedTools: string[] = ["Bash", "Read", "mcp__neo__*"];
       if (this.config.mcpServers) {
         for (const name of Object.keys(this.config.mcpServers)) {
           allowedTools.push(`mcp__${name}__*`);
         }
       }
+
+      // Auto-configure internal MCP server for structured reporting
+      const mcpInternalPath = path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "mcp-internal.js",
+      );
+      const mcpServers: Record<string, unknown> = {
+        neo: {
+          type: "stdio",
+          command: "node",
+          args: [mcpInternalPath],
+          env: { NEO_ACTIVITY_PATH: this.activityLog.filePath },
+        },
+        ...(this.config.mcpServers ?? {}),
+      };
 
       const queryOptions: Record<string, unknown> = {
         cwd: homedir(),
@@ -184,16 +227,8 @@ export class HeartbeatLoop {
         allowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
+        mcpServers,
       };
-
-      // Each heartbeat starts a fresh session — resume is unreliable
-      // because the previous query completed and the session may not
-      // be resumable. The prompt already contains memory for continuity.
-
-      // Pass MCP servers if configured
-      if (this.config.mcpServers) {
-        queryOptions.mcpServers = this.config.mcpServers;
-      }
 
       const stream = sdk.query({ prompt, options: queryOptions as never });
 
@@ -219,10 +254,15 @@ export class HeartbeatLoop {
       this.activeAbort = null;
     }
 
-    // Extract and save memory
+    // Extract and save memory + knowledge
     const newMemory = extractMemoryFromResponse(output);
     if (newMemory) {
       await saveMemory(this.supervisorDir, newMemory);
+    }
+
+    const newKnowledge = extractKnowledgeFromResponse(output);
+    if (newKnowledge) {
+      await saveKnowledge(this.supervisorDir, newKnowledge);
     }
 
     // Update state
@@ -311,7 +351,7 @@ export class HeartbeatLoop {
     }
   }
 
-  /** Log thinking and plan blocks from assistant content. */
+  /** Log thinking and plan blocks from assistant content — no truncation. */
   private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
     const content = (
       msg.message as
@@ -322,10 +362,10 @@ export class HeartbeatLoop {
 
     for (const block of content) {
       if (block.type === "thinking" && block.thinking) {
-        await this.activityLog.log("thinking", block.thinking.slice(0, 500), { heartbeatId });
+        await this.activityLog.log("thinking", block.thinking, { heartbeatId });
       }
       if (block.type === "text" && block.text) {
-        await this.activityLog.log("plan", block.text.slice(0, 500), { heartbeatId });
+        await this.activityLog.log("plan", block.text, { heartbeatId });
         break; // Only log first text block per message
       }
     }

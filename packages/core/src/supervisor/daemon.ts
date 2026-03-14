@@ -108,6 +108,7 @@ export class SupervisorDaemon {
       totalCostUsd: existingState?.totalCostUsd ?? 0,
       todayCostUsd: existingState?.todayCostUsd ?? 0,
       costResetDate: existingState?.costResetDate,
+      idleSkipCount: existingState?.idleSkipCount ?? 0,
       status: "running",
     });
 

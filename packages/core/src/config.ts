@@ -88,6 +88,7 @@ export const globalConfigSchema = z.object({
       port: z.number().default(7777),
       secret: z.string().optional(),
       idleIntervalMs: z.number().default(60_000),
+      idleSkipMax: z.number().default(20),
       heartbeatTimeoutMs: z.number().default(300_000),
       maxConsecutiveFailures: z.number().default(3),
       maxEventsPerSec: z.number().default(10),
@@ -97,6 +98,7 @@ export const globalConfigSchema = z.object({
     .default({
       port: 7777,
       idleIntervalMs: 60_000,
+      idleSkipMax: 20,
       heartbeatTimeoutMs: 300_000,
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,

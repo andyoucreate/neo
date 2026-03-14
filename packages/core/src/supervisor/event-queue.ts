@@ -6,6 +6,18 @@ interface EventQueueOptions {
   maxEventsPerSec: number;
 }
 
+export interface GroupedMessage {
+  text: string;
+  from: string;
+  count: number;
+}
+
+export interface GroupedEvents {
+  messages: GroupedMessage[];
+  webhooks: QueuedEvent[];
+  runCompletions: QueuedEvent[];
+}
+
 /**
  * In-memory event queue with deduplication, rate limiting, and file watching.
  *
@@ -71,6 +83,40 @@ export class EventQueue {
     const events = [...this.queue];
     this.queue.length = 0;
     return events;
+  }
+
+  /**
+   * Drain and group events: deduplicates messages by content,
+   * keeps webhooks and run completions separate.
+   */
+  drainAndGroup(): GroupedEvents {
+    const events = this.drain();
+
+    const messageMap = new Map<string, GroupedMessage>();
+    const webhooks: QueuedEvent[] = [];
+    const runCompletions: QueuedEvent[] = [];
+
+    for (const event of events) {
+      if (event.kind === "message") {
+        const key = event.data.text.trim().toLowerCase();
+        const existing = messageMap.get(key);
+        if (existing) {
+          existing.count++;
+        } else {
+          messageMap.set(key, { text: event.data.text, from: event.data.from, count: 1 });
+        }
+      } else if (event.kind === "webhook") {
+        webhooks.push(event);
+      } else {
+        runCompletions.push(event);
+      }
+    }
+
+    return {
+      messages: [...messageMap.values()],
+      webhooks,
+      runCompletions,
+    };
   }
 
   size(): number {

@@ -4,6 +4,7 @@
 export { ActivityLog } from "./activity-log.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
+export type { GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
 export type { HeartbeatLoopOptions } from "./heartbeat.js";
 export { HeartbeatLoop } from "./heartbeat.js";
@@ -11,9 +12,12 @@ export { HeartbeatLoop } from "./heartbeat.js";
 export type { SupervisorMemory } from "./memory.js";
 export {
   checkMemorySize,
+  extractKnowledgeFromResponse,
   extractMemoryFromResponse,
+  loadKnowledge,
   loadMemory,
   parseStructuredMemory,
+  saveKnowledge,
   saveMemory,
 } from "./memory.js";
 export type { HeartbeatPromptOptions } from "./prompt-builder.js";

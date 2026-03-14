@@ -7,7 +7,7 @@ const ACTIVITY_FILE = "activity.jsonl";
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB rotation threshold
 
 export class ActivityLog {
-  private readonly filePath: string;
+  readonly filePath: string;
   private readonly dir: string;
 
   constructor(dir: string) {

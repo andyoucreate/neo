@@ -100,6 +100,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
     supervisor: {
       port: 7777,
       idleIntervalMs: 60_000,
+      idleSkipMax: 20,
       heartbeatTimeoutMs: 300_000,
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,

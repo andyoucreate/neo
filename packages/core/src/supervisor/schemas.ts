@@ -14,6 +14,7 @@ export const supervisorDaemonStateSchema = z.object({
   totalCostUsd: z.number().default(0),
   todayCostUsd: z.number().default(0),
   costResetDate: z.string().optional(),
+  idleSkipCount: z.number().default(0),
   status: z.enum(["running", "draining", "stopped"]).default("running"),
 });
 
