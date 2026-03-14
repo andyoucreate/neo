@@ -100,6 +100,25 @@ describe("withGitLock", () => {
     const result = await withGitLock("/repo/err", async () => "ok");
     expect(result).toBe("ok");
   });
+
+  it("propagates thrown errors", async () => {
+    const original = new TypeError("custom type error");
+
+    await expect(
+      withGitLock("/repo/propagate", async () => {
+        throw original;
+      }),
+    ).rejects.toThrow(original);
+  });
+
+  it("allows re-entry after error", async () => {
+    await withGitLock("/repo/reentry", async () => {
+      throw new Error("first failure");
+    }).catch(() => {});
+
+    const result = await withGitLock("/repo/reentry", async () => "recovered");
+    expect(result).toBe("recovered");
+  });
 });
 
 // ─── Worktree Lifecycle ─────────────────────────────────
@@ -235,5 +254,19 @@ describe("buildSandboxConfig", () => {
     expect(config.writable).toBe(true);
     expect(config.readablePaths).toEqual([]);
     expect(config.writablePaths).toEqual([]);
+  });
+
+  it("includes worktreePath in readable and writable paths for writable agent", () => {
+    const config = buildSandboxConfig(makeAgent("writable"), "/tmp/wt");
+
+    expect(config.readablePaths).toContain("/tmp/wt");
+    expect(config.writablePaths).toContain("/tmp/wt");
+  });
+
+  it("includes worktreePath only in readable paths for readonly agent", () => {
+    const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/wt");
+
+    expect(config.readablePaths).toContain("/tmp/wt");
+    expect(config.writablePaths).not.toContain("/tmp/wt");
   });
 });

@@ -105,4 +105,43 @@ describe("CostJournal", () => {
     expect(parsed.costUsd).toBe(0.05);
     expect(parsed.runId).toBe("run-1");
   });
+
+  it("handles concurrent appends without data loss", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+    const entries = Array.from({ length: 10 }, (_, i) => makeEntry({ costUsd: 0.01 * (i + 1) }));
+
+    await Promise.all(entries.map((e) => journal.append(e)));
+
+    const expectedTotal = entries.reduce((sum, e) => sum + e.costUsd, 0);
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBeCloseTo(expectedTotal);
+  });
+
+  it("returns 0 for future date", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+
+    await journal.append(makeEntry({ costUsd: 0.05 }));
+
+    const total = await journal.getDayTotal(new Date("2020-01-01T00:00:00Z"));
+    expect(total).toBe(0);
+  });
+
+  it("handles entry with costUsd=0", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+
+    await journal.append(makeEntry({ costUsd: 0 }));
+
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBe(0);
+  });
+
+  it("creates nested directory structure", async () => {
+    const deepDir = path.join(TMP_DIR, "deep", "nested", "path");
+    const journal = new CostJournal({ dir: deepDir });
+
+    await journal.append(makeEntry({ costUsd: 0.05 }));
+
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBeCloseTo(0.05);
+  });
 });
