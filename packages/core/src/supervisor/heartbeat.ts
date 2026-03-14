@@ -170,10 +170,18 @@ export class HeartbeatLoop {
     try {
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
+      // Build allowed tools list — include MCP tool patterns for configured servers
+      const allowedTools: string[] = ["Bash", "Read"];
+      if (this.config.mcpServers) {
+        for (const name of Object.keys(this.config.mcpServers)) {
+          allowedTools.push(`mcp__${name}__*`);
+        }
+      }
+
       const queryOptions: Record<string, unknown> = {
         cwd: homedir(),
         maxTurns: 50,
-        allowedTools: ["Bash", "Read"],
+        allowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
       };
