@@ -53,11 +53,15 @@ async function handleStatus(name: string): Promise<void> {
     return;
   }
 
+  const config = await loadGlobalConfig();
   printSuccess(`Supervisor "${name}" running`);
   console.log(`  PID:        ${state.pid}`);
   console.log(`  Port:       ${state.port}`);
   console.log(`  Session:    ${state.sessionId}`);
   console.log(`  Started:    ${state.startedAt}`);
+  console.log(
+    `  Interval:   ${config.supervisor.idleIntervalMs / 1000}s (skip up to ${config.supervisor.idleSkipMax} idle)`,
+  );
   console.log(`  Heartbeats: ${state.heartbeatCount}`);
   if (state.lastHeartbeat) {
     console.log(`  Last beat:  ${state.lastHeartbeat}`);

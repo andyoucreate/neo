@@ -1,11 +1,13 @@
 import type { RepoConfig } from "@/config";
+import type { GroupedEvents } from "./event-queue.js";
 import type { QueuedEvent } from "./schemas.js";
 
 export interface HeartbeatPromptOptions {
   repos: RepoConfig[];
   memory: string;
+  knowledge: string;
   memorySizeKB: number;
-  events: QueuedEvent[];
+  grouped: GroupedEvents;
   budgetStatus: {
     todayUsd: number;
     capUsd: number;
@@ -42,7 +44,12 @@ Available commands (via bash):
   neo cost --short [--all]                         check budget
   neo agents                                       list available agents
 
-IMPORTANT: Always include a <memory>...</memory> block at the end of your response with your updated memory.`);
+IMPORTANT: Always include a <memory>...</memory> block at the end of your response with your updated memory.
+
+## Reporting
+Use the \`mcp__neo__report_progress\` tool to log your decisions, actions and blockers.
+Always report what you're doing and why — these logs are your audit trail.
+Types: "decision" (what you chose), "action" (what you did), "blocker" (what's stuck), "progress" (status update).`);
 
   // ─── Custom instructions (SUPERVISOR.md) ─────────────
   if (opts.customInstructions) {
@@ -77,13 +84,34 @@ IMPORTANT: Always include a <memory>...</memory> block at the end of your respon
   }
 
   // ─── Events ────────────────────────────────────────────
-  if (opts.events.length > 0) {
-    const eventDescriptions = opts.events.map(formatEvent);
-    sections.push(`## Pending events (${opts.events.length})\n${eventDescriptions.join("\n\n")}`);
+  const { messages, webhooks, runCompletions } = opts.grouped;
+  const totalEvents = messages.length + webhooks.length + runCompletions.length;
+
+  if (totalEvents > 0) {
+    const parts: string[] = [];
+    for (const msg of messages) {
+      const countSuffix = msg.count > 1 ? ` (×${msg.count})` : "";
+      parts.push(`**Message from ${msg.from}${countSuffix}**: ${msg.text}`);
+    }
+    for (const evt of webhooks) {
+      parts.push(formatEvent(evt));
+    }
+    for (const evt of runCompletions) {
+      parts.push(formatEvent(evt));
+    }
+    sections.push(`## Pending events (${totalEvents})\n${parts.join("\n\n")}`);
   } else {
     sections.push(
       "## Pending events\nNo new events. This is an idle heartbeat — check on active runs if any, or wait.",
     );
+  }
+
+  // ─── Knowledge (read-only reference data) ──────────────
+  if (opts.knowledge) {
+    sections.push(`## Reference knowledge (read-only)
+${opts.knowledge}
+
+To update knowledge, output a \`<knowledge>...</knowledge>\` block. Only update when reference data changes (API IDs, workspace config, etc.).`);
   }
 
   // ─── Memory ────────────────────────────────────────────
