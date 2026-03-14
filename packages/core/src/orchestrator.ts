@@ -8,7 +8,7 @@ import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
-import { autoCommitChanges, getBranchName, pushWorktreeBranch } from "@/isolation/git";
+import { getBranchName, pushWorktreeBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import { cleanupOrphanedWorktrees, createWorktree, removeWorktree } from "@/isolation/worktree";
 import { auditLog } from "@/middleware/audit-log";
@@ -425,7 +425,7 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   /**
-   * Auto-commit any uncommitted changes, push the branch, then remove the worktree.
+   * Push the branch, then remove the worktree.
    * Runs in `finally` so it executes on both success and failure.
    */
   private async finalizeWorktree(worktreePath: string, ctx: DispatchContext): Promise<void> {
@@ -434,7 +434,6 @@ export class Orchestrator extends NeoEventEmitter {
     const remote = repoConfig.pushRemote ?? "origin";
 
     try {
-      await autoCommitChanges(worktreePath, runId);
       await pushWorktreeBranch(worktreePath, branch, remote).catch(() => {
         // Push may fail (no remote, auth, etc.) — not critical
       });
