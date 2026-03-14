@@ -1,0 +1,6 @@
+name: refine
+description: "Evaluate and decompose tickets"
+steps:
+  evaluate:
+    agent: refiner
+    sandbox: readonly

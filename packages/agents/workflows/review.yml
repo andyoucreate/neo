@@ -1,0 +1,15 @@
+name: review
+description: "4-lens parallel code review"
+steps:
+  quality:
+    agent: reviewer-quality
+    sandbox: readonly
+  security:
+    agent: reviewer-security
+    sandbox: readonly
+  perf:
+    agent: reviewer-perf
+    sandbox: readonly
+  coverage:
+    agent: reviewer-coverage
+    sandbox: readonly
