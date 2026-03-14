@@ -1,8 +1,33 @@
 # neo
 
-Neoscaling - the new way to scale your engineering team. Instead of hiring, you orchestrate autonomous developer agents that plan, implement, review, and fix code across your repositories.
+Neoscaling - the new way to scale your engineering team. Instead of hiring, you give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories.
 
-neo is an orchestration framework that wraps the Claude Agent SDK with everything you need to run agents in production: git worktree isolation, 3-level recovery, concurrency control, budget guards, and cost tracking. Zero infrastructure required - no database, no Redis, no Docker.
+neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo gives it the primitives to dispatch work safely: git worktree isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
+
+Zero infrastructure - no database, no Redis, no Docker.
+
+```
+┌─────────────────────────────────────┐
+│           SUPERVISOR                │
+│  Claude Code loop, OpenClaw agent,  │
+│  custom script, or human            │
+└──────────────┬──────────────────────┘
+               │ dispatches via CLI or API
+               v
+┌─────────────────────────────────────┐
+│              NEO                    │
+│  isolation, recovery, budget,       │
+│  concurrency, events, journals      │
+└──────────────┬──────────────────────┘
+               │ spawns in isolated worktrees
+               v
+┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+│ dev  │ │ arch │ │ fix  │ │review│
+│agent │ │agent │ │agent │ │agent │
+└──────┘ └──────┘ └──────┘ └──────┘
+```
+
+The supervisor decides what needs to happen. neo handles how it happens safely.
 
 ## Quickstart
 
@@ -14,26 +39,28 @@ npm install -g @neo-cli/cli
 cd your-project
 neo init --budget 100
 
-# Run an agent
+# Dispatch a developer agent
 neo run developer --prompt "Add input validation to the user registration endpoint"
 
 # Check the result
-git worktree list   # see the isolated branch
+git worktree list     # see the isolated branch
 cat .neo/runs/*.json  # see run details and costs
 ```
 
+A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing - it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
+
 ## How it works
 
-When you run `neo run developer --prompt "..."`, neo:
+When a supervisor dispatches `neo run developer --prompt "..."`, neo:
 
 1. Loads the agent definition (model, tools, sandbox permissions, system prompt)
 2. Creates an isolated git worktree on a new branch
 3. Starts a Claude session with the agent's configuration
-4. Streams events (start, progress, cost updates, completion)
+4. Streams events back to the supervisor (start, cost updates, completion)
 5. Tracks costs in JSONL journals with daily budget enforcement
 6. Persists the run result to `.neo/runs/<runId>.json`
 
-The agent works in its own worktree. Your working directory is never touched.
+Each agent works in its own worktree. The main branch is never touched. The supervisor can inspect results, dispatch follow-up agents, or kill sessions at any point.
 
 ## CLI
 
@@ -84,6 +111,58 @@ neo agents --output json  # JSON for scripting
 ```bash
 neo doctor              # check Node.js, git, config, Claude CLI, agents
 neo doctor --output json
+```
+
+## Supervisor patterns
+
+neo is designed to be driven by a supervisor. Here are the common patterns:
+
+### Claude Code as supervisor
+
+A Claude Code session in a loop that reads tickets, dispatches agents, and reviews results:
+
+```bash
+# The supervisor reads a ticket, then dispatches
+neo run architect --prompt "Design the auth system from ticket PROJ-42"
+# Reads the architect's output from .neo/runs/*.json, then dispatches implementation
+neo run developer --prompt "Implement the auth system based on this plan: ..."
+# Dispatches a review
+neo run reviewer-security --prompt "Review the auth changes on branch feat/run-..."
+# If issues found, dispatches a fix
+neo run fixer --prompt "Fix the issues found in the security review: ..."
+```
+
+### OpenClaw agent as supervisor
+
+An OpenClaw agent with Linear, Notion, and Slack tools that manages the full cycle:
+
+```typescript
+import { Orchestrator, loadConfig, AgentRegistry } from "@neo-cli/core";
+
+// The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
+// updates ticket status, and posts results to Slack
+const result = await orchestrator.dispatch({
+  workflow: "_run_developer",
+  repo: "/path/to/repo",
+  prompt: ticketDescription,
+  metadata: { ticket: "PROJ-42", assignee: "openclaw-supervisor" },
+});
+
+// Supervisor reads result and decides next action
+if (result.status === "success") {
+  await linearClient.updateIssue(ticketId, { state: "in-review" });
+  await slackClient.postMessage(channel, `Agent completed PROJ-42: ${result.branch}`);
+}
+```
+
+### Events for monitoring
+
+The supervisor subscribes to events to monitor agent progress in real time:
+
+```typescript
+orchestrator.on("session:start", (e) => log(`Agent ${e.agent} started on ${e.repo}`));
+orchestrator.on("session:complete", (e) => log(`Done in ${e.durationMs}ms for $${e.costUsd}`));
+orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct}%`));
 ```
 
 ## Agents
