@@ -105,7 +105,7 @@ async function checkJournalDirs(): Promise<CheckResult> {
 export default defineCommand({
   meta: {
     name: "doctor",
-    description: "Check environment prerequisites",
+    description: "Check environment prerequisites (Node.js, git, config, Claude CLI)",
   },
   args: {
     output: {

@@ -23,6 +23,15 @@
   "publishConfig": {
     "access": "public"
   },
+  "keywords": [
+    "ai-agents",
+    "claude",
+    "orchestration",
+    "autonomous-agents",
+    "developer-tools",
+    "git-worktree",
+    "agent-sdk"
+  ],
   "engines": {
     "node": ">=22"
   },

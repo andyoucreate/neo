@@ -8,7 +8,7 @@ import { resolveAgentsDir } from "../resolve.js";
 export default defineCommand({
   meta: {
     name: "agents",
-    description: "List available agents",
+    description: "List available agents (built-in and custom from .neo/agents/)",
   },
   args: {
     output: {

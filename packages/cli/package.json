@@ -13,11 +13,20 @@
     "neo": "dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "src/skills"
   ],
   "publishConfig": {
     "access": "public"
   },
+  "keywords": [
+    "ai-agents",
+    "claude",
+    "cli",
+    "orchestration",
+    "autonomous-agents",
+    "developer-tools"
+  ],
   "engines": {
     "node": ">=22"
   },

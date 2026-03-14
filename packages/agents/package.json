@@ -1,7 +1,7 @@
 {
   "name": "@neo-cli/agents",
   "version": "0.1.0",
-  "description": "Built-in agent definitions and workflow YAMLs for @neo-cli/core",
+  "description": "Built-in agent definitions and prompts for @neo-cli/core",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -13,6 +13,13 @@
     "agents",
     "prompts",
     "workflows"
+  ],
+  "keywords": [
+    "ai-agents",
+    "claude",
+    "agent-definitions",
+    "autonomous-agents",
+    "developer-tools"
   ],
   "publishConfig": {
     "access": "public"
