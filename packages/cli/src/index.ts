@@ -13,6 +13,7 @@ const main = defineCommand({
     runs: () => import("./commands/runs.js").then((m) => m.default),
     logs: () => import("./commands/logs.js").then((m) => m.default),
     cost: () => import("./commands/cost.js").then((m) => m.default),
+    repos: () => import("./commands/repos.js").then((m) => m.default),
     agents: () => import("./commands/agents.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
   },

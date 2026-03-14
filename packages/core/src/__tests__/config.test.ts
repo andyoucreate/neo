@@ -138,13 +138,14 @@ repos:
     expect(config.sessions.maxDurationMs).toBe(3_600_000);
   });
 
-  it("throws descriptive error for missing repos", async () => {
+  it("defaults repos to empty array when omitted", async () => {
     await writeConfig(`
 concurrency:
   maxSessions: 5
 `);
 
-    await expect(loadConfig(CONFIG_PATH)).rejects.toThrow("repos");
+    const config = await loadConfig(CONFIG_PATH);
+    expect(config.repos).toEqual([]);
   });
 
   it("throws for invalid YAML", async () => {

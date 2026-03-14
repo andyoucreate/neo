@@ -7,6 +7,7 @@ import type { ResolvedAgent } from "@/types";
 export interface SessionOptions {
   agent: ResolvedAgent;
   prompt: string;
+  repoPath?: string;
   worktreePath?: string;
   sandboxConfig: SandboxConfig;
   hooks?: Record<string, unknown>;
@@ -96,7 +97,9 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
     const queryOptions: Record<string, unknown> = {
-      cwd: worktreePath,
+      // Always pass cwd: worktree for writable agents, repo root for readonly.
+      // Without this, readonly agents default to process.cwd() and may write to main tree.
+      cwd: worktreePath ?? options.repoPath,
       maxTurns: agent.maxTurns,
       allowedTools: sandboxConfig.allowedTools,
     };

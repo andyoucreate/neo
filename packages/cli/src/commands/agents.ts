@@ -23,7 +23,8 @@ export default defineCommand({
 
     if (!existsSync(builtInDir)) {
       printError("Agent definitions not found. Is @neo-cli/agents installed?");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const registry = new AgentRegistry(builtInDir, existsSync(customDir) ? customDir : undefined);

@@ -70,6 +70,7 @@ export interface PersistedRun {
   prompt: string;
   branch?: string | undefined;
   worktreePath?: string | undefined;
+  pid?: number | undefined;
   status: "running" | "paused" | "completed" | "failed";
   steps: Record<string, StepResult>;
   createdAt: string;
@@ -370,4 +371,5 @@ export interface CostEntry {
   costUsd: number;
   models: Record<string, number>;
   durationMs: number;
+  repo?: string;
 }

@@ -59,6 +59,26 @@ vi.mock("@/isolation/worktree", () => ({
 // ─── Helpers ────────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_orchestrator_test__");
+const GLOBAL_RUNS_DIR = path.join(TMP_DIR, ".neo-global/runs");
+const GLOBAL_JOURNALS_DIR = path.join(TMP_DIR, ".neo-global/journals");
+
+vi.mock("@/paths", async () => {
+  const p = await import("node:path");
+  return {
+    getDataDir: () => p.join(TMP_DIR, ".neo-global"),
+    getJournalsDir: () => GLOBAL_JOURNALS_DIR,
+    getRunsDir: () => GLOBAL_RUNS_DIR,
+    toRepoSlug: (repo: { name?: string; path: string }) => {
+      const raw = repo.name ?? p.basename(repo.path);
+      return raw
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+    },
+    getRepoRunsDir: (slug: string) => p.join(GLOBAL_RUNS_DIR, slug),
+  };
+});
 
 function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
   return {
@@ -75,6 +95,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
     budget: { dailyCapUsd: 100, alertThresholdPct: 80 },
     recovery: { maxRetries: 3, backoffBaseMs: 10 },
     sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000 },
+    webhooks: [],
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
     ...overrides,
   };
@@ -174,11 +195,17 @@ describe("dispatch", () => {
     expect(fixStep?.agent).toBe("test-developer");
   });
 
-  it("persists run state to .neo/runs/", async () => {
+  it("persists run state to global runs dir", async () => {
     const orchestrator = createOrchestrator();
     const result = await orchestrator.dispatch(makeInput());
 
-    const runFile = path.join(TMP_DIR, ".neo/runs", `${result.runId}.json`);
+    const slug = path
+      .basename(TMP_DIR)
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+    const runFile = path.join(GLOBAL_RUNS_DIR, slug, `${result.runId}.json`);
     expect(existsSync(runFile)).toBe(true);
 
     const persisted = JSON.parse(await readFile(runFile, "utf-8"));
@@ -408,7 +435,7 @@ describe("shutdown", () => {
 
 describe("start", () => {
   it("marks orphaned running runs as failed", async () => {
-    const runsDir = path.join(TMP_DIR, ".neo/runs");
+    const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
     const orphanedRun = {
@@ -432,7 +459,7 @@ describe("start", () => {
   });
 
   it("does not modify completed runs", async () => {
-    const runsDir = path.join(TMP_DIR, ".neo/runs");
+    const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
     const completedRun = {

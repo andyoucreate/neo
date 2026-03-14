@@ -3,7 +3,14 @@ import { existsSync } from "node:fs";
 import { access, constants } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { AgentRegistry, loadConfig } from "@neo-cli/core";
+import {
+  AgentRegistry,
+  getDataDir,
+  getJournalsDir,
+  listReposFromGlobalConfig,
+  loadGlobalConfig,
+  toRepoSlug,
+} from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -12,13 +19,13 @@ const execFileAsync = promisify(execFile);
 
 interface CheckResult {
   name: string;
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "info";
   message?: string;
 }
 
 async function checkNodeVersion(): Promise<CheckResult> {
   const version = process.versions.node;
-  const major = Number.parseInt(version.split(".")[0]!, 10);
+  const major = Number.parseInt(version.split(".")[0] ?? "0", 10);
   if (major >= 22) {
     return { name: "Node.js", status: "pass", message: `v${version}` };
   }
@@ -40,21 +47,57 @@ async function checkGit(): Promise<CheckResult> {
   }
 }
 
-async function checkConfig(): Promise<CheckResult> {
-  const configPath = path.resolve(".neo/config.yml");
-  if (!existsSync(configPath)) {
-    return { name: "Config", status: "fail", message: ".neo/config.yml not found. Run 'neo init'" };
-  }
+async function checkGlobalConfig(): Promise<CheckResult> {
   try {
-    await loadConfig(configPath);
-    return { name: "Config", status: "pass", message: configPath };
+    const config = await loadGlobalConfig();
+    const globalDir = getDataDir();
+    const repoCount = config.repos.length;
+    return {
+      name: "Global config",
+      status: "pass",
+      message: `${globalDir}/config.yml (budget: $${config.budget.dailyCapUsd}/day, ${repoCount} repos)`,
+    };
   } catch (error) {
     return {
-      name: "Config",
+      name: "Global config",
       status: "fail",
       message: `Invalid: ${error instanceof Error ? error.message : String(error)}`,
     };
   }
+}
+
+async function checkRepoRegistered(): Promise<CheckResult> {
+  const cwd = process.cwd();
+  const repos = await listReposFromGlobalConfig();
+  const match = repos.find((r) => path.resolve(r.path) === cwd);
+
+  if (match) {
+    return {
+      name: "Repo registered",
+      status: "pass",
+      message: `"${toRepoSlug(match)}" (branch: ${match.defaultBranch})`,
+    };
+  }
+
+  return {
+    name: "Repo registered",
+    status: "info",
+    message:
+      "CWD not registered. Run 'neo init' or 'neo repos add'. Zero-config mode works without registration.",
+  };
+}
+
+async function checkLegacyConfig(): Promise<CheckResult | null> {
+  const legacyPath = path.resolve(".neo/config.yml");
+  if (existsSync(legacyPath)) {
+    return {
+      name: "Legacy config",
+      status: "info",
+      message:
+        ".neo/config.yml detected — this file is no longer needed. Config is now in ~/.neo/config.yml.",
+    };
+  }
+  return null;
 }
 
 async function checkClaudeCli(): Promise<CheckResult> {
@@ -86,7 +129,7 @@ async function checkAgents(): Promise<CheckResult> {
 }
 
 async function checkJournalDirs(): Promise<CheckResult> {
-  const journalDir = path.resolve(".neo/journals");
+  const journalDir = getJournalsDir();
   if (!existsSync(journalDir)) {
     return {
       name: "Journals",
@@ -116,30 +159,41 @@ export default defineCommand({
   async run({ args }) {
     const jsonOutput = args.output === "json";
 
-    const checks = await Promise.all([
-      checkNodeVersion(),
-      checkGit(),
-      checkConfig(),
-      checkClaudeCli(),
-      checkAgents(),
-      checkJournalDirs(),
-    ]);
+    const checks = (
+      await Promise.all([
+        checkNodeVersion(),
+        checkGit(),
+        checkGlobalConfig(),
+        checkRepoRegistered(),
+        checkLegacyConfig(),
+        checkClaudeCli(),
+        checkAgents(),
+        checkJournalDirs(),
+      ])
+    ).filter((c): c is CheckResult => c !== null);
 
     if (jsonOutput) {
       printJson({ checks });
-      process.exit(checks.some((c) => c.status === "fail") ? 1 : 0);
+      if (checks.some((c) => c.status === "fail")) {
+        process.exitCode = 1;
+      }
+      return;
     }
 
     let hasFailure = false;
     for (const check of checks) {
       if (check.status === "pass") {
         printSuccess(`${check.name}: ${check.message ?? "OK"}`);
+      } else if (check.status === "info") {
+        console.log(`  ${check.name}: ${check.message ?? ""}`);
       } else {
         printError(`${check.name}: ${check.message ?? "FAILED"}`);
         hasFailure = true;
       }
     }
 
-    process.exit(hasFailure ? 1 : 0);
+    if (hasFailure) {
+      process.exitCode = 1;
+    }
   },
 });

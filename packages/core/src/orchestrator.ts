@@ -7,6 +7,7 @@ import type { NeoConfig, RepoConfig } from "@/config";
 import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
+import { WebhookDispatcher } from "@/events/webhook";
 import { getBranchName } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import { cleanupOrphanedWorktrees, createWorktree } from "@/isolation/worktree";
@@ -14,6 +15,7 @@ import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
+import { getJournalsDir, getRepoRunsDir, getRunsDir, toRepoSlug } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import type {
@@ -38,9 +40,7 @@ import { WorkflowRegistry } from "@/workflows/registry";
 const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const RUNS_DIR = ".neo/runs";
 const WORKTREES_DIR = ".neo/worktrees";
-const DEFAULT_JOURNAL_DIR = ".neo/journals";
 const textEncoder = new TextEncoder();
 
 // ─── Options ───────────────────────────────────────────
@@ -91,6 +91,7 @@ export class Orchestrator extends NeoEventEmitter {
   private readonly customWorkflowDir: string | undefined;
   private costJournal: CostJournal | null = null;
   private eventJournal: EventJournal | null = null;
+  private webhookDispatcher: WebhookDispatcher | null = null;
   private _paused = false;
   private _costToday = 0;
   private _startedAt = 0;
@@ -100,7 +101,7 @@ export class Orchestrator extends NeoEventEmitter {
     super();
     this.config = config;
     this.userMiddleware = options.middleware ?? [];
-    this.journalDir = options.journalDir ?? DEFAULT_JOURNAL_DIR;
+    this.journalDir = options.journalDir ?? getJournalsDir();
     this.builtInWorkflowDir = options.builtInWorkflowDir;
     this.customWorkflowDir = options.customWorkflowDir;
     for (const repo of config.repos) {
@@ -224,6 +225,11 @@ export class Orchestrator extends NeoEventEmitter {
     this.costJournal = new CostJournal({ dir: this.journalDir });
     this.eventJournal = new EventJournal({ dir: this.journalDir });
 
+    // Initialize webhook dispatcher if webhooks are configured
+    if (this.config.webhooks.length > 0) {
+      this.webhookDispatcher = new WebhookDispatcher(this.config.webhooks);
+    }
+
     // Restore today's cost from journal
     this._costToday = await this.costJournal.getDayTotal();
 
@@ -278,6 +284,10 @@ export class Orchestrator extends NeoEventEmitter {
     // Fire-and-forget event journal append
     if (this.eventJournal) {
       this.eventJournal.append(event).catch(() => {});
+    }
+    // Fire-and-forget webhook dispatch
+    if (this.webhookDispatcher) {
+      this.webhookDispatcher.dispatch(event);
     }
   }
 
@@ -442,6 +452,7 @@ export class Orchestrator extends NeoEventEmitter {
     const sessionResult = await runWithRecovery({
       agent,
       prompt: stepDef.prompt ?? input.prompt,
+      repoPath: input.repo,
       sandboxConfig,
       hooks,
       initTimeoutMs: this.config.sessions.initTimeoutMs,
@@ -548,6 +559,7 @@ export class Orchestrator extends NeoEventEmitter {
         costUsd: sessionCost,
         models: {},
         durationMs: Date.now() - ctx.startedAt,
+        repo: ctx.input.repo,
       };
       this.costJournal.append(costEntry).catch(() => {});
     }
@@ -747,7 +759,8 @@ export class Orchestrator extends NeoEventEmitter {
 
   private async persistRun(run: PersistedRun): Promise<void> {
     try {
-      const runsDir = path.join(run.repo, RUNS_DIR);
+      const slug = toRepoSlug({ path: run.repo });
+      const runsDir = getRepoRunsDir(slug);
       if (!this.createdRunDirs.has(runsDir)) {
         await mkdir(runsDir, { recursive: true });
         this.createdRunDirs.add(runsDir);
@@ -760,28 +773,38 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   private async recoverOrphanedRuns(): Promise<void> {
-    for (const repo of this.config.repos) {
-      const runsDir = path.join(repo.path, RUNS_DIR);
-      if (!existsSync(runsDir)) continue;
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return;
 
-      try {
-        const files = await readdir(runsDir);
-        for (const file of files) {
-          if (!file.endsWith(".json")) continue;
+    try {
+      const entries = await readdir(runsDir, { withFileTypes: true });
+      // Scan slug subdirs and legacy flat .json files
+      const jsonFiles: string[] = [];
 
-          const filePath = path.join(runsDir, file);
-          const content = await readFile(filePath, "utf-8");
-          const run = JSON.parse(content) as PersistedRun;
-
-          if (run.status === "running") {
-            run.status = "failed";
-            run.updatedAt = new Date().toISOString();
-            await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          const subDir = path.join(runsDir, entry.name);
+          const subFiles = await readdir(subDir);
+          for (const f of subFiles) {
+            if (f.endsWith(".json")) jsonFiles.push(path.join(subDir, f));
           }
+        } else if (entry.name.endsWith(".json")) {
+          jsonFiles.push(path.join(runsDir, entry.name));
         }
-      } catch {
-        // Non-critical — continue with other repos
       }
+
+      for (const filePath of jsonFiles) {
+        const content = await readFile(filePath, "utf-8");
+        const run = JSON.parse(content) as PersistedRun;
+
+        if (run.status === "running") {
+          run.status = "failed";
+          run.updatedAt = new Date().toISOString();
+          await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+        }
+      }
+    } catch {
+      // Non-critical
     }
   }
 }

@@ -61,6 +61,25 @@ const PROMPTS_DIR = path.join(TMP_DIR, "prompts");
 const WORKFLOWS_DIR = path.join(TMP_DIR, "workflows");
 const JOURNALS_DIR = path.join(TMP_DIR, "journals");
 const REPO_DIR = path.join(TMP_DIR, "repo");
+const GLOBAL_RUNS_DIR = path.join(TMP_DIR, "global-runs");
+
+vi.mock("@/paths", async () => {
+  const p = await import("node:path");
+  return {
+    getDataDir: () => p.join(TMP_DIR, "global"),
+    getJournalsDir: () => JOURNALS_DIR,
+    getRunsDir: () => GLOBAL_RUNS_DIR,
+    toRepoSlug: (repo: { name?: string; path: string }) => {
+      const raw = repo.name ?? p.basename(repo.path);
+      return raw
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+    },
+    getRepoRunsDir: (slug: string) => p.join(GLOBAL_RUNS_DIR, slug),
+  };
+});
 
 const DEVELOPER_PROMPT = "You are a developer agent. Implement the task.";
 const REVIEWER_PROMPT = "You are a code reviewer. Review the changes.";
@@ -262,8 +281,8 @@ describe("e2e: config loading", () => {
   });
 
   it("rejects invalid config with field-level errors", async () => {
-    await writeFile(path.join(TMP_DIR, "bad.yml"), "repos: []");
-    await expect(loadConfig(path.join(TMP_DIR, "bad.yml"))).rejects.toThrow("At least one repo");
+    await writeFile(path.join(TMP_DIR, "bad.yml"), "concurrency:\n  maxSessions: not-a-number");
+    await expect(loadConfig(path.join(TMP_DIR, "bad.yml"))).rejects.toThrow("Invalid config");
   });
 });
 
@@ -364,8 +383,8 @@ describe("e2e: orchestrator lifecycle", () => {
     expect(result.steps.implement).toBeDefined();
     expect(result.steps.implement?.agent).toBe("developer");
 
-    // Run file should be persisted
-    const runsDir = path.join(REPO_DIR, ".neo/runs");
+    // Run file should be persisted in slug subdir
+    const runsDir = path.join(GLOBAL_RUNS_DIR, "repo");
     const files = await readdir(runsDir);
     expect(files).toHaveLength(1);
     const firstFile = files[0] ?? "";
@@ -803,7 +822,7 @@ describe("e2e: recovery on failure", () => {
     expect(result.steps.implement?.error).toBeDefined();
 
     // Persisted run should be marked as failed
-    const runsDir = path.join(REPO_DIR, ".neo/runs");
+    const runsDir = path.join(GLOBAL_RUNS_DIR, "repo");
     const files = await readdir(runsDir);
     const firstFile = files[0] ?? "";
     const runData = JSON.parse(await readFile(path.join(runsDir, firstFile), "utf-8"));
@@ -897,7 +916,7 @@ describe("e2e: readonly agent", () => {
 describe("e2e: run persistence", () => {
   it("recovers orphaned runs on start", async () => {
     // Create an orphaned run file
-    const runsDir = path.join(REPO_DIR, ".neo/runs");
+    const runsDir = GLOBAL_RUNS_DIR;
     await mkdir(runsDir, { recursive: true });
     await writeFile(
       path.join(runsDir, "orphan-1.json"),

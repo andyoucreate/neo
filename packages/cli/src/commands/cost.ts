@@ -2,8 +2,10 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { CostEntry } from "@neo-cli/core";
+import { getJournalsDir, toRepoSlug } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
+import { resolveRepoFilter } from "../repo-filter.js";
 
 async function readCostEntries(journalDir: string): Promise<CostEntry[]> {
   if (!existsSync(journalDir)) return [];
@@ -41,6 +43,15 @@ export default defineCommand({
     description: "Show cost breakdown from journals (today, by agent, by run)",
   },
   args: {
+    all: {
+      type: "boolean",
+      description: "Show costs from all repos",
+      default: false,
+    },
+    repo: {
+      type: "string",
+      description: "Filter by repo name or path",
+    },
     short: {
       type: "boolean",
       description: "Compact output for supervisor agents (saves tokens)",
@@ -53,12 +64,23 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const journalDir = path.resolve(".neo/journals");
-    const entries = await readCostEntries(journalDir);
+    const journalDir = getJournalsDir();
+    let entries = await readCostEntries(journalDir);
 
     if (entries.length === 0) {
       printError("No cost data found.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
+    }
+
+    // Filter by repo unless --all
+    const filter = await resolveRepoFilter({ all: args.all, repo: args.repo });
+    if (filter.mode !== "all") {
+      const slug = filter.repoSlug;
+      entries = entries.filter((e) => {
+        if (!e.repo) return false;
+        return toRepoSlug({ path: e.repo }) === slug;
+      });
     }
 
     const todayEntries = entries.filter((e) => isToday(e.timestamp));
@@ -72,12 +94,23 @@ export default defineCommand({
       byAgent.set(e.agent, { cost: prev.cost + e.costUsd, runs: prev.runs + 1 });
     }
 
+    // Breakdown by repo (today, only in --all mode)
+    const byRepo = new Map<string, { cost: number; runs: number }>();
+    if (filter.mode === "all") {
+      for (const e of todayEntries) {
+        const repo = e.repo ?? "unknown";
+        const prev = byRepo.get(repo) ?? { cost: 0, runs: 0 };
+        byRepo.set(repo, { cost: prev.cost + e.costUsd, runs: prev.runs + 1 });
+      }
+    }
+
     if (jsonOutput) {
       printJson({
         today: {
           total: todayTotal,
           sessions: todayEntries.length,
           byAgent: Object.fromEntries(byAgent),
+          ...(byRepo.size > 0 ? { byRepo: Object.fromEntries(byRepo) } : {}),
         },
         allTime: {
           total: allTimeTotal,
@@ -88,7 +121,6 @@ export default defineCommand({
     }
 
     if (args.short) {
-      // One-liner for supervisor
       const agents = [...byAgent.entries()]
         .map(([name, data]) => `${name}=$${data.cost.toFixed(4)}`)
         .join(" ");
@@ -106,6 +138,16 @@ export default defineCommand({
         [...byAgent.entries()]
           .sort((a, b) => b[1].cost - a[1].cost)
           .map(([name, data]) => [name, `$${data.cost.toFixed(4)}`, String(data.runs)]),
+      );
+    }
+
+    if (byRepo.size > 0) {
+      console.log("");
+      printTable(
+        ["REPO", "COST TODAY", "SESSIONS"],
+        [...byRepo.entries()]
+          .sort((a, b) => b[1].cost - a[1].cost)
+          .map(([repo, data]) => [repo, `$${data.cost.toFixed(4)}`, String(data.runs)]),
       );
     }
   },

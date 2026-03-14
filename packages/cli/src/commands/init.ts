@@ -1,87 +1,73 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
+import { addRepoToGlobalConfig, getDataDir, loadGlobalConfig } from "@neo-cli/core";
 import { defineCommand } from "citty";
+import { detectDefaultBranch } from "../git-utils.js";
 import { printError, printSuccess } from "../output.js";
 
-const execFileAsync = promisify(execFile);
+const GITIGNORE_ENTRY = ".neo/worktrees/";
 
-async function detectDefaultBranch(): Promise<string> {
-  // Try remote HEAD first (works even on a feature branch)
-  try {
-    const { stdout } = await execFileAsync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"]);
-    // Returns e.g. "refs/remotes/origin/main" → extract "main"
-    const ref = stdout.trim();
-    const branch = ref.replace(/^refs\/remotes\/origin\//, "");
-    if (branch && branch !== ref) return branch;
-  } catch {
-    // origin/HEAD may not be set — fall through
+async function ensureGitignore(): Promise<boolean> {
+  const gitignorePath = path.resolve(".gitignore");
+
+  if (existsSync(gitignorePath)) {
+    const content = await readFile(gitignorePath, "utf-8");
+    if (content.includes(GITIGNORE_ENTRY)) return false;
+    await appendFile(gitignorePath, `\n# neo worktrees (ephemeral)\n${GITIGNORE_ENTRY}\n`);
+  } else {
+    await appendFile(gitignorePath, `# neo worktrees (ephemeral)\n${GITIGNORE_ENTRY}\n`);
   }
 
-  // Fallback: check if common default branch names exist locally
-  for (const candidate of ["main", "master"]) {
-    try {
-      await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${candidate}`]);
-      return candidate;
-    } catch {
-      // branch doesn't exist — try next
-    }
-  }
-
-  return "main";
+  return true;
 }
-
-const DEFAULT_CONFIG = (budget: number, branch: string) => `repos:
-  - path: "."
-    defaultBranch: ${branch}
-concurrency:
-  maxSessions: 5
-  maxPerRepo: 2
-budget:
-  dailyCapUsd: ${budget}
-  alertThresholdPct: 80
-`;
-
-const DIRS = ["agents", "runs", "journals"];
 
 export default defineCommand({
   meta: {
     name: "init",
-    description: "Initialize a .neo/ project directory (config, agents, journals)",
+    description: "Initialize a .neo/ project directory and register the repo",
   },
   args: {
-    budget: {
-      type: "string",
-      description: "Daily budget cap in USD",
-      default: "500",
-    },
     force: {
       type: "boolean",
-      description: "Overwrite existing configuration",
+      description: "Re-register even if already initialized",
       default: false,
     },
   },
   async run({ args }) {
-    const configPath = path.resolve(".neo/config.yml");
+    const agentsDir = path.resolve(".neo/agents");
 
-    if (existsSync(configPath) && !args.force) {
-      printError(".neo/config.yml already exists. Use --force to overwrite.");
-      process.exit(1);
+    if (existsSync(agentsDir) && !args.force) {
+      printError(".neo/agents/ already exists. Use --force to re-register.");
+      process.exitCode = 1;
+      return;
     }
 
-    // Create .neo/ structure
-    await mkdir(path.resolve(".neo"), { recursive: true });
-    for (const dir of DIRS) {
-      await mkdir(path.resolve(`.neo/${dir}`), { recursive: true });
+    // Create .neo/agents/ for project-local agent definitions
+    await mkdir(agentsDir, { recursive: true });
+    printSuccess("Created .neo/agents/");
+
+    // Ensure .neo/worktrees/ is in .gitignore
+    if (await ensureGitignore()) {
+      printSuccess(`Added ${GITIGNORE_ENTRY} to .gitignore`);
     }
 
-    // Write config
-    const budget = Number(args.budget);
+    // Detect default branch and register repo in global config
     const branch = await detectDefaultBranch();
-    await writeFile(configPath, DEFAULT_CONFIG(budget, branch), "utf-8");
-    printSuccess(`Created .neo/config.yml (budget: $${budget}/day, branch: ${branch})`);
+    const repoPath = path.resolve(".");
+
+    await addRepoToGlobalConfig({
+      path: repoPath,
+      defaultBranch: branch,
+    });
+    printSuccess(`Registered repo in global config (branch: ${branch})`);
+
+    // Ensure global config exists (creates with defaults if missing)
+    const globalConfig = await loadGlobalConfig();
+    const globalDir = getDataDir();
+    printSuccess(
+      `Global config at ${globalDir}/config.yml (budget: $${globalConfig.budget.dailyCapUsd}/day)`,
+    );
 
     printSuccess("neo initialized. Run 'neo doctor' to verify setup.");
   },
