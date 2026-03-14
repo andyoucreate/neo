@@ -79,7 +79,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish neotx
-        run: pnpm --filter neotx publish --no-git-checks --tag ${{ steps.npm-tag.outputs.tag }} --provenance
+      - name: Publish @neotx/cli
+        run: pnpm --filter @neotx/cli publish --no-git-checks --tag ${{ steps.npm-tag.outputs.tag }} --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
