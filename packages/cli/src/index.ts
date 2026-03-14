@@ -15,6 +15,8 @@ const main = defineCommand({
     cost: () => import("./commands/cost.js").then((m) => m.default),
     repos: () => import("./commands/repos.js").then((m) => m.default),
     agents: () => import("./commands/agents.js").then((m) => m.default),
+    supervise: () => import("./commands/supervise.js").then((m) => m.default),
+    mcp: () => import("./commands/mcp.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
   },
 });

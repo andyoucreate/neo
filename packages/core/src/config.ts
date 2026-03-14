@@ -83,6 +83,25 @@ export const globalConfigSchema = z.object({
     )
     .default([]),
 
+  supervisor: z
+    .object({
+      port: z.number().default(7777),
+      secret: z.string().optional(),
+      idleIntervalMs: z.number().default(60_000),
+      heartbeatTimeoutMs: z.number().default(300_000),
+      maxConsecutiveFailures: z.number().default(3),
+      maxEventsPerSec: z.number().default(10),
+      dailyCapUsd: z.number().default(50),
+    })
+    .default({
+      port: 7777,
+      idleIntervalMs: 60_000,
+      heartbeatTimeoutMs: 300_000,
+      maxConsecutiveFailures: 3,
+      maxEventsPerSec: 10,
+      dailyCapUsd: 50,
+    }),
+
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
   claudeCodePath: z.string().optional(),
 

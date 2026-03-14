@@ -38,7 +38,8 @@
   "dependencies": {
     "@neo-cli/agents": "workspace:*",
     "@neo-cli/core": "workspace:*",
-    "citty": "^0.2.1"
+    "citty": "^0.2.1",
+    "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
