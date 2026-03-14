@@ -8,9 +8,9 @@ import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
-import { getBranchName } from "@/isolation/git";
+import { getBranchName, pushWorktreeBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
-import { cleanupOrphanedWorktrees, createWorktree } from "@/isolation/worktree";
+import { cleanupOrphanedWorktrees, createWorktree, removeWorktree } from "@/isolation/worktree";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
@@ -408,6 +408,11 @@ export class Orchestrator extends NeoEventEmitter {
         attempt: 1,
       };
     } finally {
+      // Auto-commit, push, and cleanup worktree
+      if (worktreePath) {
+        await this.finalizeWorktree(worktreePath, ctx);
+      }
+
       this.semaphore.release(sessionId);
       this._activeSessions.delete(sessionId);
       this.abortControllers.delete(sessionId);
@@ -416,6 +421,30 @@ export class Orchestrator extends NeoEventEmitter {
         this._drainResolve();
         this._drainResolve = null;
       }
+    }
+  }
+
+  /**
+   * Push the branch, then remove the worktree.
+   * Runs in `finally` so it executes on both success and failure.
+   */
+  private async finalizeWorktree(worktreePath: string, ctx: DispatchContext): Promise<void> {
+    const { runId, repoConfig } = ctx;
+    const branch = getBranchName(repoConfig, runId);
+    const remote = repoConfig.pushRemote ?? "origin";
+
+    try {
+      await pushWorktreeBranch(worktreePath, branch, remote).catch(() => {
+        // Push may fail (no remote, auth, etc.) — not critical
+      });
+    } catch {
+      // Best-effort — don't let finalization errors mask the real result
+    }
+
+    try {
+      await removeWorktree(worktreePath);
+    } catch {
+      // Worktree cleanup is best-effort
     }
   }
 

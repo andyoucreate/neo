@@ -22,10 +22,10 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
     config: {
       type: "stdio",
       command: "npx",
-      args: ["-y", "@anthropic/notion-mcp-server"],
-      env: { NOTION_API_KEY: "${NOTION_API_KEY}" },
+      args: ["-y", "@notionhq/notion-mcp-server"],
+      env: { NOTION_TOKEN: "${NOTION_TOKEN}" },
     },
-    envVars: ["NOTION_API_KEY"],
+    envVars: ["NOTION_TOKEN"],
   },
   github: {
     config: {

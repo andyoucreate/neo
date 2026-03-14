@@ -52,3 +52,45 @@ export function getBranchName(config: RepoConfig, runId: string): string {
   const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   return `${prefix}/run-${sanitized}`;
 }
+
+/**
+ * Check if a worktree has uncommitted changes (staged or unstaged).
+ */
+export async function hasUncommittedChanges(worktreePath: string): Promise<boolean> {
+  const status = await withGitLock(worktreePath, () =>
+    git(worktreePath, ["status", "--porcelain"]),
+  );
+  return status.length > 0;
+}
+
+/**
+ * Auto-commit all changes in a worktree. Used as a safety net after agent
+ * sessions to prevent losing work when the worktree is cleaned up.
+ */
+export async function autoCommitChanges(worktreePath: string, runId: string): Promise<boolean> {
+  const hasChanges = await hasUncommittedChanges(worktreePath);
+  if (!hasChanges) return false;
+
+  await withGitLock(worktreePath, async () => {
+    await git(worktreePath, ["add", "-A"]);
+    await git(worktreePath, [
+      "commit",
+      "-m",
+      `chore: auto-commit uncommitted changes from run ${runId}`,
+    ]);
+  });
+
+  return true;
+}
+
+/**
+ * Push a branch from a worktree to a remote. Silently succeeds if
+ * the branch has no new commits to push.
+ */
+export async function pushWorktreeBranch(
+  worktreePath: string,
+  branch: string,
+  remote: string,
+): Promise<void> {
+  await withGitLock(worktreePath, () => git(worktreePath, ["push", "-u", remote, branch]));
+}
