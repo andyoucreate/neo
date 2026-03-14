@@ -50,6 +50,23 @@ neo cost               # see today's spend and breakdown by agent
 
 A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing - it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
 
+### Supervisor skills for Claude Code
+
+Install the neo skills so your Claude Code supervisor knows how to dispatch, monitor, and recover agents:
+
+```bash
+# Install from skills.sh
+npx skills add voltaire-network/neo
+
+# Or copy manually to your project
+cp -r neo/skills/neo-supervisor .claude/skills/
+cp -r neo/skills/neo-recover .claude/skills/
+```
+
+This gives your supervisor two skills:
+- `/neo-supervisor` - Full dispatch-monitor-decide loop with agent selection guide
+- `/neo-recover` - Failure diagnosis and recovery strategies
+
 ## How it works
 
 When a supervisor dispatches `neo run developer --prompt "..."`, neo:

@@ -13,8 +13,7 @@
     "neo": "dist/index.js"
   },
   "files": [
-    "dist",
-    "src/skills"
+    "dist"
   ],
   "publishConfig": {
     "access": "public"
