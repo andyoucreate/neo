@@ -18,11 +18,16 @@ export type {
   SemaphoreConfig,
 } from "@/concurrency/semaphore";
 export { Semaphore } from "@/concurrency/semaphore";
+export type { GlobalConfig, RepoProjectConfig } from "@/config";
 export {
+  globalConfigSchema,
   loadConfig,
+  loadGlobalConfig,
+  loadRepoProjectConfig,
   mcpServerConfigSchema,
   neoConfigSchema,
   repoConfigSchema,
+  repoProjectConfigSchema,
 } from "@/config";
 // ─── Cost ──────────────────────────────────────────────
 export { CostJournal } from "@/cost/journal";
@@ -58,6 +63,8 @@ export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
 export { loopDetection } from "@/middleware/loop-detection";
 export type { OrchestratorOptions } from "@/orchestrator";
 export { Orchestrator } from "@/orchestrator";
+// ─── Paths ─────────────────────────────────────────────
+export { getDataDir, getJournalsDir, getRunsDir } from "@/paths";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";

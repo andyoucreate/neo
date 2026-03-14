@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { PersistedRun } from "@neo-cli/core";
+import { getRunsDir } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 
@@ -128,11 +129,12 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const runsDir = path.resolve(".neo/runs");
+    const runsDir = getRunsDir();
 
     if (!existsSync(runsDir)) {
       printError("No runs found. Run 'neo run <agent>' first.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     let runs = await loadRuns(runsDir);
@@ -144,7 +146,8 @@ export default defineCommand({
       );
       if (!match) {
         printError(`Run "${args.runId}" not found.`);
-        process.exit(1);
+        process.exitCode = 1;
+        return;
       }
 
       if (jsonOutput) {

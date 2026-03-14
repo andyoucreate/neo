@@ -59,6 +59,14 @@ vi.mock("@/isolation/worktree", () => ({
 // ─── Helpers ────────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_orchestrator_test__");
+const GLOBAL_RUNS_DIR = path.join(TMP_DIR, ".neo-global/runs");
+const GLOBAL_JOURNALS_DIR = path.join(TMP_DIR, ".neo-global/journals");
+
+vi.mock("@/paths", () => ({
+  getDataDir: () => path.join(TMP_DIR, ".neo-global"),
+  getJournalsDir: () => GLOBAL_JOURNALS_DIR,
+  getRunsDir: () => GLOBAL_RUNS_DIR,
+}));
 
 function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
   return {
@@ -174,11 +182,11 @@ describe("dispatch", () => {
     expect(fixStep?.agent).toBe("test-developer");
   });
 
-  it("persists run state to .neo/runs/", async () => {
+  it("persists run state to global runs dir", async () => {
     const orchestrator = createOrchestrator();
     const result = await orchestrator.dispatch(makeInput());
 
-    const runFile = path.join(TMP_DIR, ".neo/runs", `${result.runId}.json`);
+    const runFile = path.join(GLOBAL_RUNS_DIR, `${result.runId}.json`);
     expect(existsSync(runFile)).toBe(true);
 
     const persisted = JSON.parse(await readFile(runFile, "utf-8"));
@@ -408,7 +416,7 @@ describe("shutdown", () => {
 
 describe("start", () => {
   it("marks orphaned running runs as failed", async () => {
-    const runsDir = path.join(TMP_DIR, ".neo/runs");
+    const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
     const orphanedRun = {
@@ -432,7 +440,7 @@ describe("start", () => {
   });
 
   it("does not modify completed runs", async () => {
-    const runsDir = path.join(TMP_DIR, ".neo/runs");
+    const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
     const completedRun = {

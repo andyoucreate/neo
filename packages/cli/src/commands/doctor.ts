@@ -3,7 +3,13 @@ import { existsSync } from "node:fs";
 import { access, constants } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { AgentRegistry, loadConfig } from "@neo-cli/core";
+import {
+  AgentRegistry,
+  getDataDir,
+  getJournalsDir,
+  loadGlobalConfig,
+  loadRepoProjectConfig,
+} from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -40,17 +46,39 @@ async function checkGit(): Promise<CheckResult> {
   }
 }
 
-async function checkConfig(): Promise<CheckResult> {
-  const configPath = path.resolve(".neo/config.yml");
-  if (!existsSync(configPath)) {
-    return { name: "Config", status: "fail", message: ".neo/config.yml not found. Run 'neo init'" };
-  }
+async function checkGlobalConfig(): Promise<CheckResult> {
   try {
-    await loadConfig(configPath);
-    return { name: "Config", status: "pass", message: configPath };
+    const config = await loadGlobalConfig();
+    const globalDir = getDataDir();
+    return {
+      name: "Global config",
+      status: "pass",
+      message: `${globalDir}/config.yml (budget: $${config.budget.dailyCapUsd}/day)`,
+    };
   } catch (error) {
     return {
-      name: "Config",
+      name: "Global config",
+      status: "fail",
+      message: `Invalid: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+async function checkRepoConfig(): Promise<CheckResult> {
+  const configPath = path.resolve(".neo/config.yml");
+  if (!existsSync(configPath)) {
+    return {
+      name: "Repo config",
+      status: "fail",
+      message: ".neo/config.yml not found. Run 'neo init'",
+    };
+  }
+  try {
+    await loadRepoProjectConfig(configPath);
+    return { name: "Repo config", status: "pass", message: configPath };
+  } catch (error) {
+    return {
+      name: "Repo config",
       status: "fail",
       message: `Invalid: ${error instanceof Error ? error.message : String(error)}`,
     };
@@ -86,7 +114,7 @@ async function checkAgents(): Promise<CheckResult> {
 }
 
 async function checkJournalDirs(): Promise<CheckResult> {
-  const journalDir = path.resolve(".neo/journals");
+  const journalDir = getJournalsDir();
   if (!existsSync(journalDir)) {
     return {
       name: "Journals",
@@ -119,7 +147,8 @@ export default defineCommand({
     const checks = await Promise.all([
       checkNodeVersion(),
       checkGit(),
-      checkConfig(),
+      checkGlobalConfig(),
+      checkRepoConfig(),
       checkClaudeCli(),
       checkAgents(),
       checkJournalDirs(),
@@ -127,7 +156,10 @@ export default defineCommand({
 
     if (jsonOutput) {
       printJson({ checks });
-      process.exit(checks.some((c) => c.status === "fail") ? 1 : 0);
+      if (checks.some((c) => c.status === "fail")) {
+        process.exitCode = 1;
+      }
+      return;
     }
 
     let hasFailure = false;
@@ -140,6 +172,8 @@ export default defineCommand({
       }
     }
 
-    process.exit(hasFailure ? 1 : 0);
+    if (hasFailure) {
+      process.exitCode = 1;
+    }
   },
 });

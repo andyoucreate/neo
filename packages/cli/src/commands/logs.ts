@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { getJournalsDir } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson } from "../output.js";
 
@@ -108,13 +109,14 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const journalDir = path.resolve(".neo/journals");
+    const journalDir = getJournalsDir();
 
     let events = await readJournalLines(journalDir, "events-");
 
     if (events.length === 0) {
       printError("No event logs found.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     // Filter by type

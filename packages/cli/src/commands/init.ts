@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { getDataDir, loadGlobalConfig } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
 
@@ -33,30 +34,17 @@ async function detectDefaultBranch(): Promise<string> {
   return "main";
 }
 
-const DEFAULT_CONFIG = (budget: number, branch: string) => `repos:
+const REPO_CONFIG = (branch: string) => `repos:
   - path: "."
     defaultBranch: ${branch}
-concurrency:
-  maxSessions: 5
-  maxPerRepo: 2
-budget:
-  dailyCapUsd: ${budget}
-  alertThresholdPct: 80
 `;
-
-const DIRS = ["agents", "runs", "journals"];
 
 export default defineCommand({
   meta: {
     name: "init",
-    description: "Initialize a .neo/ project directory (config, agents, journals)",
+    description: "Initialize a .neo/ project directory (repo config + agents)",
   },
   args: {
-    budget: {
-      type: "string",
-      description: "Daily budget cap in USD",
-      default: "500",
-    },
     force: {
       type: "boolean",
       description: "Overwrite existing configuration",
@@ -68,20 +56,25 @@ export default defineCommand({
 
     if (existsSync(configPath) && !args.force) {
       printError(".neo/config.yml already exists. Use --force to overwrite.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
-    // Create .neo/ structure
+    // Create .neo/ structure (repo-level: config + agents only)
     await mkdir(path.resolve(".neo"), { recursive: true });
-    for (const dir of DIRS) {
-      await mkdir(path.resolve(`.neo/${dir}`), { recursive: true });
-    }
+    await mkdir(path.resolve(".neo/agents"), { recursive: true });
 
-    // Write config
-    const budget = Number(args.budget);
+    // Write repo config
     const branch = await detectDefaultBranch();
-    await writeFile(configPath, DEFAULT_CONFIG(budget, branch), "utf-8");
-    printSuccess(`Created .neo/config.yml (budget: $${budget}/day, branch: ${branch})`);
+    await writeFile(configPath, REPO_CONFIG(branch), "utf-8");
+    printSuccess(`Created .neo/config.yml (branch: ${branch})`);
+
+    // Ensure global config exists at ~/.neo/config.yml (creates with defaults if missing)
+    const globalConfig = await loadGlobalConfig();
+    const globalDir = getDataDir();
+    printSuccess(
+      `Global config at ${globalDir}/config.yml (budget: $${globalConfig.budget.dailyCapUsd}/day)`,
+    );
 
     printSuccess("neo initialized. Run 'neo doctor' to verify setup.");
   },

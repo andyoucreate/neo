@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { CostEntry } from "@neo-cli/core";
+import { getJournalsDir } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 
@@ -53,12 +54,13 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const journalDir = path.resolve(".neo/journals");
+    const journalDir = getJournalsDir();
     const entries = await readCostEntries(journalDir);
 
     if (entries.length === 0) {
       printError("No cost data found.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     const todayEntries = entries.filter((e) => isToday(e.timestamp));

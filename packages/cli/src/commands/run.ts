@@ -1,7 +1,12 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { NeoEvent } from "@neo-cli/core";
-import { AgentRegistry, loadConfig, Orchestrator } from "@neo-cli/core";
+import {
+  AgentRegistry,
+  loadGlobalConfig,
+  loadRepoProjectConfig,
+  Orchestrator,
+} from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -31,8 +36,7 @@ function parseMetadata(meta: string | undefined): Record<string, unknown> | unde
   try {
     return JSON.parse(meta) as Record<string, unknown>;
   } catch {
-    printError(`Invalid --meta JSON: ${meta}`);
-    process.exit(1);
+    throw new Error(`Invalid --meta JSON: ${meta}`);
   }
 }
 
@@ -76,14 +80,17 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const configPath = args.config ?? path.resolve(".neo/config.yml");
+    const repoConfigPath = args.config ?? path.resolve(".neo/config.yml");
 
-    if (!existsSync(configPath)) {
+    if (!existsSync(repoConfigPath)) {
       printError(".neo/config.yml not found. Run 'neo init' first.");
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
-    const config = await loadConfig(configPath);
+    const globalConfig = await loadGlobalConfig();
+    const repoProjectConfig = await loadRepoProjectConfig(repoConfigPath);
+    const config = { ...globalConfig, ...repoProjectConfig };
     const repo = path.resolve(args.repo);
 
     // Load agent registry
@@ -102,13 +109,12 @@ export default defineCommand({
         .map((a) => a.name)
         .join(", ");
       printError(`Agent "${args.agent}" not found. Available: ${available}`);
-      process.exit(1);
+      process.exitCode = 1;
+      return;
     }
 
     // Create orchestrator — no workflow dirs, we register an inline single-step workflow
-    const orchestrator = new Orchestrator(config, {
-      journalDir: ".neo/journals",
-    });
+    const orchestrator = new Orchestrator(config);
 
     // Register the requested agent
     orchestrator.registerAgent(agent);
@@ -150,14 +156,24 @@ export default defineCommand({
         if (result.branch) {
           console.log(`Branch:   ${result.branch}`);
         }
+
+        // Show agent output
+        const stepResult = Object.values(result.steps)[0];
+        const output = stepResult?.output ?? result.summary;
+        if (output) {
+          console.log("");
+          console.log(typeof output === "string" ? output : JSON.stringify(output, null, 2));
+        }
       }
 
       await orchestrator.shutdown();
-      process.exit(result.status === "success" ? 0 : 1);
+      if (result.status !== "success") {
+        process.exitCode = 1;
+      }
     } catch (error) {
       await orchestrator.shutdown();
       printError(error instanceof Error ? error.message : String(error));
-      process.exit(1);
+      process.exitCode = 1;
     }
   },
 });

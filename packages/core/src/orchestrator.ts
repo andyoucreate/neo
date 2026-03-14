@@ -14,6 +14,7 @@ import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
+import { getJournalsDir, getRunsDir } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import type {
@@ -38,9 +39,7 @@ import { WorkflowRegistry } from "@/workflows/registry";
 const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const RUNS_DIR = ".neo/runs";
 const WORKTREES_DIR = ".neo/worktrees";
-const DEFAULT_JOURNAL_DIR = ".neo/journals";
 const textEncoder = new TextEncoder();
 
 // ─── Options ───────────────────────────────────────────
@@ -100,7 +99,7 @@ export class Orchestrator extends NeoEventEmitter {
     super();
     this.config = config;
     this.userMiddleware = options.middleware ?? [];
-    this.journalDir = options.journalDir ?? DEFAULT_JOURNAL_DIR;
+    this.journalDir = options.journalDir ?? getJournalsDir();
     this.builtInWorkflowDir = options.builtInWorkflowDir;
     this.customWorkflowDir = options.customWorkflowDir;
     for (const repo of config.repos) {
@@ -442,6 +441,7 @@ export class Orchestrator extends NeoEventEmitter {
     const sessionResult = await runWithRecovery({
       agent,
       prompt: stepDef.prompt ?? input.prompt,
+      repoPath: input.repo,
       sandboxConfig,
       hooks,
       initTimeoutMs: this.config.sessions.initTimeoutMs,
@@ -747,7 +747,7 @@ export class Orchestrator extends NeoEventEmitter {
 
   private async persistRun(run: PersistedRun): Promise<void> {
     try {
-      const runsDir = path.join(run.repo, RUNS_DIR);
+      const runsDir = getRunsDir();
       if (!this.createdRunDirs.has(runsDir)) {
         await mkdir(runsDir, { recursive: true });
         this.createdRunDirs.add(runsDir);
@@ -760,28 +760,26 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   private async recoverOrphanedRuns(): Promise<void> {
-    for (const repo of this.config.repos) {
-      const runsDir = path.join(repo.path, RUNS_DIR);
-      if (!existsSync(runsDir)) continue;
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return;
 
-      try {
-        const files = await readdir(runsDir);
-        for (const file of files) {
-          if (!file.endsWith(".json")) continue;
+    try {
+      const files = await readdir(runsDir);
+      for (const file of files) {
+        if (!file.endsWith(".json")) continue;
 
-          const filePath = path.join(runsDir, file);
-          const content = await readFile(filePath, "utf-8");
-          const run = JSON.parse(content) as PersistedRun;
+        const filePath = path.join(runsDir, file);
+        const content = await readFile(filePath, "utf-8");
+        const run = JSON.parse(content) as PersistedRun;
 
-          if (run.status === "running") {
-            run.status = "failed";
-            run.updatedAt = new Date().toISOString();
-            await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
-          }
+        if (run.status === "running") {
+          run.status = "failed";
+          run.updatedAt = new Date().toISOString();
+          await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
         }
-      } catch {
-        // Non-critical — continue with other repos
       }
+    } catch {
+      // Non-critical
     }
   }
 }
