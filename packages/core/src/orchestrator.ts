@@ -701,7 +701,7 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   private resolveRepo(repoPath: string): RepoConfig {
-    const repo = this.repoIndex.get(repoPath);
+    const repo = this.repoIndex.get(path.resolve(repoPath));
     if (repo) return repo;
     return {
       path: repoPath,

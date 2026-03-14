@@ -14,7 +14,8 @@ First public release.
 - **Middleware system** - composable hooks with built-in budget guard, loop detection, and audit log
 - **Agent inheritance** - extend built-in agents with `extends`, `promptAppend`, and `$inherited` tools
 - **Run persistence** - `.neo/runs/<runId>.json` written after every step for cross-process recovery
-- **CLI** - `neo init`, `neo run <agent>`, `neo agents`, `neo doctor`
+- **CLI** - `neo init`, `neo run <agent>`, `neo runs`, `neo logs`, `neo cost`, `neo agents`, `neo doctor`
+- **Supervisor monitoring** - `neo runs --short`, `neo logs --short`, `neo cost --short` with token-efficient output for supervisor agents
 - **Programmatic API** - full `@neo-cli/core` library for custom orchestration
 
 ### Architecture

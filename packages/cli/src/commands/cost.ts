@@ -1,0 +1,112 @@
+import { existsSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import type { CostEntry } from "@neo-cli/core";
+import { defineCommand } from "citty";
+import { printError, printJson, printTable } from "../output.js";
+
+async function readCostEntries(journalDir: string): Promise<CostEntry[]> {
+  if (!existsSync(journalDir)) return [];
+  const files = await readdir(journalDir);
+  const costFiles = files
+    .filter((f) => f.startsWith("cost-"))
+    .sort()
+    .reverse();
+  const entries: CostEntry[] = [];
+
+  for (const file of costFiles) {
+    const content = await readFile(path.join(journalDir, file), "utf-8");
+    for (const line of content.trim().split("\n")) {
+      if (!line.trim()) continue;
+      entries.push(JSON.parse(line) as CostEntry);
+    }
+  }
+
+  return entries;
+}
+
+function isToday(timestamp: string): boolean {
+  const d = new Date(timestamp);
+  const now = new Date();
+  return (
+    d.getUTCFullYear() === now.getUTCFullYear() &&
+    d.getUTCMonth() === now.getUTCMonth() &&
+    d.getUTCDate() === now.getUTCDate()
+  );
+}
+
+export default defineCommand({
+  meta: {
+    name: "cost",
+    description: "Show cost breakdown from journals (today, by agent, by run)",
+  },
+  args: {
+    short: {
+      type: "boolean",
+      description: "Compact output for supervisor agents (saves tokens)",
+      default: false,
+    },
+    output: {
+      type: "string",
+      description: "Output format: json",
+    },
+  },
+  async run({ args }) {
+    const jsonOutput = args.output === "json";
+    const journalDir = path.resolve(".neo/journals");
+    const entries = await readCostEntries(journalDir);
+
+    if (entries.length === 0) {
+      printError("No cost data found.");
+      process.exit(1);
+    }
+
+    const todayEntries = entries.filter((e) => isToday(e.timestamp));
+    const todayTotal = todayEntries.reduce((sum, e) => sum + e.costUsd, 0);
+    const allTimeTotal = entries.reduce((sum, e) => sum + e.costUsd, 0);
+
+    // Breakdown by agent (today)
+    const byAgent = new Map<string, { cost: number; runs: number }>();
+    for (const e of todayEntries) {
+      const prev = byAgent.get(e.agent) ?? { cost: 0, runs: 0 };
+      byAgent.set(e.agent, { cost: prev.cost + e.costUsd, runs: prev.runs + 1 });
+    }
+
+    if (jsonOutput) {
+      printJson({
+        today: {
+          total: todayTotal,
+          sessions: todayEntries.length,
+          byAgent: Object.fromEntries(byAgent),
+        },
+        allTime: {
+          total: allTimeTotal,
+          sessions: entries.length,
+        },
+      });
+      return;
+    }
+
+    if (args.short) {
+      // One-liner for supervisor
+      const agents = [...byAgent.entries()]
+        .map(([name, data]) => `${name}=$${data.cost.toFixed(4)}`)
+        .join(" ");
+      console.log(`today=$${todayTotal.toFixed(4)} sessions=${todayEntries.length} ${agents}`);
+      return;
+    }
+
+    console.log(`Today:    $${todayTotal.toFixed(4)} (${todayEntries.length} sessions)`);
+    console.log(`All time: $${allTimeTotal.toFixed(4)} (${entries.length} sessions)`);
+
+    if (byAgent.size > 0) {
+      console.log("");
+      printTable(
+        ["AGENT", "COST TODAY", "SESSIONS"],
+        [...byAgent.entries()]
+          .sort((a, b) => b[1].cost - a[1].cost)
+          .map(([name, data]) => [name, `$${data.cost.toFixed(4)}`, String(data.runs)]),
+      );
+    }
+  },
+});

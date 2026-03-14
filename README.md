@@ -43,8 +43,9 @@ neo init --budget 100
 neo run developer --prompt "Add input validation to the user registration endpoint"
 
 # Check the result
-git worktree list     # see the isolated branch
-cat .neo/runs/*.json  # see run details and costs
+neo runs               # list all runs with status, cost, duration
+neo runs --last 1      # show the most recent run
+neo cost               # see today's spend and breakdown by agent
 ```
 
 A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing - it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
@@ -67,6 +68,9 @@ Each agent works in its own worktree. The main branch is never touched. The supe
 ```
 neo init       Initialize a .neo/ project directory
 neo run        Dispatch an agent to execute a task
+neo runs       List runs and inspect results
+neo logs       Show event logs from journals
+neo cost       Show cost breakdown (today, by agent)
 neo agents     List available agents
 neo doctor     Check environment prerequisites
 ```
@@ -106,6 +110,36 @@ neo agents              # table view
 neo agents --output json  # JSON for scripting
 ```
 
+### neo runs
+
+```bash
+neo runs                        # table of all runs
+neo runs <runId>                # detailed view of a specific run (prefix match)
+neo runs --last 5               # last 5 runs only
+neo runs --status failed        # filter by status: completed, failed, running
+neo runs --short                # one-line-per-run, minimal tokens for supervisors
+neo runs --output json          # full JSON for programmatic use
+```
+
+### neo logs
+
+```bash
+neo logs                        # last 20 events
+neo logs --last 50              # last 50 events
+neo logs --type session:fail    # filter: session:start, session:complete, session:fail, cost:update, budget:alert
+neo logs --run abc123           # filter by run ID prefix
+neo logs --short                # ultra compact output for supervisors
+neo logs --output json
+```
+
+### neo cost
+
+```bash
+neo cost                        # today's total, all-time total, breakdown by agent
+neo cost --short                # one-liner: today=$0.52 sessions=3 developer=$0.32
+neo cost --output json          # structured JSON with today/allTime/byAgent
+```
+
 ### neo doctor
 
 ```bash
@@ -124,11 +158,20 @@ A Claude Code session in a loop that reads tickets, dispatches agents, and revie
 ```bash
 # The supervisor reads a ticket, then dispatches
 neo run architect --prompt "Design the auth system from ticket PROJ-42"
-# Reads the architect's output from .neo/runs/*.json, then dispatches implementation
+
+# Monitor progress and check results
+neo runs --last 1 --short         # quick status check
+neo logs --type session:fail      # any failures?
+neo cost --short                  # budget check
+
+# Read the architect's output, then dispatch implementation
+neo runs <runId> --output json    # get full result
 neo run developer --prompt "Implement the auth system based on this plan: ..."
-# Dispatches a review
+
+# Dispatch a review
 neo run reviewer-security --prompt "Review the auth changes on branch feat/run-..."
-# If issues found, dispatches a fix
+
+# If issues found, dispatch a fix
 neo run fixer --prompt "Fix the issues found in the security review: ..."
 ```
 

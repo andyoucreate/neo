@@ -10,12 +10,28 @@ import { printError, printSuccess } from "../output.js";
 const execFileAsync = promisify(execFile);
 
 async function detectDefaultBranch(): Promise<string> {
+  // Try remote HEAD first (works even on a feature branch)
   try {
-    const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"]);
-    return stdout.trim() || "main";
+    const { stdout } = await execFileAsync("git", ["symbolic-ref", "refs/remotes/origin/HEAD"]);
+    // Returns e.g. "refs/remotes/origin/main" → extract "main"
+    const ref = stdout.trim();
+    const branch = ref.replace(/^refs\/remotes\/origin\//, "");
+    if (branch && branch !== ref) return branch;
   } catch {
-    return "main";
+    // origin/HEAD may not be set — fall through
   }
+
+  // Fallback: check if common default branch names exist locally
+  for (const candidate of ["main", "master"]) {
+    try {
+      await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${candidate}`]);
+      return candidate;
+    } catch {
+      // branch doesn't exist — try next
+    }
+  }
+
+  return "main";
 }
 
 const DEFAULT_CONFIG = (budget: number, branch: string) => `repos:
