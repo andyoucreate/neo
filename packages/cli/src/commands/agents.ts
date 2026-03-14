@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { AgentRegistry } from "@neo-cli/core";
+import { AgentRegistry } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
@@ -22,7 +22,7 @@ export default defineCommand({
     const customDir = path.resolve(".neo/agents");
 
     if (!existsSync(builtInDir)) {
-      printError("Agent definitions not found. Is @neo-cli/agents installed?");
+      printError("Agent definitions not found. Is @neotx/agents installed?");
       process.exitCode = 1;
       return;
     }

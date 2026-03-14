@@ -33,7 +33,7 @@ The supervisor decides what needs to happen. neo handles how it happens safely.
 
 ```bash
 # Install
-npm install -g @neo-cli/cli
+npm install -g neotx
 
 # Initialize in your repo
 cd your-project
@@ -197,7 +197,7 @@ neo run fixer --prompt "Fix the issues found in the security review: ..."
 An OpenClaw agent with Linear, Notion, and Slack tools that manages the full cycle:
 
 ```typescript
-import { Orchestrator, loadConfig, AgentRegistry } from "@neo-cli/core";
+import { Orchestrator, loadConfig, AgentRegistry } from "@neotx/core";
 
 // The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
 // updates ticket status, and posts results to Slack
@@ -286,10 +286,10 @@ sessions:
 
 ## Programmatic API
 
-neo is a framework, not just a CLI. Use `@neo-cli/core` directly:
+neo is a framework, not just a CLI. Use `@neotx/core` directly:
 
 ```typescript
-import { AgentRegistry, loadConfig, Orchestrator } from "@neo-cli/core";
+import { AgentRegistry, loadConfig, Orchestrator } from "@neotx/core";
 
 const config = await loadConfig(".neo/config.yml");
 
@@ -356,7 +356,7 @@ orchestrator.on("*", (e) => { /* all events */ });
 Extend behavior with middleware hooks:
 
 ```typescript
-import { Orchestrator } from "@neo-cli/core";
+import { Orchestrator } from "@neotx/core";
 
 const orchestrator = new Orchestrator(config, {
   middleware: [
@@ -376,9 +376,9 @@ const orchestrator = new Orchestrator(config, {
 ## Architecture
 
 ```
-@neo-cli/cli          Thin CLI wrapper (citty)
+neotx              Thin CLI wrapper (citty)
   |
-@neo-cli/core         Orchestration engine
+@neotx/core        Orchestration engine
   |--- orchestrator   Dispatch, lifecycle, budget, events
   |--- runner         SDK session management, 3-level recovery
   |--- isolation      Git worktrees, sandbox config, mutex
@@ -387,7 +387,7 @@ const orchestrator = new Orchestrator(config, {
   |--- events         Typed emitter, JSONL journals
   |--- cost           Daily tracking, monthly rotation
   |
-@neo-cli/agents       YAML agent definitions and prompts
+@neotx/agents      YAML agent definitions and prompts
 ```
 
 ### Design principles

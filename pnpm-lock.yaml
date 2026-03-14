@@ -28,10 +28,10 @@ importers:
 
   packages/cli:
     dependencies:
-      '@neo-cli/agents':
+      '@neotx/agents':
         specifier: workspace:*
         version: link:../agents
-      '@neo-cli/core':
+      '@neotx/core':
         specifier: workspace:*
         version: link:../core
       citty:
@@ -50,6 +50,9 @@ importers:
         specifier: ^2.8.2
         version: 2.8.2
     devDependencies:
+      '@anthropic-ai/claude-agent-sdk':
+        specifier: ^0.1.0
+        version: 0.1.77(zod@4.3.6)
       '@types/node':
         specifier: ^25.5.0
         version: 25.5.0

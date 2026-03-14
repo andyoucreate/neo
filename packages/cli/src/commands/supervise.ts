@@ -1,9 +1,3 @@
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync } from "node:fs";
-import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   getSupervisorDir,
   getSupervisorInboxPath,
@@ -12,8 +6,14 @@ import {
   loadGlobalConfig,
   type SupervisorDaemonState,
   supervisorDaemonStateSchema,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { defineCommand } from "citty";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { printError, printSuccess } from "../output.js";
 import { isTmuxInstalled, tmuxKill, tmuxNewSession, tmuxSessionExists } from "../tmux.js";
 
@@ -145,7 +145,7 @@ async function startDaemon(name: string, useTmux: boolean): Promise<void> {
   // Resolve the worker script path and package root (for module resolution)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
-  const packageRoot = path.resolve(__dirname, "../..");
+  const packageRoot = path.resolve(__dirname, "..");
 
   if (useTmux) {
     const tmuxAvailable = await isTmuxInstalled();

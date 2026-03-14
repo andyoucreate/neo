@@ -256,7 +256,7 @@ Phase 9 is the highest-value feature. It's split into 4 sub-phases, each produci
   - [ ] `neo init` — install skills to `.claude/skills/neo/` with frontmatter
   - [ ] `neo init --upgrade-skills` — update skills without touching config
 
-**Deliverable:** `npx @neo-cli/neo run feature --prompt "Add auth"` + supervisor skills installed.
+**Deliverable:** `npx neotx run feature --prompt "Add auth"` + supervisor skills installed.
 
 ---
 
@@ -285,8 +285,8 @@ Phase 9 is the highest-value feature. It's split into 4 sub-phases, each produci
 - [ ] API documentation (TSDoc on public exports)
 - [ ] `neo doctor` refinements
 - [ ] Error messages review (helpful, actionable)
-- [ ] Publish to npm: `@neo-cli/core`, `@neo-cli/cli`, `@neo-cli/agents`
-- [ ] `npx @neo-cli/neo` works out of the box
+- [ ] Publish to npm: `@neotx/core`, `neotx`, `@neotx/agents`
+- [ ] `npx neotx` works out of the box
 
 **Deliverable:** Published, installable, documented packages.
 

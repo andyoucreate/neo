@@ -1,8 +1,8 @@
 import { existsSync, watch } from "node:fs";
 import { open, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { PersistedRun } from "@neo-cli/core";
-import { getJournalsDir, getRepoRunsDir, getRunLogPath, getRunsDir } from "@neo-cli/core";
+import type { PersistedRun } from "@neotx/core";
+import { getJournalsDir, getRepoRunsDir, getRunLogPath, getRunsDir } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson } from "../output.js";
 

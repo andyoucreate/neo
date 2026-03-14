@@ -191,13 +191,13 @@ neo run my-flow --run-id run-abc123 --retry implement
 ## Dependency Graph
 
 ```
-@neo-cli/cli ──depends──> @neo-cli/core
+neotx ──depends──> @neotx/core
                                │
                                ├──> @anthropic-ai/claude-agent-sdk
                                ├──> zod (config validation)
                                └──> yaml (config parsing)
 
-@neo-cli/agents ──consumed-by──> @neo-cli/core (embedded prompts)
+@neotx/agents ──consumed-by──> @neotx/core (embedded prompts)
 ```
 
 ## Key Design Constraints

@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
-import type { ActivityEntry, SupervisorDaemonState } from "@neo-cli/core";
+import type { ActivityEntry, SupervisorDaemonState } from "@neotx/core";
 import {
   getSupervisorActivityPath,
   getSupervisorInboxPath,
   getSupervisorStatePath,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import { useCallback, useEffect, useState } from "react";
@@ -31,6 +31,10 @@ const TYPE_ICONS: Record<string, string> = {
   error: "✖",
   event: "◆",
   message: "✉",
+  thinking: "◇",
+  plan: "▸",
+  dispatch: "↗",
+  tool_use: "⊘",
 };
 
 const TYPE_COLORS: Record<string, string> = {
@@ -40,6 +44,10 @@ const TYPE_COLORS: Record<string, string> = {
   error: "#f87171",
   event: "#c084fc",
   message: "#67e8f9",
+  thinking: "#a78bfa",
+  plan: "#34d399",
+  dispatch: "#f472b6",
+  tool_use: "#38bdf8",
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -49,6 +57,10 @@ const TYPE_LABELS: Record<string, string> = {
   error: "ERROR",
   event: "EVENT",
   message: "MSG",
+  thinking: "THINK",
+  plan: "PLAN",
+  dispatch: "SEND",
+  tool_use: "TOOL",
 };
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -324,9 +336,46 @@ function ActivityRow({
   );
 }
 
+function ThinkingPanel({ entries }: { entries: ActivityEntry[] }) {
+  // Find the latest thinking entry
+  const latest = [...entries].reverse().find((e) => {
+    const type = e.type as string;
+    return type === "thinking" || type === "plan";
+  });
+  if (!latest) return null;
+
+  const icon = TYPE_ICONS[latest.type] ?? "·";
+  const color = TYPE_COLORS[latest.type] ?? "#9ca3af";
+  const label = (latest.type as string) === "thinking" ? "THINKING" : "PLANNING";
+
+  // Truncate to ~3 lines worth
+  const text = latest.summary.length > 200 ? `${latest.summary.slice(0, 200)}...` : latest.summary;
+
+  return (
+    <Box flexDirection="column">
+      <Box paddingX={2} gap={1}>
+        <Text dimColor>├</Text>
+        <Text color={color} bold>
+          {icon} {label}
+        </Text>
+        <Text dimColor>{"─".repeat(36)}</Text>
+      </Box>
+      <Box paddingX={2}>
+        <Text dimColor>│ </Text>
+        <Text color={color} wrap="truncate-end">
+          {text}
+        </Text>
+      </Box>
+      <Box paddingX={2}>
+        <Text dimColor>│</Text>
+      </Box>
+    </Box>
+  );
+}
+
 function ActivityPanel({ entries, termHeight }: { entries: ActivityEntry[]; termHeight: number }) {
-  // Reserve lines for header (5), budget (1), separator (1), input (2), footer (1) = 10
-  const maxVisible = Math.max(5, Math.min(MAX_VISIBLE_ENTRIES, termHeight - 10));
+  // Reserve lines for header (5), budget (1), thinking (4), separator (1), input (2), footer (1) = 14
+  const maxVisible = Math.max(5, Math.min(MAX_VISIBLE_ENTRIES, termHeight - 14));
   const visible = entries.slice(-maxVisible);
 
   return (
@@ -521,6 +570,7 @@ export function SupervisorTui({ name }: { name: string }) {
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={50} costHistory={costHistory} />
+      <ThinkingPanel entries={entries} />
       <ActivityPanel entries={entries} termHeight={termHeight} />
       <InputPanel value={input} onChange={setInput} onSubmit={handleSubmit} lastSent={lastSent} />
       <Footer />

@@ -55,9 +55,9 @@ Neo is extracted from the Voltaire Network dispatch-service, which has been runn
 ## Packages
 
 ```
-@neo-cli/core     — orchestration engine (the framework)
-@neo-cli/cli      — thin CLI wrapper for direct usage
-@neo-cli/agents   — built-in agent definitions & prompts
+@neotx/core     — orchestration engine (the framework)
+neotx      — thin CLI wrapper for direct usage
+@neotx/agents   — built-in agent definitions & prompts
 ```
 
-The CLI is a convenience. The real product is `@neo-cli/core`.
+The CLI is a convenience. The real product is `@neotx/core`.

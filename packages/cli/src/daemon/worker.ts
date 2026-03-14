@@ -11,7 +11,7 @@
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PersistedRun } from "@neo-cli/core";
+import type { PersistedRun } from "@neotx/core";
 import {
   AgentRegistry,
   getRepoRunsDir,
@@ -19,7 +19,7 @@ import {
   getRunLogPath,
   loadGlobalConfig,
   Orchestrator,
-} from "@neo-cli/core";
+} from "@neotx/core";
 
 interface DispatchRequest {
   agentName: string;

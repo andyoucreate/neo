@@ -14,6 +14,7 @@ export interface HeartbeatPromptOptions {
   activeRuns: string[];
   heartbeatCount: number;
   mcpServerNames: string[];
+  customInstructions?: string | undefined;
 }
 
 /**
@@ -43,6 +44,11 @@ Available commands (via bash):
 
 IMPORTANT: Always include a <memory>...</memory> block at the end of your response with your updated memory.`);
 
+  // ─── Custom instructions (SUPERVISOR.md) ─────────────
+  if (opts.customInstructions) {
+    sections.push(`## Custom instructions\n${opts.customInstructions}`);
+  }
+
   // ─── Repos ─────────────────────────────────────────────
   if (opts.repos.length > 0) {
     const repoList = opts.repos.map((r) => `- ${r.path} (branch: ${r.defaultBranch})`).join("\n");
@@ -54,6 +60,7 @@ IMPORTANT: Always include a <memory>...</memory> block at the end of your respon
   // ─── MCP Integrations ─────────────────────────────────
   if (opts.mcpServerNames.length > 0) {
     const mcpList = opts.mcpServerNames.map((n) => `- ${n}`).join("\n");
+
     sections.push(
       `## Available integrations (MCP)\n${mcpList}\n\nYou can use these tools directly to query external systems.`,
     );
@@ -80,17 +87,42 @@ IMPORTANT: Always include a <memory>...</memory> block at the end of your respon
   }
 
   // ─── Memory ────────────────────────────────────────────
-  if (opts.memory) {
-    const sizeWarning =
-      opts.memorySizeKB > 10 ? "\n\n⚠️ Memory is over 10KB — please condense it." : "";
-    sections.push(`## Your current memory (${opts.memorySizeKB}KB)${sizeWarning}\n${opts.memory}`);
-  } else {
-    sections.push(
-      "## Your current memory\n(empty — this is your first heartbeat, initialize your memory)",
-    );
-  }
+  sections.push(buildMemorySection(opts.memory, opts.memorySizeKB));
 
   return sections.join("\n\n---\n\n");
+}
+
+function buildMemorySection(memory: string, memorySizeKB: number): string {
+  const schema = `{
+  "activeWork": ["description of current task 1", ...],
+  "blockers": ["what is stuck and why", ...],
+  "repoNotes": { "/path/to/repo": "relevant context about this repo" },
+  "recentDecisions": [{ "date": "YYYY-MM-DD", "decision": "what you decided", "outcome": "result" }],
+  "trackerSync": { "ticket-id": "last known status" },
+  "notes": "free-form context that doesn't fit elsewhere"
+}`;
+
+  if (!memory) {
+    return `## Your current memory
+(empty — this is your first heartbeat, initialize your memory)
+
+Your memory MUST be a JSON object inside \`<memory>...</memory>\` tags:
+\`\`\`
+${schema}
+\`\`\`
+Keep under 8KB. Prune old decisions (keep last 10).`;
+  }
+
+  const sizeWarning =
+    memorySizeKB > 8
+      ? "\n\n**Memory is over 8KB — condense it. Remove old decisions, summarize notes.**"
+      : "";
+
+  return `## Your current memory (${memorySizeKB}KB)${sizeWarning}
+${memory}
+
+Remember: update your memory as a JSON object inside \`<memory>...</memory>\` tags.
+Schema: ${schema}`;
 }
 
 function formatEvent(event: QueuedEvent): string {

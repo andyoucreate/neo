@@ -1,6 +1,6 @@
 # Neo — Roadmap
 
-Implementation roadmap for `@neo-cli/core`, `@neo-cli/cli`, and `@neo-cli/agents`.
+Implementation roadmap for `@neotx/core`, `neotx`, and `@neotx/agents`.
 Each milestone produces something testable. Estimated effort assumes one developer using Claude Code agents.
 
 ---
@@ -256,7 +256,7 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
 
 ## Milestone 4 — CLI & Ship (Phases 10–12)
 
-> **Goal:** Users can `npx @neo-cli/neo run feature --prompt "Add auth"`.
+> **Goal:** Users can `npx neotx run feature --prompt "Add auth"`.
 
 ### Phase 10 — CLI
 
@@ -297,9 +297,9 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
 | TSDoc on all public exports | `core/src/**/*.ts` |
 | Error messages review (helpful, actionable) | All packages |
 | `neo doctor` refinements | `cli/src/commands/doctor.ts` |
-| Publish to npm | `@neo-cli/core`, `@neo-cli/cli`, `@neo-cli/agents` |
+| Publish to npm | `@neotx/core`, `neotx`, `@neotx/agents` |
 
-**Checkpoint:** `npx @neo-cli/neo init && npx @neo-cli/neo run feature --prompt "Add auth"` works from zero.
+**Checkpoint:** `npx neotx init && npx neotx run feature --prompt "Add auth"` works from zero.
 
 ---
 

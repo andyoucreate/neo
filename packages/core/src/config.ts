@@ -92,6 +92,7 @@ export const globalConfigSchema = z.object({
       maxConsecutiveFailures: z.number().default(3),
       maxEventsPerSec: z.number().default(10),
       dailyCapUsd: z.number().default(50),
+      instructions: z.string().optional(),
     })
     .default({
       port: 7777,

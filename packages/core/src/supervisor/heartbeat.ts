@@ -1,7 +1,9 @@
+import type { GlobalConfig } from "@/config";
+import { getDataDir } from "@/paths";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import type { GlobalConfig } from "@/config";
+import path from "node:path";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import { checkMemorySize, extractMemoryFromResponse, loadMemory, saveMemory } from "./memory.js";
@@ -47,6 +49,8 @@ export class HeartbeatLoop {
   private readonly eventQueue: EventQueue;
   private readonly activityLog: ActivityLog;
 
+  private customInstructions: string | undefined;
+
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
     this.supervisorDir = options.supervisorDir;
@@ -57,6 +61,7 @@ export class HeartbeatLoop {
   }
 
   async start(): Promise<void> {
+    this.customInstructions = await this.loadInstructions();
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop started");
 
     while (!this.stopping) {
@@ -142,6 +147,7 @@ export class HeartbeatLoop {
       activeRuns: [], // TODO: read from persisted runs
       heartbeatCount: state?.heartbeatCount ?? 0,
       mcpServerNames,
+      customInstructions: this.customInstructions,
     });
 
     await this.activityLog.log("heartbeat", `Heartbeat #${state?.heartbeatCount ?? 0} starting`, {
@@ -168,24 +174,17 @@ export class HeartbeatLoop {
         cwd: homedir(),
         maxTurns: 50,
         allowedTools: ["Bash", "Read"],
+        permissionMode: "bypassPermissions",
+        allowDangerouslySkipPermissions: true,
       };
 
-      // Resume session if we have one (not on first heartbeat)
-      if (state?.heartbeatCount && state.heartbeatCount > 0) {
-        queryOptions.resume = this.sessionId;
-      } else {
-        queryOptions.sessionId = this.sessionId;
-      }
+      // Each heartbeat starts a fresh session — resume is unreliable
+      // because the previous query completed and the session may not
+      // be resumable. The prompt already contains memory for continuity.
 
       // Pass MCP servers if configured
       if (this.config.mcpServers) {
-        const servers = Object.entries(this.config.mcpServers).map(([name, cfg]) => ({
-          name,
-          ...cfg,
-        }));
-        if (servers.length > 0) {
-          queryOptions.mcpServers = servers;
-        }
+        queryOptions.mcpServers = this.config.mcpServers;
       }
 
       const stream = sdk.query({ prompt, options: queryOptions as never });
@@ -205,13 +204,7 @@ export class HeartbeatLoop {
           turnCount = (msg.num_turns as number) ?? 0;
         }
 
-        // Log streaming events for TUI visibility
-        if (msg.type === "assistant" && msg.subtype === "tool_use") {
-          await this.activityLog.log("action", `Tool use: ${String(msg.tool ?? "unknown")}`, {
-            heartbeatId,
-            tool: msg.tool,
-          });
-        }
+        await this.logStreamMessage(msg, heartbeatId);
       }
     } finally {
       clearTimeout(timeout);
@@ -266,6 +259,90 @@ export class HeartbeatLoop {
       await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
     } catch {
       // Non-critical
+    }
+  }
+
+  /**
+   * Load custom instructions from SUPERVISOR.md.
+   * Resolution order:
+   * 1. Explicit path via `supervisor.instructions` in config
+   * 2. Default: ~/.neo/SUPERVISOR.md
+   */
+  private async loadInstructions(): Promise<string | undefined> {
+    const candidates: string[] = [];
+
+    if (this.config.supervisor.instructions) {
+      candidates.push(path.resolve(this.config.supervisor.instructions));
+    }
+
+    candidates.push(path.join(getDataDir(), "SUPERVISOR.md"));
+
+    for (const filePath of candidates) {
+      try {
+        const content = await readFile(filePath, "utf-8");
+        await this.activityLog.log("event", `Loaded custom instructions from ${filePath}`);
+        return content;
+      } catch {
+        // File not found — try next candidate
+      }
+    }
+
+    return undefined;
+  }
+
+  /** Route a single SDK stream message to the appropriate log handler. */
+  private async logStreamMessage(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
+    if (msg.type !== "assistant") return;
+
+    if (!msg.subtype) {
+      await this.logContentBlocks(msg, heartbeatId);
+    } else if (msg.subtype === "tool_use") {
+      await this.logToolUse(msg, heartbeatId);
+    } else if (msg.subtype === "tool_result") {
+      await this.logToolResult(msg, heartbeatId);
+    }
+  }
+
+  /** Log thinking and plan blocks from assistant content. */
+  private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
+    const content = (
+      msg.message as
+        | { content?: Array<{ type: string; thinking?: string; text?: string }> }
+        | undefined
+    )?.content;
+    if (!content) return;
+
+    for (const block of content) {
+      if (block.type === "thinking" && block.thinking) {
+        await this.activityLog.log("thinking", block.thinking.slice(0, 500), { heartbeatId });
+      }
+      if (block.type === "text" && block.text) {
+        await this.activityLog.log("plan", block.text.slice(0, 500), { heartbeatId });
+        break; // Only log first text block per message
+      }
+    }
+  }
+
+  /** Log tool use events — distinguish MCP tools from built-in tools. */
+  private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
+    const toolName = String(msg.tool ?? "unknown");
+    const isMcp = toolName.startsWith("mcp__");
+    await this.activityLog.log(
+      isMcp ? "tool_use" : "action",
+      isMcp ? toolName : `Tool use: ${toolName}`,
+      { heartbeatId, tool: toolName, input: msg.input },
+    );
+  }
+
+  /** Detect agent dispatches from bash tool results. */
+  private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
+    const result = String(msg.result ?? "");
+    const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
+    if (runMatch) {
+      await this.activityLog.log("dispatch", `Agent dispatched: ${runMatch[1]}`, {
+        heartbeatId,
+        runId: runMatch[1],
+      });
     }
   }
 

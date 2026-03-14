@@ -1,5 +1,5 @@
 {
-  "name": "neo-monorepo",
+  "name": "neotx-monorepo",
   "private": true,
   "type": "module",
   "engines": {

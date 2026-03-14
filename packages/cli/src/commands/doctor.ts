@@ -10,7 +10,7 @@ import {
   listReposFromGlobalConfig,
   loadGlobalConfig,
   toRepoSlug,
-} from "@neo-cli/core";
+} from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";

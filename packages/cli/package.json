@@ -1,5 +1,5 @@
 {
-  "name": "@neo-cli/cli",
+  "name": "neotx",
   "version": "0.1.0",
   "description": "CLI for the Neo orchestration framework",
   "type": "module",
@@ -36,8 +36,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@neo-cli/agents": "workspace:*",
-    "@neo-cli/core": "workspace:*",
+    "@neotx/agents": "workspace:*",
+    "@neotx/core": "workspace:*",
     "citty": "^0.2.1",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",
@@ -45,6 +45,7 @@
     "yaml": "^2.8.2"
   },
   "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "@types/node": "^25.5.0",
     "@types/react": "^19.2.14",
     "tsup": "^8.5.1"

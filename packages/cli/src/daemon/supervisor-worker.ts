@@ -10,7 +10,7 @@
 
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { getSupervisorDir, loadGlobalConfig, SupervisorDaemon } from "@neo-cli/core";
+import { getSupervisorDir, loadGlobalConfig, SupervisorDaemon } from "@neotx/core";
 
 async function main(): Promise<void> {
   const name = process.argv[2];

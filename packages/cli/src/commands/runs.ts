@@ -1,4 +1,4 @@
-import type { PersistedRun } from "@neo-cli/core";
+import type { PersistedRun } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 import { loadRunsFiltered, resolveRepoFilter } from "../repo-filter.js";

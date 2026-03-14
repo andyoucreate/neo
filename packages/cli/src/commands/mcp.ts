@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { loadGlobalConfig, type McpServerConfig } from "@neo-cli/core";
+import { loadGlobalConfig, type McpServerConfig } from "@neotx/core";
 import { defineCommand } from "citty";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { printError, printSuccess, printTable } from "../output.js";

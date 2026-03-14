@@ -3,7 +3,7 @@
 ## Orchestrator (main entry point)
 
 ```typescript
-import { Orchestrator } from "@neo-cli/core";
+import { Orchestrator } from "@neotx/core";
 
 const neo = new Orchestrator({
   repos: ["/path/to/my-app", "/path/to/shared-lib"],
@@ -255,7 +255,7 @@ await neo.dispatch({
 
 ## Agent Configuration
 
-### Built-in agents (shipped with @neo-cli/agents)
+### Built-in agents (shipped with @neotx/agents)
 
 - `architect` — plans and decomposes (read-only, Opus)
 - `developer` — implements tasks in worktrees (writable, Opus)
@@ -325,7 +325,7 @@ neo agents
 ## Middleware
 
 ```typescript
-import { Orchestrator } from "@neo-cli/core";
+import { Orchestrator } from "@neotx/core";
 
 const neo = new Orchestrator({
   middleware: [

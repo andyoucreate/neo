@@ -1,8 +1,8 @@
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { CostEntry } from "@neo-cli/core";
-import { getJournalsDir, toRepoSlug } from "@neo-cli/core";
+import type { CostEntry } from "@neotx/core";
+import { getJournalsDir, toRepoSlug } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 import { resolveRepoFilter } from "../repo-filter.js";

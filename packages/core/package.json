@@ -1,5 +1,5 @@
 {
-  "name": "@neo-cli/core",
+  "name": "@neotx/core",
   "version": "0.1.0",
   "description": "Orchestration framework for autonomous developer agents",
   "type": "module",

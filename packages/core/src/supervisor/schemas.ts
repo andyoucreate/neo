@@ -48,7 +48,18 @@ export type InboxMessage = z.infer<typeof inboxMessageSchema>;
 
 export const activityEntrySchema = z.object({
   id: z.string(),
-  type: z.enum(["heartbeat", "decision", "action", "error", "event", "message"]),
+  type: z.enum([
+    "heartbeat",
+    "decision",
+    "action",
+    "error",
+    "event",
+    "message",
+    "thinking",
+    "plan",
+    "dispatch",
+    "tool_use",
+  ]),
   summary: z.string(),
   detail: z.unknown().optional(),
   timestamp: z.string(),

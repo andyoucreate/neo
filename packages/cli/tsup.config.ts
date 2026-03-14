@@ -10,7 +10,7 @@ export default defineConfig({
   target: "es2022",
   clean: true,
   sourcemap: true,
-  external: ["@neo-cli/core"],
+  external: ["@neotx/core"],
   esbuildOptions(options) {
     options.banner = {
       // Only add shebang to the CLI entry, not the worker

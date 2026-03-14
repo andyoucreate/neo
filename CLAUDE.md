@@ -9,7 +9,7 @@ Orchestration framework for autonomous developer agents. Wraps the Claude Agent 
 Extracted from the Voltaire Network dispatch-service (in archive/) which runs in production.
 
 # Stack
-- Monorepo: 3 packages — @neo-cli/core (engine), @neo-cli/cli (thin wrapper), @neo-cli/agents (prompts + YAML)
+- Monorepo: 3 packages — @neotx/core (engine), neotx (thin wrapper), @neotx/agents (prompts + YAML)
 - Biome for lint+format (not ESLint) — config in biome.json
 - @anthropic-ai/claude-agent-sdk is the only runtime AI dependency
 
@@ -35,7 +35,7 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 - Do not merge branches automatically — neo creates branches/PRs but NEVER merges (destructive, irreversible)
 - Do not use exec() for git commands — use execFile() to prevent shell injection
 - Do not add infrastructure dependencies (SQLite, Redis, etc.) — zero-infra is a hard constraint (ADR-007)
-- Do not put business logic in CLI commands — CLI is a thin wrapper over @neo-cli/core
+- Do not put business logic in CLI commands — CLI is a thin wrapper over @neotx/core
 
 # Key references
 - Design plans: docs/plans/00-vision.md through 08-supervisor-skills.md
