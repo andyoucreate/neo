@@ -116,7 +116,13 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
     let costUsd = 0;
     let turnCount = 0;
 
-    const stream = sdk.query({ prompt, options: queryOptions as never });
+    // Combine agent system prompt with task prompt so the agent
+    // receives its full instructions (commit, push, etc.)
+    const fullPrompt = agent.definition.prompt
+      ? `${agent.definition.prompt}\n\n---\n\n## Task\n\n${prompt}`
+      : prompt;
+
+    const stream = sdk.query({ prompt: fullPrompt, options: queryOptions as never });
 
     for await (const message of stream) {
       checkAborted(abortController.signal);
