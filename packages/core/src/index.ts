@@ -8,6 +8,13 @@ export {
   agentToolEntrySchema,
   agentToolSchema,
 } from "./agents/schema.js";
+// ─── Concurrency ────────────────────────────────────────
+export { PriorityQueue } from "./concurrency/queue.js";
+export { Semaphore } from "./concurrency/semaphore.js";
+export type {
+  SemaphoreCallbacks,
+  SemaphoreConfig,
+} from "./concurrency/semaphore.js";
 export {
   loadConfig,
   mcpServerConfigSchema,
@@ -22,16 +29,15 @@ export {
   getCurrentBranch,
   pushBranch,
 } from "./isolation/git.js";
-
 // ─── Isolation ──────────────────────────────────────────
 export { withGitLock } from "./isolation/git-mutex.js";
-export type { SandboxConfig } from "./isolation/sandbox.js";
 export { buildSandboxConfig } from "./isolation/sandbox.js";
-export type { WorktreeInfo } from "./isolation/worktree.js";
+export type { SandboxConfig } from "./isolation/sandbox.js";
 export {
   cleanupOrphanedWorktrees,
   createWorktree,
   listWorktrees,
   removeWorktree,
 } from "./isolation/worktree.js";
+export type { WorktreeInfo } from "./isolation/worktree.js";
 export * from "./types.js";
