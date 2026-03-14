@@ -39,10 +39,14 @@
     "@neo-cli/agents": "workspace:*",
     "@neo-cli/core": "workspace:*",
     "citty": "^0.2.1",
+    "ink": "^6.8.0",
+    "ink-text-input": "^6.0.0",
+    "react": "^19.2.4",
     "yaml": "^2.8.2"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@types/react": "^19.2.14",
     "tsup": "^8.5.1"
   }
 }

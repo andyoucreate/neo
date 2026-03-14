@@ -15,13 +15,7 @@ import {
 } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
-import {
-  isTmuxInstalled,
-  tmuxAttach,
-  tmuxKill,
-  tmuxNewSession,
-  tmuxSessionExists,
-} from "../tmux.js";
+import { isTmuxInstalled, tmuxKill, tmuxNewSession, tmuxSessionExists } from "../tmux.js";
 
 const DEFAULT_NAME = "supervisor";
 
@@ -205,16 +199,16 @@ async function startDaemon(name: string, useTmux: boolean): Promise<void> {
 }
 
 async function handleAttach(name: string): Promise<void> {
-  const tmuxName = `neo-${name}`;
-  const exists = await tmuxSessionExists(tmuxName);
-  if (!exists) {
-    printError(`No tmux session found for supervisor "${name}".`);
+  const running = await isDaemonRunning(name);
+  if (!running) {
+    printError(`No supervisor daemon running (name: ${name}).`);
     printError("Start with: neo supervise");
     process.exitCode = 1;
     return;
   }
 
-  tmuxAttach(tmuxName);
+  const { renderSupervisorTui } = await import("../tui/index.js");
+  await renderSupervisorTui(name);
 }
 
 async function handleMessage(name: string, text: string): Promise<void> {
@@ -265,7 +259,7 @@ export default defineCommand({
     },
     attach: {
       type: "boolean",
-      description: "Attach to the tmux session",
+      description: "Open the TUI for a running supervisor",
       default: false,
     },
     message: {
@@ -296,7 +290,18 @@ export default defineCommand({
       return;
     }
 
-    // Default: start daemon (with tmux unless --daemon)
-    await startDaemon(name, !args.daemon);
+    // Default: start daemon + open TUI
+    const alreadyRunning = await isDaemonRunning(name);
+    if (!alreadyRunning) {
+      await startDaemon(name, !args.daemon);
+      // Give daemon a moment to initialize
+      await new Promise((r) => setTimeout(r, 1_000));
+    }
+
+    // Open TUI unless --daemon (headless mode)
+    if (!args.daemon) {
+      const { renderSupervisorTui } = await import("../tui/index.js");
+      await renderSupervisorTui(name);
+    }
   },
 });
