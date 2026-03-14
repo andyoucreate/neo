@@ -130,7 +130,7 @@ function formatEvent(event: QueuedEvent): string {
     case "webhook":
       return `**Webhook** [${event.data.source ?? "unknown"}] ${event.data.event ?? ""}
 \`\`\`json
-${JSON.stringify(event.data.payload ?? {}, null, 2).slice(0, 2000)}
+${JSON.stringify(event.data.payload ?? {}, null, 2)}
 \`\`\``;
 
     case "message":
