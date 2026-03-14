@@ -1,0 +1,41 @@
+import { describe, expect, it } from "vitest";
+import { toRepoSlug } from "@/paths";
+
+describe("toRepoSlug", () => {
+  it("uses name when present", () => {
+    expect(toRepoSlug({ name: "my-project", path: "/some/other/path" })).toBe("my-project");
+  });
+
+  it("falls back to basename of path", () => {
+    expect(toRepoSlug({ path: "/Users/karl/Documents/neo" })).toBe("neo");
+  });
+
+  it("lowercases the slug", () => {
+    expect(toRepoSlug({ name: "MyProject", path: "/x" })).toBe("myproject");
+  });
+
+  it("replaces non-alphanumeric characters with hyphens", () => {
+    expect(toRepoSlug({ path: "/home/user/My Cool Project!" })).toBe("my-cool-project");
+    expect(toRepoSlug({ path: "/home/user/hello world" })).toBe("hello-world");
+  });
+
+  it("collapses consecutive hyphens", () => {
+    expect(toRepoSlug({ name: "foo---bar", path: "/x" })).toBe("foo-bar");
+  });
+
+  it("strips leading and trailing hyphens", () => {
+    expect(toRepoSlug({ name: "-foo-bar-", path: "/x" })).toBe("foo-bar");
+  });
+
+  it("preserves dots and underscores", () => {
+    expect(toRepoSlug({ name: "my_project.v2", path: "/x" })).toBe("my_project.v2");
+  });
+
+  it("handles path with trailing slash", () => {
+    expect(toRepoSlug({ path: "/Users/karl/neo/" })).toBe("neo");
+  });
+
+  it("uses undefined name as absent", () => {
+    expect(toRepoSlug({ name: undefined, path: "/foo/bar" })).toBe("bar");
+  });
+});

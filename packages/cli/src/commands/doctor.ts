@@ -7,8 +7,9 @@ import {
   AgentRegistry,
   getDataDir,
   getJournalsDir,
+  listReposFromGlobalConfig,
   loadGlobalConfig,
-  loadRepoProjectConfig,
+  toRepoSlug,
 } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
@@ -18,13 +19,13 @@ const execFileAsync = promisify(execFile);
 
 interface CheckResult {
   name: string;
-  status: "pass" | "fail";
+  status: "pass" | "fail" | "info";
   message?: string;
 }
 
 async function checkNodeVersion(): Promise<CheckResult> {
   const version = process.versions.node;
-  const major = Number.parseInt(version.split(".")[0]!, 10);
+  const major = Number.parseInt(version.split(".")[0] ?? "0", 10);
   if (major >= 22) {
     return { name: "Node.js", status: "pass", message: `v${version}` };
   }
@@ -50,10 +51,11 @@ async function checkGlobalConfig(): Promise<CheckResult> {
   try {
     const config = await loadGlobalConfig();
     const globalDir = getDataDir();
+    const repoCount = config.repos.length;
     return {
       name: "Global config",
       status: "pass",
-      message: `${globalDir}/config.yml (budget: $${config.budget.dailyCapUsd}/day)`,
+      message: `${globalDir}/config.yml (budget: $${config.budget.dailyCapUsd}/day, ${repoCount} repos)`,
     };
   } catch (error) {
     return {
@@ -64,25 +66,38 @@ async function checkGlobalConfig(): Promise<CheckResult> {
   }
 }
 
-async function checkRepoConfig(): Promise<CheckResult> {
-  const configPath = path.resolve(".neo/config.yml");
-  if (!existsSync(configPath)) {
+async function checkRepoRegistered(): Promise<CheckResult> {
+  const cwd = process.cwd();
+  const repos = await listReposFromGlobalConfig();
+  const match = repos.find((r) => path.resolve(r.path) === cwd);
+
+  if (match) {
     return {
-      name: "Repo config",
-      status: "fail",
-      message: ".neo/config.yml not found. Run 'neo init'",
+      name: "Repo registered",
+      status: "pass",
+      message: `"${toRepoSlug(match)}" (branch: ${match.defaultBranch})`,
     };
   }
-  try {
-    await loadRepoProjectConfig(configPath);
-    return { name: "Repo config", status: "pass", message: configPath };
-  } catch (error) {
+
+  return {
+    name: "Repo registered",
+    status: "info",
+    message:
+      "CWD not registered. Run 'neo init' or 'neo repos add'. Zero-config mode works without registration.",
+  };
+}
+
+async function checkLegacyConfig(): Promise<CheckResult | null> {
+  const legacyPath = path.resolve(".neo/config.yml");
+  if (existsSync(legacyPath)) {
     return {
-      name: "Repo config",
-      status: "fail",
-      message: `Invalid: ${error instanceof Error ? error.message : String(error)}`,
+      name: "Legacy config",
+      status: "info",
+      message:
+        ".neo/config.yml detected — this file is no longer needed. Config is now in ~/.neo/config.yml.",
     };
   }
+  return null;
 }
 
 async function checkClaudeCli(): Promise<CheckResult> {
@@ -144,15 +159,18 @@ export default defineCommand({
   async run({ args }) {
     const jsonOutput = args.output === "json";
 
-    const checks = await Promise.all([
-      checkNodeVersion(),
-      checkGit(),
-      checkGlobalConfig(),
-      checkRepoConfig(),
-      checkClaudeCli(),
-      checkAgents(),
-      checkJournalDirs(),
-    ]);
+    const checks = (
+      await Promise.all([
+        checkNodeVersion(),
+        checkGit(),
+        checkGlobalConfig(),
+        checkRepoRegistered(),
+        checkLegacyConfig(),
+        checkClaudeCli(),
+        checkAgents(),
+        checkJournalDirs(),
+      ])
+    ).filter((c): c is CheckResult => c !== null);
 
     if (jsonOutput) {
       printJson({ checks });
@@ -166,6 +184,8 @@ export default defineCommand({
     for (const check of checks) {
       if (check.status === "pass") {
         printSuccess(`${check.name}: ${check.message ?? "OK"}`);
+      } else if (check.status === "info") {
+        console.log(`  ${check.name}: ${check.message ?? ""}`);
       } else {
         printError(`${check.name}: ${check.message ?? "FAILED"}`);
         hasFailure = true;

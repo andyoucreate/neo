@@ -35,6 +35,13 @@ export async function createWorktree(options: {
     );
   });
 
+  // Disable git hooks in the worktree — pre-commit hooks (husky, lint-staged)
+  // fail because node_modules are not available in worktrees.
+  await execFileAsync("git", ["config", "core.hooksPath", "/dev/null"], {
+    cwd: worktreeDir,
+    timeout: GIT_TIMEOUT,
+  });
+
   return { path: worktreeDir, branch: options.branch, repoPath };
 }
 
@@ -68,6 +75,14 @@ export async function removeWorktree(worktreePath: string): Promise<void> {
           timeout: GIT_TIMEOUT,
         }).catch(() => {});
       }
+
+      // Refresh the main repo's index stat cache to prevent phantom modifications.
+      // Worktree operations can desync timestamps causing `git status` to show
+      // files as modified when they are not.
+      await execFileAsync("git", ["update-index", "--refresh"], {
+        cwd: repoPath,
+        timeout: GIT_TIMEOUT,
+      }).catch(() => {});
     });
   } else {
     // No repo found — just remove the directory

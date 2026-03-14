@@ -1,24 +1,7 @@
-import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
-import path from "node:path";
 import type { PersistedRun } from "@neo-cli/core";
-import { getRunsDir } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
-
-async function loadRuns(runsDir: string): Promise<PersistedRun[]> {
-  if (!existsSync(runsDir)) return [];
-  const files = await readdir(runsDir);
-  const runs: PersistedRun[] = [];
-  for (const file of files) {
-    if (!file.endsWith(".json")) continue;
-    const content = await readFile(path.join(runsDir, file), "utf-8");
-    runs.push(JSON.parse(content) as PersistedRun);
-  }
-  // Sort by most recent first
-  runs.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return runs;
-}
+import { loadRunsFiltered, resolveRepoFilter } from "../repo-filter.js";
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -49,6 +32,7 @@ function showRunDetail(match: PersistedRun, short: boolean): void {
 
   console.log(`Run:      ${match.runId}`);
   console.log(`Status:   ${match.status}`);
+  console.log(`Repo:     ${match.repo}`);
   console.log(`Prompt:   ${match.prompt}`);
   if (match.branch) console.log(`Branch:   ${match.branch}`);
   console.log(`Cost:     $${totalCost(match).toFixed(4)}`);
@@ -109,6 +93,15 @@ export default defineCommand({
       description: "Run ID to show details (omit to list all runs)",
       required: false,
     },
+    all: {
+      type: "boolean",
+      description: "Show runs from all repos",
+      default: false,
+    },
+    repo: {
+      type: "string",
+      description: "Filter by repo name or path",
+    },
     last: {
       type: "string",
       description: "Show only the last N runs",
@@ -129,15 +122,17 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const runsDir = getRunsDir();
+    const filter = await resolveRepoFilter({ all: args.all, repo: args.repo });
+    let runs = await loadRunsFiltered(filter);
 
-    if (!existsSync(runsDir)) {
-      printError("No runs found. Run 'neo run <agent>' first.");
-      process.exitCode = 1;
+    if (runs.length === 0) {
+      if (!jsonOutput) {
+        printError("No runs found. Run 'neo run <agent>' first.");
+      } else {
+        printJson([]);
+      }
       return;
     }
-
-    let runs = await loadRuns(runsDir);
 
     // If a runId is given (full or prefix), show details
     if (args.runId) {
@@ -173,6 +168,7 @@ export default defineCommand({
         runs.map((r) => ({
           runId: r.runId,
           status: r.status,
+          repo: r.repo,
           agent: Object.values(r.steps)[0]?.agent ?? "unknown",
           costUsd: totalCost(r),
           durationMs: totalDuration(r),
