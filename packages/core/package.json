@@ -11,6 +11,7 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
     "test": "vitest run"
   },
   "dependencies": {

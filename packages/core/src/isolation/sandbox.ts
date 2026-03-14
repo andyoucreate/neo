@@ -25,10 +25,7 @@ const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
  * - Writable agents: all their tools are allowed, write paths include the worktree
  * - Readonly agents: write tools are filtered out, no writable paths
  */
-export function buildSandboxConfig(
-  agent: ResolvedAgent,
-  worktreePath?: string,
-): SandboxConfig {
+export function buildSandboxConfig(agent: ResolvedAgent, worktreePath?: string): SandboxConfig {
   const isWritable = agent.sandbox === "writable";
   const absWorktree = worktreePath ? resolve(worktreePath) : undefined;
 

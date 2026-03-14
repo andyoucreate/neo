@@ -46,19 +46,10 @@ prompt: "You are a developer agent."
 `,
     );
 
-    const config = await loadAgentFile(
-      path.join(BUILT_IN_DIR, "developer.yml"),
-    );
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "developer.yml"));
     expect(config.name).toBe("developer");
     expect(config.model).toBe("opus");
-    expect(config.tools).toEqual([
-      "Read",
-      "Write",
-      "Edit",
-      "Bash",
-      "Glob",
-      "Grep",
-    ]);
+    expect(config.tools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
     expect(config.sandbox).toBe("writable");
   });
 
@@ -86,11 +77,7 @@ prompt: ${path.join(PROMPTS_DIR, "my-agent.md")}
     const promptDir = path.join(TMP_DIR, "agents-with-prompts", "prompts");
     await mkdir(promptDir, { recursive: true });
 
-    await writeFile(
-      path.join(promptDir, "test.md"),
-      "Test prompt content",
-      "utf-8",
-    );
+    await writeFile(path.join(promptDir, "test.md"), "Test prompt content", "utf-8");
     await writeFile(
       path.join(agentDir, "test.yml"),
       `
@@ -122,9 +109,9 @@ prompt: nonexistent.md
 `,
     );
 
-    await expect(
-      loadAgentFile(path.join(BUILT_IN_DIR, "bad.yml")),
-    ).rejects.toThrow("Prompt file not found");
+    await expect(loadAgentFile(path.join(BUILT_IN_DIR, "bad.yml"))).rejects.toThrow(
+      "Prompt file not found",
+    );
   });
 
   it("throws for invalid schema", async () => {
@@ -138,9 +125,9 @@ tools: [Read]
 `,
     );
 
-    await expect(
-      loadAgentFile(path.join(BUILT_IN_DIR, "invalid.yml")),
-    ).rejects.toThrow("Invalid agent config");
+    await expect(loadAgentFile(path.join(BUILT_IN_DIR, "invalid.yml"))).rejects.toThrow(
+      "Invalid agent config",
+    );
   });
 });
 
@@ -184,18 +171,9 @@ describe("resolveAgent", () => {
     const resolved = resolveAgent(config, builtIns);
     expect(resolved.name).toBe("db-migrator");
     expect(resolved.source).toBe("custom");
-    expect(resolved.definition.description).toBe(
-      "Database migration specialist",
-    );
+    expect(resolved.definition.description).toBe("Database migration specialist");
     expect(resolved.definition.model).toBe("opus");
-    expect(resolved.definition.tools).toEqual([
-      "Read",
-      "Write",
-      "Edit",
-      "Bash",
-      "Glob",
-      "Grep",
-    ]);
+    expect(resolved.definition.tools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
     expect(resolved.sandbox).toBe("writable");
     expect(resolved.maxTurns).toBe(20);
   });
@@ -213,14 +191,7 @@ describe("resolveAgent", () => {
     expect(resolved.definition.model).toBe("sonnet");
     expect(resolved.definition.description).toBe("Implementation worker");
     expect(resolved.definition.prompt).toBe("You are a developer.");
-    expect(resolved.definition.tools).toEqual([
-      "Read",
-      "Write",
-      "Edit",
-      "Bash",
-      "Glob",
-      "Grep",
-    ]);
+    expect(resolved.definition.tools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
     expect(resolved.sandbox).toBe("writable");
     expect(resolved.maxTurns).toBe(30);
   });
@@ -263,9 +234,7 @@ describe("resolveAgent", () => {
     };
 
     const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.prompt).toBe(
-      "You are a developer.\n\nAlways use Vitest.",
-    );
+    expect(resolved.definition.prompt).toBe("You are a developer.\n\nAlways use Vitest.");
   });
 
   it("extends with prompt replacement", () => {
@@ -299,9 +268,7 @@ describe("resolveAgent", () => {
       extends: "nonexistent",
     };
 
-    expect(() => resolveAgent(config, builtIns)).toThrow(
-      "no built-in agent with that name",
-    );
+    expect(() => resolveAgent(config, builtIns)).toThrow("no built-in agent with that name");
   });
 
   it("throws for custom agent missing required fields", () => {
@@ -445,10 +412,7 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
   });
 
   it("loads real built-in agents from packages/agents", async () => {
-    const realBuiltInDir = path.resolve(
-      import.meta.dirname,
-      "../../../agents/agents",
-    );
+    const realBuiltInDir = path.resolve(import.meta.dirname, "../../../agents/agents");
     const registry = new AgentRegistry(realBuiltInDir);
     await registry.load();
 

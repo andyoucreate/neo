@@ -14,30 +14,19 @@ import type {
 } from "../types.js";
 
 export interface MiddlewareChain {
-  execute(
-    event: MiddlewareEvent,
-    context: MiddlewareContext,
-  ): Promise<MiddlewareResult>;
+  execute(event: MiddlewareEvent, context: MiddlewareContext): Promise<MiddlewareResult>;
 }
 
-function matchesTool(
-  match: string | string[] | undefined,
-  toolName: string | undefined,
-): boolean {
+function matchesTool(match: string | string[] | undefined, toolName: string | undefined): boolean {
   if (match === undefined) return true;
   if (toolName === undefined) return false;
   if (Array.isArray(match)) return match.includes(toolName);
   return match === toolName;
 }
 
-export function buildMiddlewareChain(
-  middleware: Middleware[],
-): MiddlewareChain {
+export function buildMiddlewareChain(middleware: Middleware[]): MiddlewareChain {
   return {
-    async execute(
-      event: MiddlewareEvent,
-      context: MiddlewareContext,
-    ): Promise<MiddlewareResult> {
+    async execute(event: MiddlewareEvent, context: MiddlewareContext): Promise<MiddlewareResult> {
       let lastAsync: MiddlewareResult | undefined;
 
       for (const mw of middleware) {
@@ -49,19 +38,18 @@ export function buildMiddlewareChain(
 
         const result = await mw.handler(event, context);
 
-        // Block stops the chain
-        if ("decision" in result && result.decision === "block") {
-          return result;
-        }
-
-        // Track async results — continue chain but remember the result
-        if ("async" in result && result.async === true) {
-          lastAsync = result;
+        switch (result.decision) {
+          case "block":
+            return result;
+          case "async":
+            lastAsync = result;
+            break;
+          case "pass":
+            break;
         }
       }
 
-      // Return async result if any middleware was async, otherwise pass-through
-      return lastAsync ?? {};
+      return lastAsync ?? { decision: "pass" };
     },
   };
 }
@@ -81,44 +69,42 @@ export type SDKHooks = Partial<Record<SDKHookEvent, HookCallbackMatcher[]>>;
 export function buildSDKHooks(
   chain: MiddlewareChain,
   context: MiddlewareContext,
+  middleware: Middleware[] = [],
 ): SDKHooks {
   function makeCallback(hookEvent: HookEvent): HookCallback {
     return async (input: HookInput): Promise<HookJSONOutput> => {
       const event: MiddlewareEvent = {
         hookEvent,
         sessionId: input.session_id,
-        toolName:
-          "tool_name" in input ? (input.tool_name as string) : undefined,
-        input:
-          "tool_input" in input
-            ? (input.tool_input as Record<string, unknown>)
-            : undefined,
-        output:
-          "tool_response" in input ? String(input.tool_response) : undefined,
+        toolName: "tool_name" in input ? (input.tool_name as string) : undefined,
+        input: "tool_input" in input ? (input.tool_input as Record<string, unknown>) : undefined,
+        output: "tool_response" in input ? String(input.tool_response) : undefined,
         message: "message" in input ? (input.message as string) : undefined,
       };
 
       const result = await chain.execute(event, context);
 
-      // Convert our MiddlewareResult to SDK HookJSONOutput
-      if ("decision" in result && result.decision === "block") {
-        return { decision: "block", reason: result.reason };
+      switch (result.decision) {
+        case "block":
+          return { decision: "block", reason: result.reason };
+        case "async":
+          return { async: true, asyncTimeout: result.asyncTimeout };
+        case "pass":
+          return {};
       }
-
-      if ("async" in result && result.async === true) {
-        return { async: true, asyncTimeout: result.asyncTimeout };
-      }
-
-      // Pass-through
-      return {};
     };
   }
 
-  const hooks: SDKHooks = {};
-  const events: HookEvent[] = ["PreToolUse", "PostToolUse", "Notification"];
+  // Only register hooks for events that have at least one middleware listener
+  const usedEvents = new Set(middleware.map((mw) => mw.on));
+  const allEvents: HookEvent[] = ["PreToolUse", "PostToolUse", "Notification"];
 
-  for (const hookEvent of events) {
-    hooks[hookEvent] = [{ hooks: [makeCallback(hookEvent)] }];
+  const hooks: SDKHooks = {};
+  for (const hookEvent of allEvents) {
+    // When no middleware list is provided, register all events (backward-compatible)
+    if (middleware.length === 0 || usedEvents.has(hookEvent)) {
+      hooks[hookEvent] = [{ hooks: [makeCallback(hookEvent)] }];
+    }
   }
 
   return hooks;

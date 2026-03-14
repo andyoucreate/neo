@@ -16,7 +16,9 @@ interface WaitingEntry {
   sessionId: string;
   repo: string;
   resolve: () => void;
+  reject: (reason: unknown) => void;
   enqueuedAt: number;
+  _cleanupAbort?: () => void;
 }
 
 /**
@@ -49,22 +51,39 @@ export class Semaphore {
     repo: string,
     sessionId: string,
     priority: Priority = "medium",
+    signal?: AbortSignal,
   ): Promise<void> {
+    if (signal?.aborted) {
+      throw signal.reason ?? new DOMException("The operation was aborted.", "AbortError");
+    }
+
     if (this.canAcquire(repo)) {
       this.allocate(repo, sessionId);
       return;
     }
 
-    return new Promise<void>((resolve) => {
+    return new Promise<void>((resolve, reject) => {
       const entry: WaitingEntry = {
         sessionId,
         repo,
         resolve,
+        reject,
         enqueuedAt: Date.now(),
       };
 
       this.queue.enqueue(entry, priority);
       this.callbacks.onEnqueue?.(sessionId, repo, this.queue.size);
+
+      if (signal) {
+        const onAbort = () => {
+          this.queue.remove((e) => e === entry);
+          reject(signal.reason ?? new DOMException("The operation was aborted.", "AbortError"));
+        };
+        signal.addEventListener("abort", onAbort, { once: true });
+
+        // Store cleanup so we can remove the listener on normal dequeue
+        entry._cleanupAbort = () => signal.removeEventListener("abort", onAbort);
+      }
     });
   }
 
@@ -128,6 +147,7 @@ export class Semaphore {
     if (!entry) return;
 
     this.allocate(entry.repo, entry.sessionId);
+    entry._cleanupAbort?.();
     const waitedMs = Date.now() - entry.enqueuedAt;
     this.callbacks.onDequeue?.(entry.sessionId, entry.repo, waitedMs);
     entry.resolve();

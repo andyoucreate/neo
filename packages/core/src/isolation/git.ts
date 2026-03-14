@@ -24,37 +24,23 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
-  await withGitLock(repoPath, () =>
-    git(repoPath, ["branch", branch, baseBranch]),
-  );
+  await withGitLock(repoPath, () => git(repoPath, ["branch", branch, baseBranch]));
 }
 
-export async function pushBranch(
-  repoPath: string,
-  branch: string,
-  remote: string,
-): Promise<void> {
+export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
   await withGitLock(repoPath, () => git(repoPath, ["push", remote, branch]));
 }
 
-export async function fetchRemote(
-  repoPath: string,
-  remote: string,
-): Promise<void> {
+export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
   await withGitLock(repoPath, () => git(repoPath, ["fetch", remote]));
 }
 
-export async function deleteBranch(
-  repoPath: string,
-  branch: string,
-): Promise<void> {
+export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
   await withGitLock(repoPath, () => git(repoPath, ["branch", "-D", branch]));
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
-  return withGitLock(repoPath, () =>
-    git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]),
-  );
+  return withGitLock(repoPath, () => git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]));
 }
 
 /**

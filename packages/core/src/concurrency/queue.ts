@@ -27,6 +27,11 @@ export class PriorityQueue<T> {
   }
 
   enqueue(value: T, priority: Priority): void {
+    // Reset counter when queue is empty to prevent overflow after prolonged use
+    if (this.items.length === 0) {
+      this.insertionCounter = 0;
+    }
+
     if (this.items.length >= this.maxSize) {
       throw new Error(`Queue full (${this.maxSize} items). Cannot enqueue.`);
     }
@@ -87,8 +92,7 @@ export class PriorityQueue<T> {
 
   /** Compare by priority first, then by insertion order (FIFO within same priority). */
   private comparePriority(a: QueueItem<T>, b: QueueItem<T>): number {
-    const priorityDiff =
-      PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
+    const priorityDiff = PRIORITY_ORDER[a.priority] - PRIORITY_ORDER[b.priority];
     if (priorityDiff !== 0) return priorityDiff;
     return a.insertionOrder - b.insertionOrder;
   }

@@ -5,19 +5,13 @@ import { auditLog } from "../middleware/audit-log.js";
 import { budgetGuard } from "../middleware/budget-guard.js";
 import { buildMiddlewareChain, buildSDKHooks } from "../middleware/chain.js";
 import { loopDetection } from "../middleware/loop-detection.js";
-import type {
-  Middleware,
-  MiddlewareContext,
-  MiddlewareEvent,
-} from "../types.js";
+import type { Middleware, MiddlewareContext, MiddlewareEvent } from "../types.js";
 
 // ─── Helpers ───────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_middleware_test__");
 
-function makeContext(
-  overrides?: Partial<MiddlewareContext>,
-): MiddlewareContext {
+function makeContext(overrides?: Partial<MiddlewareContext>): MiddlewareContext {
   const store = new Map<string, unknown>();
   return {
     runId: "run-1",
@@ -52,7 +46,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("first");
-        return {};
+        return { decision: "pass" };
       },
     };
     const mw2: Middleware = {
@@ -60,7 +54,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("second");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -86,7 +80,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("after");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -105,7 +99,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("async");
-        return { async: true, asyncTimeout: 5_000 };
+        return { decision: "async", asyncTimeout: 5_000 };
       },
     };
     const after: Middleware = {
@@ -113,7 +107,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("after");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -132,7 +126,7 @@ describe("buildMiddlewareChain", () => {
       match: "Bash",
       async handler() {
         order.push("bash-only");
-        return {};
+        return { decision: "pass" };
       },
     };
     const writeOnly: Middleware = {
@@ -141,7 +135,7 @@ describe("buildMiddlewareChain", () => {
       match: "Write",
       async handler() {
         order.push("write-only");
-        return {};
+        return { decision: "pass" };
       },
     };
     const catchAll: Middleware = {
@@ -149,7 +143,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("catch-all");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -168,7 +162,7 @@ describe("buildMiddlewareChain", () => {
       match: ["Edit", "Write"],
       async handler() {
         order.push("edit-write");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -190,7 +184,7 @@ describe("buildMiddlewareChain", () => {
       on: "PreToolUse",
       async handler() {
         order.push("pre-only");
-        return {};
+        return { decision: "pass" };
       },
     };
     const postOnly: Middleware = {
@@ -198,7 +192,7 @@ describe("buildMiddlewareChain", () => {
       on: "PostToolUse",
       async handler() {
         order.push("post-only");
-        return {};
+        return { decision: "pass" };
       },
     };
 
@@ -212,11 +206,11 @@ describe("buildMiddlewareChain", () => {
     const chain = buildMiddlewareChain([]);
     const result = await chain.execute(makeEvent(), makeContext());
 
-    expect(result).toEqual({});
+    expect(result).toEqual({ decision: "pass" });
   });
 });
 
-// ─── Loop Detection ────────────────────────────────────
+// ─── Loop Detection ──────────────────────────────────── ────────────────────────────────────
 
 describe("loopDetection", () => {
   it("blocks after threshold identical commands", async () => {
@@ -226,8 +220,8 @@ describe("loopDetection", () => {
     const event = makeEvent({ input: { command: "npm test" } });
 
     // First two should pass
-    expect(await chain.execute(event, ctx)).toEqual({});
-    expect(await chain.execute(event, ctx)).toEqual({});
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
 
     // Third should block
     const result = await chain.execute(event, ctx);
@@ -243,8 +237,8 @@ describe("loopDetection", () => {
     const event1 = makeEvent({ input: { command: "ls" } });
     const event2 = makeEvent({ input: { command: "pwd" } });
 
-    expect(await chain.execute(event1, ctx)).toEqual({});
-    expect(await chain.execute(event2, ctx)).toEqual({});
+    expect(await chain.execute(event1, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(event2, ctx)).toEqual({ decision: "pass" });
     expect(await chain.execute(event1, ctx)).toEqual({
       decision: "block",
       reason: expect.stringContaining("Loop detected"),
@@ -270,8 +264,8 @@ describe("loopDetection", () => {
       input: { command: "ls" },
     });
 
-    expect(await chain.execute(eventS1, ctx)).toEqual({});
-    expect(await chain.execute(eventS2, ctx)).toEqual({});
+    expect(await chain.execute(eventS1, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(eventS2, ctx)).toEqual({ decision: "pass" });
     // s1 at count 2 → block, s2 still at count 1
     expect(await chain.execute(eventS1, ctx)).toEqual({
       decision: "block",
@@ -294,8 +288,8 @@ describe("loopDetection", () => {
     });
 
     // Should not trigger for Write tool
-    expect(await chain.execute(writeEvent, ctx)).toEqual({});
-    expect(await chain.execute(writeEvent, ctx)).toEqual({});
+    expect(await chain.execute(writeEvent, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(writeEvent, ctx)).toEqual({ decision: "pass" });
   });
 });
 
@@ -312,7 +306,7 @@ describe("auditLog", () => {
     await rm(TMP_DIR, { recursive: true, force: true });
   });
 
-  it("writes JSONL file with correct content", async () => {
+  it("writes JSONL file with correct content after flush", async () => {
     const mw = auditLog({ dir: TMP_DIR, includeInput: true });
     const chain = buildMiddlewareChain([mw]);
     const ctx = makeContext({ agent: "test-agent" });
@@ -324,7 +318,9 @@ describe("auditLog", () => {
     });
 
     const result = await chain.execute(event, ctx);
-    expect(result).toEqual({ async: true, asyncTimeout: 5_000 });
+    expect(result).toEqual({ decision: "async", asyncTimeout: 5_000 });
+
+    await mw.flush();
 
     const filePath = path.join(TMP_DIR, "session-42.jsonl");
     const content = await readFile(filePath, "utf-8");
@@ -357,6 +353,7 @@ describe("auditLog", () => {
     });
 
     await chain.execute(event, ctx);
+    await mw.flush();
 
     const filePath = path.join(TMP_DIR, "session-43.jsonl");
     const content = await readFile(filePath, "utf-8");
@@ -381,10 +378,29 @@ describe("auditLog", () => {
       );
     }
 
+    await mw.flush();
+
     const filePath = path.join(TMP_DIR, "session-multi.jsonl");
     const content = await readFile(filePath, "utf-8");
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(3);
+  });
+
+  it("auto-flushes when buffer reaches flushSize", async () => {
+    const mw = auditLog({ dir: TMP_DIR, flushSize: 2, flushIntervalMs: 0 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    // First entry — buffered, not yet written
+    await chain.execute(makeEvent({ hookEvent: "PostToolUse", sessionId: "session-buf" }), ctx);
+
+    // Second entry — triggers flush (flushSize=2)
+    await chain.execute(makeEvent({ hookEvent: "PostToolUse", sessionId: "session-buf" }), ctx);
+
+    const filePath = path.join(TMP_DIR, "session-buf.jsonl");
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(2);
   });
 });
 
@@ -425,7 +441,7 @@ describe("budgetGuard", () => {
     });
 
     const result = await chain.execute(makeEvent(), ctx);
-    expect(result).toEqual({});
+    expect(result).toEqual({ decision: "pass" });
   });
 
   it("allows when budget values are not set", async () => {
@@ -434,7 +450,7 @@ describe("budgetGuard", () => {
     const ctx = makeContext();
 
     const result = await chain.execute(makeEvent(), ctx);
-    expect(result).toEqual({});
+    expect(result).toEqual({ decision: "pass" });
   });
 
   it("blocks when cost equals budget cap exactly", async () => {
@@ -525,7 +541,7 @@ describe("buildSDKHooks", () => {
       name: "async-mw",
       on: "PostToolUse",
       async handler() {
-        return { async: true, asyncTimeout: 3_000 };
+        return { decision: "async", asyncTimeout: 3_000 };
       },
     };
 
@@ -549,7 +565,7 @@ describe("buildSDKHooks", () => {
       { signal: new AbortController().signal },
     );
 
-    expect(result).toEqual({ async: true, asyncTimeout: 3_000 });
+    expect(result).toEqual({ async: true, asyncTimeout: 3_000 }); // SDK format
   });
 
   it("returns empty object for pass-through", async () => {
@@ -572,6 +588,7 @@ describe("buildSDKHooks", () => {
       { signal: new AbortController().signal },
     );
 
+    // SDK format: pass-through is an empty object (not our internal MiddlewareResult)
     expect(result).toEqual({});
   });
 });

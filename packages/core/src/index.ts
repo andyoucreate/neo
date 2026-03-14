@@ -42,9 +42,11 @@ export {
 } from "./isolation/worktree.js";
 // ─── Middleware ─────────────────────────────────────────
 export { auditLog } from "./middleware/audit-log.js";
+export type { AuditLogMiddleware } from "./middleware/audit-log.ts";
 export { budgetGuard } from "./middleware/budget-guard.js";
 export type { MiddlewareChain, SDKHooks } from "./middleware/chain.js";
 export { buildMiddlewareChain, buildSDKHooks } from "./middleware/chain.js";
+export type { LoopDetectionMiddleware } from "./middleware/loop-detection.js";
 export { loopDetection } from "./middleware/loop-detection.js";
 export type { ParsedOutput } from "./runner/output-parser.js";
 // ─── Runner ────────────────────────────────────────────

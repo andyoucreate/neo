@@ -64,9 +64,7 @@ export class AgentRegistry {
 
 async function loadAgentsFromDir(dir: string): Promise<AgentConfig[]> {
   const entries = await readdir(dir);
-  const ymlFiles = entries.filter(
-    (f) => f.endsWith(".yml") || f.endsWith(".yaml"),
-  );
+  const ymlFiles = entries.filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
 
   const configs: AgentConfig[] = [];
   for (const file of ymlFiles) {

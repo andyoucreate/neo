@@ -1,9 +1,4 @@
-import {
-  runSession,
-  SessionError,
-  type SessionOptions,
-  type SessionResult,
-} from "./session.js";
+import { runSession, SessionError, type SessionOptions, type SessionResult } from "./session.js";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -37,6 +32,28 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ─── Error handling ─────────────────────────────────────
+
+function isNonRetryable(error: unknown, nonRetryable: string[]): boolean {
+  return error instanceof SessionError && nonRetryable.includes(error.errorType);
+}
+
+function updateSessionId(error: unknown, current: string | undefined): string | undefined {
+  if (error instanceof SessionError && error.sessionId !== "unknown") {
+    return error.sessionId;
+  }
+  return current;
+}
+
+function buildFinalError(error: unknown, maxRetries: number): Error {
+  if (error instanceof Error) {
+    return new Error(`Recovery failed after ${maxRetries} attempts. Last error: ${error.message}`, {
+      cause: error,
+    });
+  }
+  return new Error(`Recovery failed after ${maxRetries} attempts`);
+}
+
 /**
  * Run a session with 3-level recovery escalation (ADR-020).
  *
@@ -47,15 +64,13 @@ function sleep(ms: number): Promise<void> {
  * Non-retryable errors skip to immediate failure.
  * Backoff: backoffBaseMs * attempt between levels.
  */
-export async function runWithRecovery(
-  options: RecoveryOptions,
-): Promise<SessionResult> {
+export async function runWithRecovery(options: RecoveryOptions): Promise<SessionResult> {
   const {
     maxRetries,
     backoffBaseMs,
     nonRetryable = DEFAULT_NON_RETRYABLE,
     onAttempt,
-    ...sessionOptions
+    ...rest
   } = options;
 
   let lastSessionId: string | undefined;
@@ -65,39 +80,23 @@ export async function runWithRecovery(
     onAttempt?.(attempt, strategy);
 
     try {
-      const attemptOptions: SessionOptions = {
-        ...sessionOptions,
+      const result = await runSession({
+        ...rest,
         resumeSessionId: strategy === "resume" ? lastSessionId : undefined,
-      };
-
-      const result = await runSession(attemptOptions);
-      lastSessionId = result.sessionId;
+      });
       return result;
     } catch (error) {
-      if (error instanceof SessionError) {
-        lastSessionId =
-          error.sessionId !== "unknown" ? error.sessionId : lastSessionId;
+      lastSessionId = updateSessionId(error, lastSessionId);
 
-        if (nonRetryable.includes(error.errorType)) {
-          throw error;
-        }
-      }
+      if (isNonRetryable(error, nonRetryable)) throw error;
+      if (attempt === maxRetries) throw buildFinalError(error, maxRetries);
 
-      if (attempt === maxRetries) {
-        throw error instanceof Error
-          ? new Error(
-              `Recovery failed after ${maxRetries} attempts. Last error: ${error.message}`,
-              { cause: error },
-            )
-          : new Error(`Recovery failed after ${maxRetries} attempts`);
-      }
-
-      if (attempt >= 2) {
+      // Next attempt will be "fresh" — clear session to start clean
+      if (getStrategy(attempt + 1) === "fresh") {
         lastSessionId = undefined;
       }
 
-      const backoffMs = backoffBaseMs * attempt;
-      await sleep(backoffMs);
+      await sleep(backoffBaseMs * attempt);
     }
   }
 

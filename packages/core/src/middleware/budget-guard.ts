@@ -15,18 +15,14 @@ export function budgetGuard(): Middleware {
       const costToday = context.get("costToday");
       const budgetCapUsd = context.get("budgetCapUsd");
 
-      if (
-        typeof costToday === "number" &&
-        typeof budgetCapUsd === "number" &&
-        costToday >= budgetCapUsd
-      ) {
+      if (costToday !== undefined && budgetCapUsd !== undefined && costToday >= budgetCapUsd) {
         return {
           decision: "block",
           reason: "Daily budget exceeded",
         };
       }
 
-      return {};
+      return { decision: "pass" };
     },
   };
 }

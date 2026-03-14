@@ -10,10 +10,7 @@ const locks = new Map<string, Promise<void>>();
  * Concurrent calls for the same repo are queued and executed serially.
  * Operations on different repos run in parallel.
  */
-export async function withGitLock<T>(
-  repoPath: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withGitLock<T>(repoPath: string, fn: () => Promise<T>): Promise<T> {
   const previous = locks.get(repoPath) ?? Promise.resolve();
 
   let releaseLock: (() => void) | undefined;

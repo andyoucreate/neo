@@ -15,9 +15,7 @@ export function resolveAgent(
 ): ResolvedAgent {
   const extendsName =
     config.extends ??
-    (builtIns.has(config.name) && config.extends === undefined
-      ? config.name
-      : undefined);
+    (builtIns.has(config.name) && config.extends === undefined ? config.name : undefined);
   const isExtending = extendsName !== undefined;
 
   if (isExtending) {
@@ -71,10 +69,7 @@ export function resolveAgent(
         : base.maxTurns !== undefined
           ? { maxTurns: base.maxTurns }
           : {}),
-      source:
-        config.name === extendsName && !config.extends
-          ? "built-in"
-          : "extended",
+      source: config.name === extendsName && !config.extends ? "built-in" : "extended",
     };
   }
 

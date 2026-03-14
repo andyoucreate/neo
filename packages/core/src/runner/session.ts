@@ -30,21 +30,56 @@ export type SessionEvent =
   | { type: "session:complete"; sessionId: string; result: SessionResult }
   | { type: "session:fail"; sessionId: string; error: string };
 
+// ─── SDK stream message shapes ──────────────────────────
+
+interface SDKInitMessage {
+  type: "system";
+  subtype: "init";
+  session_id: string;
+}
+
+interface SDKResultMessage {
+  type: "result";
+  subtype: "success" | string;
+  session_id: string;
+  result: string;
+  total_cost_usd: number;
+  num_turns: number;
+}
+
+interface SDKStreamMessage {
+  type: string;
+  subtype?: string;
+}
+
+function isInitMessage(msg: SDKStreamMessage): msg is SDKInitMessage {
+  return msg.type === "system" && msg.subtype === "init";
+}
+
+function isResultMessage(msg: SDKStreamMessage): msg is SDKResultMessage {
+  return msg.type === "result";
+}
+
+// ─── Helpers ────────────────────────────────────────────
+
+function checkAborted(signal: AbortSignal): void {
+  if (signal.aborted) {
+    const reason = signal.reason;
+    throw reason instanceof Error ? reason : new Error(String(reason));
+  }
+}
+
+function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): SessionError {
+  if (error instanceof SessionError) return error;
+  const message = error instanceof Error ? error.message : String(error);
+  return new SessionError(message, isTimeout ? "timeout" : "unknown", sessionId);
+}
+
 // ─── Session Runner ─────────────────────────────────────
 
-export async function runSession(
-  options: SessionOptions,
-): Promise<SessionResult> {
-  const {
-    agent,
-    prompt,
-    worktreePath,
-    sandboxConfig,
-    initTimeoutMs,
-    maxDurationMs,
-    resumeSessionId,
-    onEvent,
-  } = options;
+export async function runSession(options: SessionOptions): Promise<SessionResult> {
+  const { agent, prompt, worktreePath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } =
+    options;
 
   const startTime = Date.now();
   let sessionId = "";
@@ -53,7 +88,6 @@ export async function runSession(
   const initTimer = setTimeout(() => {
     abortController.abort(new Error("Session init timeout exceeded"));
   }, initTimeoutMs);
-
   const maxDurationTimer = setTimeout(() => {
     abortController.abort(new Error("Session max duration exceeded"));
   }, maxDurationMs);
@@ -67,43 +101,37 @@ export async function runSession(
       allowedTools: sandboxConfig.allowedTools,
     };
 
-    if (resumeSessionId) {
-      queryOptions.resume = resumeSessionId;
+    if (options.resumeSessionId) {
+      queryOptions.resume = options.resumeSessionId;
     }
 
     let output = "";
     let costUsd = 0;
     let turnCount = 0;
 
-    const stream = sdk.query({
-      prompt,
-      options: queryOptions as never,
-    });
+    const stream = sdk.query({ prompt, options: queryOptions as never });
 
     for await (const message of stream) {
-      if (abortController.signal.aborted) {
-        const reason = abortController.signal.reason;
-        throw reason instanceof Error ? reason : new Error(String(reason));
-      }
+      checkAborted(abortController.signal);
 
-      if (message.type === "system" && message.subtype === "init") {
-        sessionId = (message as Record<string, unknown>).session_id as string;
+      const msg = message as SDKStreamMessage;
+
+      if (isInitMessage(msg)) {
+        sessionId = msg.session_id;
         clearTimeout(initTimer);
         onEvent?.({ type: "session:start", sessionId });
       }
 
-      if (message.type === "result") {
-        const result = message as Record<string, unknown>;
-        output = (result.result as string) ?? "";
-        costUsd = (result.total_cost_usd as number) ?? 0;
-        turnCount = (result.num_turns as number) ?? 0;
-        sessionId = (result.session_id as string) ?? sessionId;
+      if (isResultMessage(msg)) {
+        output = msg.result ?? "";
+        costUsd = msg.total_cost_usd ?? 0;
+        turnCount = msg.num_turns ?? 0;
+        sessionId = msg.session_id ?? sessionId;
 
-        if (result.subtype !== "success") {
-          const errorType = result.subtype as string;
+        if (msg.subtype !== "success") {
           throw new SessionError(
-            `Session ended with error: ${errorType}`,
-            errorType,
+            `Session ended with error: ${msg.subtype}`,
+            msg.subtype,
             sessionId,
           );
         }
@@ -121,23 +149,11 @@ export async function runSession(
     onEvent?.({ type: "session:complete", sessionId, result: sessionResult });
     return sessionResult;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
     const errorSessionId = sessionId || "unknown";
-    onEvent?.({
-      type: "session:fail",
-      sessionId: errorSessionId,
-      error: errorMessage,
-    });
+    const sessionError = toSessionError(error, abortController.signal.aborted, errorSessionId);
 
-    if (error instanceof SessionError) {
-      throw error;
-    }
-
-    throw new SessionError(
-      errorMessage,
-      abortController.signal.aborted ? "timeout" : "unknown",
-      errorSessionId,
-    );
+    onEvent?.({ type: "session:fail", sessionId: errorSessionId, error: sessionError.message });
+    throw sessionError;
   } finally {
     clearTimeout(initTimer);
     clearTimeout(maxDurationTimer);

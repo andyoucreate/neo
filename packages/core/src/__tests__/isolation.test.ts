@@ -5,18 +5,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "../config.js";
-import {
-  createBranch,
-  getBranchName,
-  getCurrentBranch,
-} from "../isolation/git.js";
+import { createBranch, getBranchName, getCurrentBranch } from "../isolation/git.js";
 import { withGitLock } from "../isolation/git-mutex.js";
 import { buildSandboxConfig } from "../isolation/sandbox.js";
-import {
-  createWorktree,
-  listWorktrees,
-  removeWorktree,
-} from "../isolation/worktree.js";
+import { createWorktree, listWorktrees, removeWorktree } from "../isolation/worktree.js";
 import type { ResolvedAgent } from "../types.js";
 
 const execFileAsync = promisify(execFile);
@@ -223,14 +215,7 @@ describe("buildSandboxConfig", () => {
     const config = buildSandboxConfig(makeAgent("writable"), "/tmp/wt");
 
     expect(config.writable).toBe(true);
-    expect(config.allowedTools).toEqual([
-      "Read",
-      "Write",
-      "Edit",
-      "Bash",
-      "Glob",
-      "Grep",
-    ]);
+    expect(config.allowedTools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
     expect(config.writablePaths).toEqual(["/tmp/wt"]);
     expect(config.readablePaths).toEqual(["/tmp/wt"]);
   });

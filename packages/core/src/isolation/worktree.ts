@@ -30,14 +30,7 @@ export async function createWorktree(options: {
   await withGitLock(repoPath, async () => {
     await execFileAsync(
       "git",
-      [
-        "worktree",
-        "add",
-        "-b",
-        options.branch,
-        worktreeDir,
-        options.baseBranch,
-      ],
+      ["worktree", "add", "-b", options.branch, worktreeDir, options.baseBranch],
       { cwd: repoPath, timeout: GIT_TIMEOUT },
     );
   });
@@ -88,42 +81,37 @@ export async function removeWorktree(worktreePath: string): Promise<void> {
 export async function listWorktrees(repoPath: string): Promise<WorktreeInfo[]> {
   const absRepoPath = resolve(repoPath);
 
-  return withGitLock(absRepoPath, async () => {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["worktree", "list", "--porcelain"],
-      { cwd: absRepoPath, timeout: GIT_TIMEOUT },
-    );
-
-    const worktrees: WorktreeInfo[] = [];
-    let current: { path: string; branch: string } | undefined;
-
-    for (const line of stdout.split("\n")) {
-      if (line.startsWith("worktree ")) {
-        if (current) {
-          worktrees.push({ ...current, repoPath: absRepoPath });
-        }
-        current = { path: line.slice(9), branch: "" };
-      } else if (line.startsWith("branch ") && current) {
-        // "branch refs/heads/feat/run-abc" → "feat/run-abc"
-        current.branch = line.slice(7).replace("refs/heads/", "");
-      }
-    }
-    if (current) {
-      worktrees.push({ ...current, repoPath: absRepoPath });
-    }
-
-    return worktrees;
+  const { stdout } = await execFileAsync("git", ["worktree", "list", "--porcelain"], {
+    cwd: absRepoPath,
+    timeout: GIT_TIMEOUT,
   });
+
+  const worktrees: WorktreeInfo[] = [];
+  let current: { path: string; branch: string } | undefined;
+
+  for (const line of stdout.split("\n")) {
+    if (line.startsWith("worktree ")) {
+      if (current) {
+        worktrees.push({ ...current, repoPath: absRepoPath });
+      }
+      current = { path: line.slice(9), branch: "" };
+    } else if (line.startsWith("branch ") && current) {
+      // "branch refs/heads/feat/run-abc" → "feat/run-abc"
+      current.branch = line.slice(7).replace("refs/heads/", "");
+    }
+  }
+  if (current) {
+    worktrees.push({ ...current, repoPath: absRepoPath });
+  }
+
+  return worktrees;
 }
 
 /**
  * Clean up worktrees under worktreeBaseDir that no longer have a matching run.
  * Removes any subdirectory that is a git worktree.
  */
-export async function cleanupOrphanedWorktrees(
-  worktreeBaseDir: string,
-): Promise<void> {
+export async function cleanupOrphanedWorktrees(worktreeBaseDir: string): Promise<void> {
   const absBase = resolve(worktreeBaseDir);
 
   if (!existsSync(absBase)) {
@@ -143,15 +131,12 @@ export async function cleanupOrphanedWorktrees(
  * Find the main repository path for a worktree by reading its .git file.
  * Worktrees have a .git *file* (not directory) that points to the main repo.
  */
-async function findRepoForWorktree(
-  worktreePath: string,
-): Promise<string | undefined> {
+async function findRepoForWorktree(worktreePath: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync(
-      "git",
-      ["rev-parse", "--git-common-dir"],
-      { cwd: worktreePath, timeout: GIT_TIMEOUT },
-    );
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--git-common-dir"], {
+      cwd: worktreePath,
+      timeout: GIT_TIMEOUT,
+    });
     // Returns something like "/path/to/repo/.git" — we want the parent
     const gitCommonDir = resolve(worktreePath, stdout.trim());
     return resolve(gitCommonDir, "..");

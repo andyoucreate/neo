@@ -42,9 +42,7 @@ export async function loadAgentFile(filePath: string): Promise<AgentConfig> {
     try {
       config.prompt = await readFile(promptPath, "utf-8");
     } catch {
-      throw new Error(
-        `Prompt file not found: ${promptPath} (referenced in ${filePath})`,
-      );
+      throw new Error(`Prompt file not found: ${promptPath} (referenced in ${filePath})`);
     }
   }
 

@@ -21,10 +21,7 @@ export const agentToolSchema = z.enum([
 
 // ─── Agent tool entry (tool or $inherited token) ─────────
 
-export const agentToolEntrySchema = z.union([
-  agentToolSchema,
-  z.literal("$inherited"),
-]);
+export const agentToolEntrySchema = z.union([agentToolSchema, z.literal("$inherited")]);
 
 // ─── Agent sandbox enum ──────────────────────────────────
 

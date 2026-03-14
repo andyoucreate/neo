@@ -158,9 +158,7 @@ repos:
   });
 
   it("throws for missing config file", async () => {
-    await expect(loadConfig("/nonexistent/config.yml")).rejects.toThrow(
-      "Config file not found",
-    );
+    await expect(loadConfig("/nonexistent/config.yml")).rejects.toThrow("Config file not found");
   });
 
   it("validates RepoConfig defaults", async () => {

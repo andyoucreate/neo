@@ -229,11 +229,9 @@ describe("Semaphore", () => {
     const lowBlocked = sem.acquire("repo-a", "s-low", "low").then(() => {
       order.push("low");
     });
-    const criticalBlocked = sem
-      .acquire("repo-a", "s-critical", "critical")
-      .then(() => {
-        order.push("critical");
-      });
+    const criticalBlocked = sem.acquire("repo-a", "s-critical", "critical").then(() => {
+      order.push("critical");
+    });
 
     sem.release("s1");
     await criticalBlocked;
@@ -260,9 +258,7 @@ describe("Semaphore", () => {
     sem.acquire("repo-a", "s3");
 
     // Third should throw
-    await expect(sem.acquire("repo-a", "s4")).rejects.toThrow(
-      "Queue full (2 items)",
-    );
+    await expect(sem.acquire("repo-a", "s4")).rejects.toThrow("Queue full (2 items)");
 
     // Cleanup
     sem.release("s1");
@@ -359,6 +355,35 @@ describe("Semaphore", () => {
     expect(dequeued).toHaveLength(1);
     expect(dequeued[0]?.sessionId).toBe("s2");
     expect(dequeued[0]?.repo).toBe("repo-a");
+  });
+
+  it("abort signal: rejects and removes entry from queue", async () => {
+    const sem = new Semaphore({ maxSessions: 1, maxPerRepo: 1 });
+
+    await sem.acquire("repo-a", "s1");
+
+    const controller = new AbortController();
+    const blocked = sem.acquire("repo-a", "s2", "medium", controller.signal);
+
+    expect(sem.queueDepth()).toBe(1);
+
+    controller.abort();
+
+    await expect(blocked).rejects.toThrow();
+    expect(sem.queueDepth()).toBe(0);
+    expect(sem.activeCount()).toBe(1);
+  });
+
+  it("abort signal: throws immediately if already aborted", async () => {
+    const sem = new Semaphore({ maxSessions: 1, maxPerRepo: 1 });
+
+    await sem.acquire("repo-a", "s1");
+
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(sem.acquire("repo-a", "s2", "medium", controller.signal)).rejects.toThrow();
+    expect(sem.queueDepth()).toBe(0);
   });
 
   it("release is idempotent for unknown sessionId", () => {

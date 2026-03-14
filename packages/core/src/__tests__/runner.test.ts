@@ -2,11 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { parseOutput } from "../runner/output-parser.js";
 import { runWithRecovery } from "../runner/recovery.js";
-import {
-  runSession,
-  SessionError,
-  type SessionOptions,
-} from "../runner/session.js";
+import { runSession, SessionError, type SessionOptions } from "../runner/session.js";
 
 // ─── SDK Mock ───────────────────────────────────────────
 
@@ -44,9 +40,7 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 // ─── Helpers ────────────────────────────────────────────
 
-function makeSessionOptions(
-  overrides?: Partial<SessionOptions>,
-): SessionOptions {
+function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions {
   return {
     agent: {
       name: "test-agent",
@@ -116,9 +110,7 @@ describe("runSession", () => {
 
   it("emits session:start and session:complete events", async () => {
     const events: unknown[] = [];
-    const result = await runSession(
-      makeSessionOptions({ onEvent: (e) => events.push(e) }),
-    );
+    const result = await runSession(makeSessionOptions({ onEvent: (e) => events.push(e) }));
 
     expect(events).toHaveLength(2);
     expect(events[0]).toEqual({
@@ -151,9 +143,7 @@ describe("runSession", () => {
       runSession(makeSessionOptions({ onEvent: (e) => events.push(e) })),
     ).rejects.toThrow();
 
-    const failEvent = events.find(
-      (e) => (e as { type: string }).type === "session:fail",
-    );
+    const failEvent = events.find((e) => (e as { type: string }).type === "session:fail");
     expect(failEvent).toBeDefined();
   });
 
@@ -182,9 +172,7 @@ describe("runSession", () => {
   });
 
   it("passes resumeSessionId to SDK options", async () => {
-    await runSession(
-      makeSessionOptions({ resumeSessionId: "prev-session-42" }),
-    );
+    await runSession(makeSessionOptions({ resumeSessionId: "prev-session-42" }));
 
     const args = capturedQueryArgs as { options: { resume?: string } };
     expect(args.options.resume).toBe("prev-session-42");
@@ -202,9 +190,7 @@ describe("runSession", () => {
     mockMessages = successMessages();
 
     await expect(
-      runSession(
-        makeSessionOptions({ initTimeoutMs: 50, maxDurationMs: 60_000 }),
-      ),
+      runSession(makeSessionOptions({ initTimeoutMs: 50, maxDurationMs: 60_000 })),
     ).rejects.toThrow("timeout");
   });
 
@@ -226,9 +212,7 @@ describe("runSession", () => {
     ];
 
     await expect(
-      runSession(
-        makeSessionOptions({ initTimeoutMs: 5_000, maxDurationMs: 50 }),
-      ),
+      runSession(makeSessionOptions({ initTimeoutMs: 5_000, maxDurationMs: 50 })),
     ).rejects.toThrow("max duration exceeded");
   });
 });
@@ -274,9 +258,7 @@ describe("runWithRecovery", () => {
     }));
 
     // Re-import to get fresh modules with new mock
-    const { runWithRecovery: freshRunWithRecovery } = await import(
-      "../runner/recovery.js"
-    );
+    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
 
     const result = await freshRunWithRecovery({
       ...makeSessionOptions(),
@@ -315,9 +297,7 @@ describe("runWithRecovery", () => {
       }),
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import(
-      "../runner/recovery.js"
-    );
+    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
 
     const attempts: number[] = [];
 
@@ -355,9 +335,7 @@ describe("runWithRecovery", () => {
       },
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import(
-      "../runner/recovery.js"
-    );
+    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
 
     const start = Date.now();
     await freshRunWithRecovery({
@@ -399,9 +377,7 @@ describe("runWithRecovery", () => {
       },
     }));
 
-    const { runWithRecovery: freshRunWithRecovery } = await import(
-      "../runner/recovery.js"
-    );
+    const { runWithRecovery: freshRunWithRecovery } = await import("../runner/recovery.js");
 
     const result = await freshRunWithRecovery({
       ...makeSessionOptions(),

@@ -325,20 +325,32 @@ export interface MiddlewareEvent {
   message?: string | undefined;
 }
 
+/** Well-known context keys set by the orchestrator. */
+export interface MiddlewareContextMap {
+  costToday: number;
+  budgetCapUsd: number;
+  [key: string]: unknown;
+}
+
 export interface MiddlewareContext {
   runId: string;
   workflow: string;
   step: string;
   agent: string;
   repo: string;
-  get: (key: string) => unknown;
-  set: (key: string, value: unknown) => void;
+  get: <K extends string & keyof MiddlewareContextMap>(
+    key: K,
+  ) => MiddlewareContextMap[K] | undefined;
+  set: <K extends string & keyof MiddlewareContextMap>(
+    key: K,
+    value: MiddlewareContextMap[K],
+  ) => void;
 }
 
 export type MiddlewareResult =
-  | Record<string, never>
+  | { decision: "pass" }
   | { decision: "block"; reason: string }
-  | { async: true; asyncTimeout: number };
+  | { decision: "async"; asyncTimeout: number };
 
 // ─── Cost & Metrics ─────────────────────────────────────
 
