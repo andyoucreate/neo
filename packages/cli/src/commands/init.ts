@@ -1,13 +1,26 @@
+import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
 
-const DEFAULT_CONFIG = (budget: number) => `repos:
+const execFileAsync = promisify(execFile);
+
+async function detectDefaultBranch(): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("git", ["symbolic-ref", "--short", "HEAD"]);
+    return stdout.trim() || "main";
+  } catch {
+    return "main";
+  }
+}
+
+const DEFAULT_CONFIG = (budget: number, branch: string) => `repos:
   - path: "."
-    defaultBranch: main
+    defaultBranch: ${branch}
 concurrency:
   maxSessions: 5
   maxPerRepo: 2
@@ -16,12 +29,12 @@ budget:
   alertThresholdPct: 80
 `;
 
-const DIRS = ["agents", "workflows", "runs", "journals"];
+const DIRS = ["agents", "runs", "journals"];
 
 export default defineCommand({
   meta: {
     name: "init",
-    description: "Initialize a .neo/ project directory",
+    description: "Initialize a .neo/ project directory (config, agents, journals)",
   },
   args: {
     budget: {
@@ -51,8 +64,9 @@ export default defineCommand({
 
     // Write config
     const budget = Number(args.budget);
-    await writeFile(configPath, DEFAULT_CONFIG(budget), "utf-8");
-    printSuccess(`Created .neo/config.yml (budget: $${budget}/day)`);
+    const branch = await detectDefaultBranch();
+    await writeFile(configPath, DEFAULT_CONFIG(budget, branch), "utf-8");
+    printSuccess(`Created .neo/config.yml (budget: $${budget}/day, branch: ${branch})`);
 
     // Install supervisor skills
     await installSkills();

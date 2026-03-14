@@ -11,7 +11,3 @@ function resolvePackageDir(pkg: string): string {
 export function resolveAgentsDir(): string {
   return path.join(resolvePackageDir("@neo-cli/agents"), "agents");
 }
-
-export function resolveWorkflowsDir(): string {
-  return path.join(resolvePackageDir("@neo-cli/agents"), "workflows");
-}

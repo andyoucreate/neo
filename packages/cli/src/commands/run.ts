@@ -4,13 +4,13 @@ import type { NeoEvent } from "@neo-cli/core";
 import { AgentRegistry, loadConfig, Orchestrator } from "@neo-cli/core";
 import { defineCommand } from "citty";
 import { printError, printJson } from "../output.js";
-import { resolveAgentsDir, resolveWorkflowsDir } from "../resolve.js";
+import { resolveAgentsDir } from "../resolve.js";
 
 function printProgress(event: NeoEvent): void {
   const ts = event.timestamp.slice(11, 19);
   switch (event.type) {
     case "session:start":
-      console.log(`[${ts}] ${event.agent}: starting (${event.step})`);
+      console.log(`[${ts}] ${event.agent}: starting`);
       break;
     case "session:complete":
       console.log(`[${ts}] session complete: $${event.costUsd.toFixed(4)}`);
@@ -39,12 +39,12 @@ function parseMetadata(meta: string | undefined): Record<string, unknown> | unde
 export default defineCommand({
   meta: {
     name: "run",
-    description: "Dispatch a workflow",
+    description: "Dispatch an agent to execute a task in an isolated worktree",
   },
   args: {
-    workflow: {
+    agent: {
       type: "positional",
-      description: "Workflow name to run",
+      description: "Agent name to run (e.g. developer, architect, reviewer-quality)",
       required: true,
     },
     repo: {
@@ -94,19 +94,33 @@ export default defineCommand({
     );
     await agentRegistry.load();
 
-    // Load workflow registry
-    const customWorkflowsDir = path.resolve(".neo/workflows");
+    // Validate agent exists
+    const agent = agentRegistry.get(args.agent);
+    if (!agent) {
+      const available = agentRegistry
+        .list()
+        .map((a) => a.name)
+        .join(", ");
+      printError(`Agent "${args.agent}" not found. Available: ${available}`);
+      process.exit(1);
+    }
 
+    // Create orchestrator — no workflow dirs, we register an inline single-step workflow
     const orchestrator = new Orchestrator(config, {
-      builtInWorkflowDir: resolveWorkflowsDir(),
-      customWorkflowDir: existsSync(customWorkflowsDir) ? customWorkflowsDir : undefined,
       journalDir: ".neo/journals",
     });
 
-    // Register agents
-    for (const agent of agentRegistry.list()) {
-      orchestrator.registerAgent(agent);
-    }
+    // Register the requested agent
+    orchestrator.registerAgent(agent);
+
+    // Register an inline single-step workflow for this agent
+    orchestrator.registerWorkflow({
+      name: `_run_${args.agent}`,
+      description: `Direct dispatch to ${args.agent}`,
+      steps: {
+        run: { agent: args.agent },
+      },
+    });
 
     // Subscribe to events for progress display
     if (!jsonOutput) {
@@ -117,7 +131,7 @@ export default defineCommand({
       await orchestrator.start();
 
       const result = await orchestrator.dispatch({
-        workflow: args.workflow,
+        workflow: `_run_${args.agent}`,
         repo,
         prompt: args.prompt,
         priority: (args.priority as "critical" | "high" | "medium" | "low") ?? "medium",
@@ -129,7 +143,7 @@ export default defineCommand({
       } else {
         console.log("");
         console.log(`Run:      ${result.runId}`);
-        console.log(`Workflow: ${result.workflow}`);
+        console.log(`Agent:    ${args.agent}`);
         console.log(`Status:   ${result.status}`);
         console.log(`Cost:     $${result.costUsd.toFixed(4)}`);
         console.log(`Duration: ${(result.durationMs / 1000).toFixed(1)}s`);

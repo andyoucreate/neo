@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-
 import { Semaphore } from "@/concurrency/semaphore";
 import type { NeoConfig, RepoConfig } from "@/config";
 import { CostJournal } from "@/cost/journal";
@@ -105,7 +104,9 @@ export class Orchestrator extends NeoEventEmitter {
     this.builtInWorkflowDir = options.builtInWorkflowDir;
     this.customWorkflowDir = options.customWorkflowDir;
     for (const repo of config.repos) {
-      this.repoIndex.set(repo.path, repo);
+      const resolvedPath = path.resolve(repo.path);
+      const normalizedRepo = { ...repo, path: resolvedPath };
+      this.repoIndex.set(resolvedPath, normalizedRepo);
     }
     this.semaphore = new Semaphore(
       {
