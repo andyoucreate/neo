@@ -207,6 +207,49 @@ describe("dispatch", () => {
     expect(result.steps.fix?.error).toBeDefined();
   });
 
+  it("rejects dispatch targeting a gate step directly", async () => {
+    const orchestrator = new Orchestrator(makeConfig());
+    orchestrator.registerAgent(makeAgent());
+    orchestrator.registerWorkflow(
+      makeWorkflow({
+        steps: {
+          fix: {
+            agent: "test-developer",
+            prompt: "Fix the bug",
+          },
+          approval: {
+            type: "gate",
+            description: "Approval gate",
+          },
+        },
+      }),
+    );
+
+    await expect(orchestrator.dispatch(makeInput({ step: "approval" }))).rejects.toThrow(
+      "gate step",
+    );
+  });
+
+  it("preserves metadata in task result", async () => {
+    const orchestrator = createOrchestrator();
+    const result = await orchestrator.dispatch(makeInput({ metadata: { ticket: "NEO-123" } }));
+
+    expect(result.metadata).toEqual({ ticket: "NEO-123" });
+  });
+
+  it("generates unique runId for each dispatch", async () => {
+    const orchestrator = createOrchestrator({
+      idempotency: { enabled: false, key: "prompt", ttlMs: 60_000 },
+    });
+
+    const result1 = await orchestrator.dispatch(makeInput({ prompt: "Task A" }));
+    const result2 = await orchestrator.dispatch(makeInput({ prompt: "Task B" }));
+
+    expect(result1.runId).toBeDefined();
+    expect(result2.runId).toBeDefined();
+    expect(result1.runId).not.toBe(result2.runId);
+  });
+
   it("uses the workflow step prompt when available", async () => {
     const orchestrator = new Orchestrator(makeConfig());
     orchestrator.registerAgent(makeAgent());
@@ -270,6 +313,38 @@ describe("idempotency", () => {
     });
 
     await orchestrator.dispatch(makeInput());
+    const result = await orchestrator.dispatch(makeInput());
+    expect(result.status).toBe("success");
+  });
+
+  it("uses metadata key when configured", async () => {
+    const orchestrator = createOrchestrator({
+      idempotency: { enabled: true, key: "metadata", ttlMs: 60_000 },
+    });
+
+    await orchestrator.dispatch(makeInput({ metadata: { ticket: "A" } }));
+
+    // Same metadata → reject
+    await expect(orchestrator.dispatch(makeInput({ metadata: { ticket: "A" } }))).rejects.toThrow(
+      "Duplicate dispatch rejected",
+    );
+
+    // Different metadata → allow
+    const result = await orchestrator.dispatch(makeInput({ metadata: { ticket: "B" } }));
+    expect(result.status).toBe("success");
+  });
+
+  it("evicts expired entries after TTL", async () => {
+    const orchestrator = createOrchestrator({
+      idempotency: { enabled: true, key: "prompt", ttlMs: 1_000 },
+    });
+
+    await orchestrator.dispatch(makeInput());
+
+    // Advance past TTL
+    vi.advanceTimersByTime(2_000);
+
+    // Same dispatch should now succeed because the entry expired
     const result = await orchestrator.dispatch(makeInput());
     expect(result.status).toBe("success");
   });
@@ -443,6 +518,25 @@ describe("input validation", () => {
       "mutually exclusive",
     );
   });
+
+  it("rejects non-object metadata (array)", async () => {
+    const orchestrator = createOrchestrator();
+
+    await expect(
+      orchestrator.dispatch(
+        makeInput({ metadata: [1, 2, 3] as unknown as Record<string, unknown> }),
+      ),
+    ).rejects.toThrow("metadata must be a plain object");
+  });
+
+  it("accepts metadata at exactly max depth (5 levels)", async () => {
+    const orchestrator = createOrchestrator();
+
+    const result = await orchestrator.dispatch(
+      makeInput({ metadata: { a: { b: { c: { d: { e: "ok" } } } } } }),
+    );
+    expect(result.status).toBe("success");
+  });
 });
 
 // ─── Events ─────────────────────────────────────────────
@@ -522,6 +616,29 @@ describe("events", () => {
 
     // Should have received multiple events via wildcard
     expect(events.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("emits queue:enqueue when at capacity", async () => {
+    const orchestrator = createOrchestrator({
+      concurrency: { maxSessions: 5, maxPerRepo: 1, queueMax: 50 },
+      idempotency: { enabled: false, key: "prompt", ttlMs: 60_000 },
+    });
+
+    const events: NeoEvent[] = [];
+    orchestrator.on("queue:enqueue", (e) => events.push(e));
+
+    // Add delay so first dispatch holds the semaphore slot
+    mockQueryDelay = 50;
+
+    const p1 = orchestrator.dispatch(makeInput({ prompt: "First task" }));
+    // Small delay to ensure first dispatch acquires first
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const p2 = orchestrator.dispatch(makeInput({ prompt: "Second task" }));
+
+    await Promise.all([p1, p2]);
+
+    const enqueueEvent = events.find((e) => e.type === "queue:enqueue");
+    expect(enqueueEvent).toBeDefined();
   });
 });
 

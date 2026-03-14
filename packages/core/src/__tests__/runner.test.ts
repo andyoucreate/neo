@@ -215,6 +215,55 @@ describe("runSession", () => {
       runSession(makeSessionOptions({ initTimeoutMs: 5_000, maxDurationMs: 50 })),
     ).rejects.toThrow("max duration exceeded");
   });
+
+  it("returns empty output when stream has no result message", async () => {
+    mockMessages = [{ type: "system", subtype: "init", session_id: "session-no-result" }];
+
+    const result = await runSession(makeSessionOptions());
+
+    expect(result.sessionId).toBe("session-no-result");
+    expect(result.output).toBe("");
+    expect(result.costUsd).toBe(0);
+    expect(result.turnCount).toBe(0);
+  });
+
+  it("handles result message without init", async () => {
+    mockMessages = [
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "session-from-result",
+        result: "Done without init",
+        total_cost_usd: 0.01,
+        duration_ms: 100,
+        num_turns: 1,
+      },
+    ];
+
+    const result = await runSession(makeSessionOptions());
+
+    expect(result.sessionId).toBe("session-from-result");
+    expect(result.output).toBe("Done without init");
+  });
+
+  it("captures sessionId from result when different from init", async () => {
+    mockMessages = [
+      { type: "system", subtype: "init", session_id: "a" },
+      {
+        type: "result",
+        subtype: "success",
+        session_id: "b",
+        result: "Switched session",
+        total_cost_usd: 0.02,
+        duration_ms: 200,
+        num_turns: 2,
+      },
+    ];
+
+    const result = await runSession(makeSessionOptions());
+
+    expect(result.sessionId).toBe("b");
+  });
 });
 
 // ─── runWithRecovery ────────────────────────────────────
@@ -391,6 +440,143 @@ describe("runWithRecovery", () => {
 
     vi.doUnmock("@anthropic-ai/claude-agent-sdk");
   });
+
+  it("succeeds immediately with maxRetries=1 on success", async () => {
+    vi.useRealTimers();
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield* successMessages("session-once");
+        },
+      }),
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+    const attempts: number[] = [];
+
+    const result = await freshRunWithRecovery({
+      ...makeSessionOptions(),
+      maxRetries: 1,
+      backoffBaseMs: 10,
+      onAttempt: (attempt) => attempts.push(attempt),
+    });
+
+    expect(result.sessionId).toBe("session-once");
+    expect(attempts).toEqual([1]);
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+
+  it("fails immediately with maxRetries=1 on retryable error", async () => {
+    vi.useRealTimers();
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "system", subtype: "init", session_id: "session-transient" };
+          throw new Error("transient failure");
+        },
+      }),
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+
+    const attempts: number[] = [];
+
+    await expect(
+      freshRunWithRecovery({
+        ...makeSessionOptions(),
+        maxRetries: 1,
+        backoffBaseMs: 10,
+        onAttempt: (attempt) => attempts.push(attempt),
+      }),
+    ).rejects.toThrow("Recovery failed after 1 attempts");
+
+    expect(attempts).toEqual([1]);
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+
+  it("uses custom nonRetryable list", async () => {
+    vi.useRealTimers();
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "system", subtype: "init", session_id: "session-custom" };
+          yield {
+            type: "result",
+            subtype: "custom_error",
+            session_id: "session-custom",
+            result: "",
+            total_cost_usd: 0,
+            duration_ms: 0,
+            num_turns: 1,
+          };
+        },
+      }),
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+
+    const attempts: number[] = [];
+
+    await expect(
+      freshRunWithRecovery({
+        ...makeSessionOptions(),
+        maxRetries: 3,
+        backoffBaseMs: 10,
+        nonRetryable: ["custom_error"],
+        onAttempt: (attempt) => attempts.push(attempt),
+      }),
+    ).rejects.toThrow("custom_error");
+
+    expect(attempts).toEqual([1]);
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+
+  it("clears lastSessionId for fresh strategy (attempt 3)", async () => {
+    vi.useRealTimers();
+    let callCount = 0;
+    const capturedOptions: Array<Record<string, unknown>> = [];
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: (args: { options: Record<string, unknown> }) => {
+        callCount++;
+        const current = callCount;
+        capturedOptions.push({ ...args.options });
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (current <= 2) {
+              yield {
+                type: "system",
+                subtype: "init",
+                session_id: `session-${current}`,
+              };
+              throw new Error(`Attempt ${current} failed`);
+            }
+            yield* successMessages("session-fresh");
+          },
+        };
+      },
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+
+    const result = await freshRunWithRecovery({
+      ...makeSessionOptions(),
+      maxRetries: 3,
+      backoffBaseMs: 10,
+    });
+
+    expect(result.sessionId).toBe("session-fresh");
+    // Attempt 3 (fresh strategy) should NOT have a resume session
+    expect(capturedOptions[2]?.resume).toBeUndefined();
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
 });
 
 // ─── parseOutput ────────────────────────────────────────
@@ -445,5 +631,31 @@ describe("parseOutput", () => {
     expect(result.output).toBeUndefined();
     expect(result.parseError).toContain("Schema validation failed");
     expect(result.rawOutput).toBe('{"wrong":"field"}');
+  });
+
+  it("extracts first JSON block when multiple exist", () => {
+    const schema = z.object({ a: z.number() });
+    const raw = '```json\n{"a":1}\n```\nmore text\n```json\n{"b":2}\n```';
+    const result = parseOutput(raw, schema);
+
+    expect(result.output).toEqual({ a: 1 });
+    expect(result.parseError).toBeUndefined();
+  });
+
+  it("handles JSON with excessive whitespace and newlines", () => {
+    const schema = z.object({ key: z.string() });
+    const raw = '  \n  { "key" : "value" }  \n  ';
+    const result = parseOutput(raw, schema);
+
+    expect(result.output).toEqual({ key: "value" });
+    expect(result.parseError).toBeUndefined();
+  });
+
+  it("returns rawOutput for empty string", () => {
+    const result = parseOutput("");
+
+    expect(result.rawOutput).toBe("");
+    expect(result.output).toBeUndefined();
+    expect(result.parseError).toBeUndefined();
   });
 });

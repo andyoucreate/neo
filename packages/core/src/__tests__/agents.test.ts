@@ -129,6 +129,46 @@ tools: [Read]
       "Invalid agent config",
     );
   });
+
+  it("loads agent with all optional fields", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "full-agent",
+      `
+name: full-agent
+description: "Full featured agent"
+model: opus
+tools: [Read, Write, Edit, Bash]
+sandbox: writable
+prompt: "You are a full agent."
+maxTurns: 25
+extends: developer
+promptAppend: "Extra instructions."
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "full-agent.yml"));
+    expect(config.name).toBe("full-agent");
+    expect(config.maxTurns).toBe(25);
+    expect(config.sandbox).toBe("writable");
+    expect(config.extends).toBe("developer");
+    expect(config.promptAppend).toBe("Extra instructions.");
+  });
+
+  it("loads agent with only required fields", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "minimal-agent",
+      `
+name: minimal-agent
+extends: developer
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "minimal-agent.yml"));
+    expect(config.name).toBe("minimal-agent");
+    expect(config.extends).toBe("developer");
+  });
 });
 
 // ─── resolveAgent ────────────────────────────────────────
@@ -277,6 +317,61 @@ describe("resolveAgent", () => {
     };
 
     expect(() => resolveAgent(config, builtIns)).toThrow("description");
+  });
+
+  it("inherits maxTurns from built-in when not overridden", () => {
+    builtIns.set("worker", {
+      name: "worker",
+      description: "Worker agent",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a worker.",
+      sandbox: "writable",
+      maxTurns: 50,
+    });
+
+    const config: AgentConfig = {
+      name: "my-worker",
+      extends: "worker",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxTurns).toBe(50);
+  });
+
+  it("overrides maxTurns from built-in", () => {
+    builtIns.set("worker", {
+      name: "worker",
+      description: "Worker agent",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a worker.",
+      sandbox: "writable",
+      maxTurns: 50,
+    });
+
+    const config: AgentConfig = {
+      name: "my-worker",
+      extends: "worker",
+      maxTurns: 10,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxTurns).toBe(10);
+  });
+
+  it("filters $inherited from tools when no extends", () => {
+    const config: AgentConfig = {
+      name: "standalone",
+      description: "Standalone agent",
+      model: "opus",
+      tools: ["$inherited", "Read"],
+      prompt: "You are standalone.",
+      sandbox: "readonly",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.definition.tools).toEqual(["Read"]);
   });
 });
 

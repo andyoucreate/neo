@@ -235,4 +235,57 @@ mcpServers:
 
     await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
   });
+
+  it("applies all default values for minimal config", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+`);
+
+    const config = await loadConfig(CONFIG_PATH);
+
+    // Repo defaults
+    expect(config.repos[0]?.defaultBranch).toBe("main");
+    expect(config.repos[0]?.branchPrefix).toBe("feat");
+    expect(config.repos[0]?.pushRemote).toBe("origin");
+    expect(config.repos[0]?.autoCreatePr).toBe(false);
+
+    // Concurrency defaults
+    expect(config.concurrency.maxSessions).toBe(5);
+    expect(config.concurrency.maxPerRepo).toBe(2);
+    expect(config.concurrency.queueMax).toBe(50);
+
+    // Budget defaults
+    expect(config.budget.dailyCapUsd).toBe(500);
+    expect(config.budget.alertThresholdPct).toBe(80);
+
+    // Recovery defaults
+    expect(config.recovery.maxRetries).toBe(3);
+    expect(config.recovery.backoffBaseMs).toBe(30_000);
+
+    // Sessions defaults
+    expect(config.sessions.initTimeoutMs).toBe(120_000);
+    expect(config.sessions.maxDurationMs).toBe(3_600_000);
+  });
+
+  it("validates budget.dailyCapUsd accepts 0", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+budget:
+  dailyCapUsd: 0
+`);
+
+    const config = await loadConfig(CONFIG_PATH);
+    expect(config.budget.dailyCapUsd).toBe(0);
+  });
+
+  it("rejects repos with missing path", async () => {
+    await writeConfig(`
+repos:
+  - name: bad-repo
+`);
+
+    await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
+  });
 });

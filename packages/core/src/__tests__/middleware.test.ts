@@ -208,6 +208,73 @@ describe("buildMiddlewareChain", () => {
 
     expect(result).toEqual({ decision: "pass" });
   });
+
+  it("handles middleware handler that throws an exception", async () => {
+    const thrower: Middleware = {
+      name: "thrower",
+      on: "PreToolUse",
+      async handler() {
+        throw new Error("middleware exploded");
+      },
+    };
+
+    const chain = buildMiddlewareChain([thrower]);
+    await expect(chain.execute(makeEvent(), makeContext())).rejects.toThrow("middleware exploded");
+  });
+
+  it("handles async middleware followed by blocking middleware", async () => {
+    const asyncMw: Middleware = {
+      name: "async-mw",
+      on: "PreToolUse",
+      async handler() {
+        return { decision: "async", asyncTimeout: 5_000 };
+      },
+    };
+    const blocker: Middleware = {
+      name: "blocker",
+      on: "PreToolUse",
+      async handler() {
+        return { decision: "block", reason: "blocked after async" };
+      },
+    };
+
+    const chain = buildMiddlewareChain([asyncMw, blocker]);
+    const result = await chain.execute(makeEvent(), makeContext());
+
+    expect(result).toEqual({ decision: "block", reason: "blocked after async" });
+  });
+
+  it("passes correct event data to handler", async () => {
+    const spy = vi.fn().mockResolvedValue({ decision: "pass" });
+
+    const mw: Middleware = {
+      name: "spy-mw",
+      on: "PreToolUse",
+      handler: spy,
+    };
+
+    const chain = buildMiddlewareChain([mw]);
+    const event = makeEvent({
+      hookEvent: "PreToolUse",
+      sessionId: "sess-42",
+      toolName: "Bash",
+      input: { command: "echo hello" },
+    });
+    const ctx = makeContext({ runId: "run-99" });
+
+    await chain.execute(event, ctx);
+
+    expect(spy).toHaveBeenCalledOnce();
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hookEvent: "PreToolUse",
+        sessionId: "sess-42",
+        toolName: "Bash",
+        input: { command: "echo hello" },
+      }),
+      expect.objectContaining({ runId: "run-99" }),
+    );
+  });
 });
 
 // ─── Loop Detection ──────────────────────────────────── ────────────────────────────────────
@@ -290,6 +357,42 @@ describe("loopDetection", () => {
     // Should not trigger for Write tool
     expect(await chain.execute(writeEvent, ctx)).toEqual({ decision: "pass" });
     expect(await chain.execute(writeEvent, ctx)).toEqual({ decision: "pass" });
+  });
+
+  it("blocks at threshold=1 (second execution)", async () => {
+    const mw = loopDetection({ threshold: 1 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+    const event = makeEvent({ input: { command: "ls" } });
+
+    // threshold=1: first execution (count becomes 1) should block
+    const result = await chain.execute(event, ctx);
+    expect(result).toHaveProperty("decision", "block");
+  });
+
+  it("does not count different tool names", async () => {
+    const mw = loopDetection({ threshold: 2 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    const bashEvent = makeEvent({
+      toolName: "Bash",
+      input: { command: "ls" },
+    });
+    const writeEvent = makeEvent({
+      toolName: "Write",
+      input: { command: "ls" },
+    });
+
+    // Bash "ls" executes once (count=1, under threshold=2)
+    expect(await chain.execute(bashEvent, ctx)).toEqual({ decision: "pass" });
+
+    // Write "ls" should not increment Bash counter (match: "Bash" skips Write)
+    expect(await chain.execute(writeEvent, ctx)).toEqual({ decision: "pass" });
+
+    // Bash "ls" again — count=2, should block
+    const result = await chain.execute(bashEvent, ctx);
+    expect(result).toHaveProperty("decision", "block");
   });
 });
 
@@ -472,6 +575,44 @@ describe("budgetGuard", () => {
       reason: "Daily budget exceeded",
     });
   });
+
+  it("blocks when budgetCapUsd is 0 and costToday is 0", async () => {
+    const mw = budgetGuard();
+    const chain = buildMiddlewareChain([mw]);
+
+    const store = new Map<string, unknown>([
+      ["costToday", 0],
+      ["budgetCapUsd", 0],
+    ]);
+    const ctx = makeContext({
+      get: (key: string) => store.get(key),
+      set: (key: string, value: unknown) => store.set(key, value),
+    });
+
+    // 0 >= 0 is true, so it should block
+    const result = await chain.execute(makeEvent(), ctx);
+    expect(result).toEqual({
+      decision: "block",
+      reason: "Daily budget exceeded",
+    });
+  });
+
+  it("handles negative costToday gracefully", async () => {
+    const mw = budgetGuard();
+    const chain = buildMiddlewareChain([mw]);
+
+    const store = new Map<string, unknown>([
+      ["costToday", -10],
+      ["budgetCapUsd", 100],
+    ]);
+    const ctx = makeContext({
+      get: (key: string) => store.get(key),
+      set: (key: string, value: unknown) => store.set(key, value),
+    });
+
+    const result = await chain.execute(makeEvent(), ctx);
+    expect(result).toEqual({ decision: "pass" });
+  });
 });
 
 // ─── buildSDKHooks ─────────────────────────────────────
@@ -590,5 +731,66 @@ describe("buildSDKHooks", () => {
 
     // SDK format: pass-through is an empty object (not our internal MiddlewareResult)
     expect(result).toEqual({});
+  });
+
+  it("only registers hooks for events with middleware listeners", () => {
+    const preOnly: Middleware = {
+      name: "pre-only",
+      on: "PreToolUse",
+      async handler() {
+        return { decision: "pass" };
+      },
+    };
+
+    const chain = buildMiddlewareChain([preOnly]);
+    const ctx = makeContext();
+    const hooks = buildSDKHooks(chain, ctx, [preOnly]);
+
+    expect(hooks.PreToolUse).toBeDefined();
+    expect(hooks.PostToolUse).toBeUndefined();
+    expect(hooks.Notification).toBeUndefined();
+  });
+
+  it("handles Notification hook event correctly", async () => {
+    const spy = vi.fn().mockResolvedValue({ decision: "pass" });
+
+    const notifMw: Middleware = {
+      name: "notif-mw",
+      on: "Notification",
+      handler: spy,
+    };
+
+    const chain = buildMiddlewareChain([notifMw]);
+    const ctx = makeContext();
+    const hooks = buildSDKHooks(chain, ctx, [notifMw]);
+
+    expect(hooks.Notification).toBeDefined();
+    expect(hooks.Notification).toHaveLength(1);
+
+    const callback = hooks.Notification?.[0]?.hooks[0];
+    expect(callback).toBeDefined();
+
+    const result = await callback?.(
+      {
+        session_id: "s1",
+        hook_event_name: "Notification",
+        message: "Agent completed task",
+        notification_type: "info",
+        transcript_path: "/tmp/transcript",
+        cwd: "/tmp",
+      },
+      "n1",
+      { signal: new AbortController().signal },
+    );
+
+    expect(result).toEqual({});
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        hookEvent: "Notification",
+        sessionId: "s1",
+        message: "Agent completed task",
+      }),
+      expect.anything(),
+    );
   });
 });

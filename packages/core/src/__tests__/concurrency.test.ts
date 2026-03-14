@@ -112,6 +112,22 @@ describe("PriorityQueue", () => {
     expect(q.dequeueWhere((item) => item === "z")).toBeUndefined();
     expect(q.size).toBe(1);
   });
+
+  it("dequeue returns undefined on empty queue", () => {
+    const q = new PriorityQueue<string>(10);
+    expect(q.dequeue()).toBeUndefined();
+  });
+
+  it("peek returns undefined on empty queue", () => {
+    const q = new PriorityQueue<string>(10);
+    expect(q.peek()).toBeUndefined();
+  });
+
+  it("handles queueMax=1", () => {
+    const q = new PriorityQueue<string>(1);
+    q.enqueue("a", "medium");
+    expect(() => q.enqueue("b", "medium")).toThrow("Queue full (1 items)");
+  });
 });
 
 // ─── Semaphore ──────────────────────────────────────────
@@ -422,5 +438,79 @@ describe("Semaphore", () => {
     sem.release("s2");
     await s4;
     expect(s4Resolved).toBe(true);
+  });
+
+  it("handles rapid acquire/release cycles", async () => {
+    const sem = new Semaphore({ maxSessions: 1, maxPerRepo: 1 });
+
+    for (let i = 0; i < 50; i++) {
+      await sem.acquire("repo-a", `s${i}`);
+      sem.release(`s${i}`);
+    }
+
+    expect(sem.activeCount()).toBe(0);
+    expect(sem.queueDepth()).toBe(0);
+  });
+
+  it("abort signal during active wait removes entry and rejects", async () => {
+    const sem = new Semaphore({ maxSessions: 1, maxPerRepo: 1 });
+
+    await sem.acquire("repo-a", "s1");
+
+    const controller = new AbortController();
+    const blocked = sem.acquire("repo-a", "s2", "medium", controller.signal);
+
+    expect(sem.queueDepth()).toBe(1);
+
+    controller.abort();
+
+    await expect(blocked).rejects.toThrow();
+    expect(sem.queueDepth()).toBe(0);
+    // s2 should not be in the active set
+    expect(sem.activeCountForRepo("repo-a")).toBe(1);
+    expect(sem.activeCount()).toBe(1);
+  });
+
+  it("double release of same sessionId is safe", async () => {
+    const sem = new Semaphore({ maxSessions: 2, maxPerRepo: 2 });
+
+    await sem.acquire("repo-a", "s1");
+    expect(sem.activeCount()).toBe(1);
+
+    sem.release("s1");
+    expect(sem.activeCount()).toBe(0);
+
+    // Second release should not throw or cause negative counts
+    sem.release("s1");
+    expect(sem.activeCount()).toBe(0);
+    expect(sem.activeCountForRepo("repo-a")).toBe(0);
+  });
+
+  it("queueDepth returns 0 when no sessions are waiting", () => {
+    const sem = new Semaphore({ maxSessions: 2, maxPerRepo: 2 });
+    expect(sem.queueDepth()).toBe(0);
+  });
+
+  it("processes mixed priorities correctly across repos", async () => {
+    const sem = new Semaphore({ maxSessions: 1, maxPerRepo: 1 });
+
+    await sem.acquire("repo-a", "s1");
+
+    const order: string[] = [];
+    const lowBlocked = sem.acquire("repo-a", "s-low", "low").then(() => {
+      order.push("low-repo-a");
+    });
+    const criticalBlocked = sem.acquire("repo-a", "s-critical", "critical").then(() => {
+      order.push("critical-repo-a");
+    });
+
+    // Release the slot — critical should be dequeued first
+    sem.release("s1");
+    await criticalBlocked;
+    expect(order[0]).toBe("critical-repo-a");
+
+    sem.release("s-critical");
+    await lowBlocked;
+    expect(order).toEqual(["critical-repo-a", "low-repo-a"]);
   });
 });
