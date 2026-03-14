@@ -4,6 +4,7 @@ import { access, constants } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { AgentRegistry, loadConfig } from "@neo-cli/core";
+import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
 
@@ -17,7 +18,7 @@ interface CheckResult {
 
 async function checkNodeVersion(): Promise<CheckResult> {
   const version = process.versions.node;
-  const major = Number.parseInt(version.split(".")[0] ?? "0", 10);
+  const major = Number.parseInt(version.split(".")[0]!, 10);
   if (major >= 22) {
     return { name: "Node.js", status: "pass", message: `v${version}` };
   }
@@ -101,30 +102,44 @@ async function checkJournalDirs(): Promise<CheckResult> {
   }
 }
 
-export async function runDoctor(jsonOutput: boolean): Promise<void> {
-  const checks = await Promise.all([
-    checkNodeVersion(),
-    checkGit(),
-    checkConfig(),
-    checkClaudeCli(),
-    checkAgents(),
-    checkJournalDirs(),
-  ]);
+export default defineCommand({
+  meta: {
+    name: "doctor",
+    description: "Check environment prerequisites",
+  },
+  args: {
+    output: {
+      type: "string",
+      description: "Output format: json",
+    },
+  },
+  async run({ args }) {
+    const jsonOutput = args.output === "json";
 
-  if (jsonOutput) {
-    printJson({ checks });
-    process.exit(checks.some((c) => c.status === "fail") ? 1 : 0);
-  }
+    const checks = await Promise.all([
+      checkNodeVersion(),
+      checkGit(),
+      checkConfig(),
+      checkClaudeCli(),
+      checkAgents(),
+      checkJournalDirs(),
+    ]);
 
-  let hasFailure = false;
-  for (const check of checks) {
-    if (check.status === "pass") {
-      printSuccess(`${check.name}: ${check.message ?? "OK"}`);
-    } else {
-      printError(`${check.name}: ${check.message ?? "FAILED"}`);
-      hasFailure = true;
+    if (jsonOutput) {
+      printJson({ checks });
+      process.exit(checks.some((c) => c.status === "fail") ? 1 : 0);
     }
-  }
 
-  process.exit(hasFailure ? 1 : 0);
-}
+    let hasFailure = false;
+    for (const check of checks) {
+      if (check.status === "pass") {
+        printSuccess(`${check.name}: ${check.message ?? "OK"}`);
+      } else {
+        printError(`${check.name}: ${check.message ?? "FAILED"}`);
+        hasFailure = true;
+      }
+    }
+
+    process.exit(hasFailure ? 1 : 0);
+  },
+});

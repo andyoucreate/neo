@@ -2,12 +2,8 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
-
-interface InitOptions {
-  budget?: number | undefined;
-  force?: boolean | undefined;
-}
 
 const DEFAULT_CONFIG = (budget: number) => `repos:
   - path: "."
@@ -22,33 +18,50 @@ budget:
 
 const DIRS = ["agents", "workflows", "runs", "journals"];
 
-export async function runInit(options: InitOptions): Promise<void> {
-  const configPath = path.resolve(".neo/config.yml");
+export default defineCommand({
+  meta: {
+    name: "init",
+    description: "Initialize a .neo/ project directory",
+  },
+  args: {
+    budget: {
+      type: "string",
+      description: "Daily budget cap in USD",
+      default: "500",
+    },
+    force: {
+      type: "boolean",
+      description: "Overwrite existing configuration",
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const configPath = path.resolve(".neo/config.yml");
 
-  if (existsSync(configPath) && !options.force) {
-    printError(".neo/config.yml already exists. Use --force to overwrite.");
-    process.exit(1);
-  }
+    if (existsSync(configPath) && !args.force) {
+      printError(".neo/config.yml already exists. Use --force to overwrite.");
+      process.exit(1);
+    }
 
-  // Create .neo/ structure
-  await mkdir(path.resolve(".neo"), { recursive: true });
-  for (const dir of DIRS) {
-    await mkdir(path.resolve(`.neo/${dir}`), { recursive: true });
-  }
+    // Create .neo/ structure
+    await mkdir(path.resolve(".neo"), { recursive: true });
+    for (const dir of DIRS) {
+      await mkdir(path.resolve(`.neo/${dir}`), { recursive: true });
+    }
 
-  // Write config
-  const budget = options.budget ?? 500;
-  await writeFile(configPath, DEFAULT_CONFIG(budget), "utf-8");
-  printSuccess(`Created .neo/config.yml (budget: $${budget}/day)`);
+    // Write config
+    const budget = Number(args.budget);
+    await writeFile(configPath, DEFAULT_CONFIG(budget), "utf-8");
+    printSuccess(`Created .neo/config.yml (budget: $${budget}/day)`);
 
-  // Install supervisor skills
-  await installSkills();
+    // Install supervisor skills
+    await installSkills();
 
-  printSuccess("neo initialized. Run 'neo doctor' to verify setup.");
-}
+    printSuccess("neo initialized. Run 'neo doctor' to verify setup.");
+  },
+});
 
 function resolveSkillsDir(): string {
-  // import.meta.url points to dist/<chunk>.js — go up to package root, then src/skills/
   const distDir = path.dirname(fileURLToPath(import.meta.url));
   const pkgRoot = path.dirname(distDir);
   return path.join(pkgRoot, "src", "skills");

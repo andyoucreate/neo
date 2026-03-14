@@ -304,12 +304,16 @@ export class Orchestrator extends NeoEventEmitter {
       this.evictExpiredIdempotencyEntries();
       const cached = this.idempotencyCache.get(idempotencyKey);
       if (cached && cached.expiresAt > Date.now()) {
-        throw new Error("Duplicate dispatch rejected (idempotency)");
+        throw new Error(
+          `Duplicate dispatch rejected: runId '${input.runId ?? "auto-generated"}' already exists. Each dispatch must use a unique runId.`,
+        );
       }
     }
 
     if (this._paused) {
-      throw new Error("Orchestrator is paused — dispatch rejected");
+      throw new Error(
+        "Dispatch rejected: orchestrator is paused. Call orchestrator.resume() before dispatching.",
+      );
     }
 
     return idempotencyKey;
@@ -320,10 +324,13 @@ export class Orchestrator extends NeoEventEmitter {
     const sessionId = randomUUID();
     const workflow = this.workflows.get(input.workflow);
     if (!workflow) {
-      throw new Error(`Workflow "${input.workflow}" not found`);
+      const available = [...this.workflows.keys()].join(", ") || "none";
+      throw new Error(
+        `Workflow "${input.workflow}" not found. Available workflows: ${available}. Check the workflow name or register it first.`,
+      );
     }
     const [stepName, stepDef] = this.getFirstStep(workflow, input);
-    const agent = this.resolveStepAgent(stepDef);
+    const agent = this.resolveStepAgent(stepDef, workflow.name);
     const repoConfig = this.resolveRepo(input.repo);
 
     const activeSession: ActiveSession = {
@@ -659,7 +666,9 @@ export class Orchestrator extends NeoEventEmitter {
     if (input.step) {
       const step = workflow.steps[input.step];
       if (!step || step.type === "gate") {
-        throw new Error(`Step "${input.step}" not found or is a gate`);
+        throw new Error(
+          `Step "${input.step}" not found in workflow "${workflow.name}" or is a gate step. Check the step name in the workflow definition.`,
+        );
       }
       return [input.step, step as WorkflowStepDef];
     }
@@ -680,10 +689,12 @@ export class Orchestrator extends NeoEventEmitter {
     return [first[0], first[1] as WorkflowStepDef];
   }
 
-  private resolveStepAgent(step: WorkflowStepDef): ResolvedAgent {
+  private resolveStepAgent(step: WorkflowStepDef, workflowName: string): ResolvedAgent {
     const agent = this.registeredAgents.get(step.agent);
     if (!agent) {
-      throw new Error(`Agent "${step.agent}" not found in registry`);
+      throw new Error(
+        `Agent "${step.agent}" required by workflow "${workflowName}" not found in registry. Register the agent or check the workflow definition.`,
+      );
     }
     return agent;
   }

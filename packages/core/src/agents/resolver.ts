@@ -76,27 +76,27 @@ export function resolveAgent(
   // No extends — fully custom agent
   if (!config.description) {
     throw new Error(
-      `Agent "${config.name}" has no "extends" and no "description". Custom agents must define all required fields.`,
+      `Agent "${config.name}" has no "extends" and no "description". Add a 'description' field to the agent YAML.`,
     );
   }
   if (!config.model) {
     throw new Error(
-      `Agent "${config.name}" has no "extends" and no "model". Custom agents must define all required fields.`,
+      `Agent "${config.name}" has no "extends" and no "model". Add a 'model' field (e.g., 'claude-sonnet-4-20250514').`,
     );
   }
   if (!config.tools) {
     throw new Error(
-      `Agent "${config.name}" has no "extends" and no "tools". Custom agents must define all required fields.`,
+      `Agent "${config.name}" has no "extends" and no "tools". Add a 'tools' array to the agent YAML.`,
     );
   }
   if (!config.sandbox) {
     throw new Error(
-      `Agent "${config.name}" has no "extends" and no "sandbox". Custom agents must define all required fields.`,
+      `Agent "${config.name}" has no "extends" and no "sandbox". Add a 'sandbox' field ('full' or 'permissive').`,
     );
   }
   if (!config.prompt) {
     throw new Error(
-      `Agent "${config.name}" has no "extends" and no "prompt". Custom agents must define all required fields.`,
+      `Agent "${config.name}" has no "extends" and no "prompt". Add a 'prompt' field or 'promptFile' reference.`,
     );
   }
 

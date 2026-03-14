@@ -103,7 +103,7 @@ export async function loadConfig(configPath: string): Promise<NeoConfig> {
     parsed = parseYaml(raw);
   } catch (err) {
     throw new Error(
-      `Invalid YAML in ${configPath}: ${err instanceof Error ? err.message : String(err)}`,
+      `Invalid YAML in ${configPath}: ${err instanceof Error ? err.message : String(err)}. Check YAML syntax at the indicated line.`,
     );
   }
 
@@ -112,7 +112,9 @@ export async function loadConfig(configPath: string): Promise<NeoConfig> {
     const issues = result.error.issues
       .map((i) => `  - ${i.path.join(".")}: ${i.message}`)
       .join("\n");
-    throw new Error(`Invalid config in ${configPath}:\n${issues}`);
+    throw new Error(
+      `Invalid config in ${configPath}:\n${issues}\nSee .neo/config.yml documentation for valid fields.`,
+    );
   }
 
   return result.data;

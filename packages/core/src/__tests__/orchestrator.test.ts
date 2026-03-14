@@ -253,7 +253,7 @@ describe("idempotency", () => {
     const orchestrator = createOrchestrator();
 
     await orchestrator.dispatch(makeInput());
-    await expect(orchestrator.dispatch(makeInput())).rejects.toThrow("idempotency");
+    await expect(orchestrator.dispatch(makeInput())).rejects.toThrow("Duplicate dispatch rejected");
   });
 
   it("allows dispatch with different prompt", async () => {

@@ -1,62 +1,39 @@
-#!/usr/bin/env bash
-# Smoke test for Neo v0.1 — validates build artifacts and CLI basics
-set -euo pipefail
+#!/bin/bash
+set -e
 
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+echo "=== Neo v0.1 Smoke Test ==="
 
-pass=0
-fail=0
+# Build
+echo "→ Building..."
+pnpm build
 
-check() {
-  local label="$1"
-  shift
-  if "$@" > /dev/null 2>&1; then
-    echo -e "  ${GREEN}✓${NC} ${label}"
-    pass=$((pass + 1))
-  else
-    echo -e "  ${RED}✗${NC} ${label}"
-    fail=$((fail + 1))
-  fi
-}
+# Type check
+echo "→ Type checking..."
+pnpm typecheck
 
-echo "Neo v0.1 Smoke Test"
-echo "==================="
-echo ""
+# Tests
+echo "→ Running tests..."
+pnpm test
 
-# Build artifacts exist
-echo "Build artifacts:"
-check "core dist/index.js exists" test -f packages/core/dist/index.js
-check "core dist/index.d.ts exists" test -f packages/core/dist/index.d.ts
-check "cli dist/index.js exists" test -f packages/cli/dist/index.js
-check "agents dir has YAML files" test -n "$(ls packages/agents/agents/*.yml 2>/dev/null)"
-check "workflows dir has YAML files" test -n "$(ls packages/agents/workflows/*.yml 2>/dev/null)"
+# CLI commands
+echo "→ Testing CLI commands..."
+pnpm --filter @neo-cli/cli exec neo --help > /dev/null
+pnpm --filter @neo-cli/cli exec neo --version
+pnpm --filter @neo-cli/cli exec neo doctor --output json
+pnpm --filter @neo-cli/cli exec neo agents --output json
 
-echo ""
+# Init in temp dir
+echo "→ Testing init..."
+TMPDIR=$(mktemp -d)
+cd "$TMPDIR"
+git init -q
+# Run neo init from the workspace
+NEO_BIN="$(cd - > /dev/null && pnpm --filter @neo-cli/cli exec which neo)"
+"$NEO_BIN" init --budget 100
+test -f .neo/config.yml
 
-# CLI basics
-echo "CLI commands:"
-check "neo --version prints 0.1.0" bash -c 'node packages/cli/dist/index.js --version | grep -q "0.1.0"'
-check "neo --help shows commands" bash -c 'node packages/cli/dist/index.js --help | grep -q "run"'
-check "neo doctor runs without crash" bash -c 'node packages/cli/dist/index.js doctor --output json 2>&1; true'
-check "neo agents lists agents" bash -c 'node packages/cli/dist/index.js agents --output json | grep -q "developer"'
+# Cleanup
+rm -rf "$TMPDIR"
 
 echo ""
-
-# Core exports
-echo "Core exports:"
-CORE_DIST="./packages/core/dist/index.js"
-check "VERSION export equals 0.1.0" node -e "import('${CORE_DIST}').then(m => { if(m.VERSION !== '0.1.0') process.exit(1) })"
-check "Orchestrator is exported" node -e "import('${CORE_DIST}').then(m => { if(!m.Orchestrator) process.exit(1) })"
-check "CostJournal is exported" node -e "import('${CORE_DIST}').then(m => { if(!m.CostJournal) process.exit(1) })"
-check "EventJournal is exported" node -e "import('${CORE_DIST}').then(m => { if(!m.EventJournal) process.exit(1) })"
-check "WorkflowRegistry is exported" node -e "import('${CORE_DIST}').then(m => { if(!m.WorkflowRegistry) process.exit(1) })"
-
-echo ""
-echo "==================="
-echo -e "Results: ${GREEN}${pass} passed${NC}, ${RED}${fail} failed${NC}"
-
-if [ "$fail" -gt 0 ]; then
-  exit 1
-fi
+echo "✓ All smoke tests passed"
