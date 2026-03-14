@@ -286,6 +286,11 @@ export interface QueueDequeueEvent {
   timestamp: string;
 }
 
+export interface OrchestratorShutdownEvent {
+  type: "orchestrator:shutdown";
+  timestamp: string;
+}
+
 export type NeoEvent =
   | SessionStartEvent
   | SessionCompleteEvent
@@ -298,7 +303,8 @@ export type NeoEvent =
   | CostUpdateEvent
   | BudgetAlertEvent
   | QueueEnqueueEvent
-  | QueueDequeueEvent;
+  | QueueDequeueEvent
+  | OrchestratorShutdownEvent;
 
 // ─── Middleware ───────────────────────────────────────────
 

@@ -1,3 +1,7 @@
+export const VERSION = "0.1.0";
+
+// ─── Orchestrator (public API) ──────────────────────────
+
 export { loadAgentFile } from "@/agents/loader";
 export { AgentRegistry } from "@/agents/registry";
 export { resolveAgent } from "@/agents/resolver";
@@ -21,6 +25,11 @@ export {
   neoConfigSchema,
   repoConfigSchema,
 } from "@/config";
+// ─── Cost ──────────────────────────────────────────────
+export { CostJournal } from "@/cost/journal";
+export { NeoEventEmitter } from "@/events";
+// ─── Events ────────────────────────────────────────────
+export { EventJournal } from "@/events/journal";
 export {
   createBranch,
   deleteBranch,
@@ -48,6 +57,8 @@ export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
 export { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
 export { loopDetection } from "@/middleware/loop-detection";
+export type { OrchestratorOptions } from "@/orchestrator";
+export { Orchestrator } from "@/orchestrator";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
@@ -60,3 +71,6 @@ export type {
 } from "@/runner/session";
 export { runSession, SessionError } from "@/runner/session";
 export * from "@/types";
+// ─── Workflows ─────────────────────────────────────────
+export { loadWorkflow, workflowGateDefSchema, workflowStepDefSchema } from "@/workflows/loader";
+export { WorkflowRegistry } from "@/workflows/registry";
