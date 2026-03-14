@@ -161,12 +161,14 @@ async function checkJournalDirs(): Promise<CheckResult> {
 export default defineCommand({
   meta: {
     name: "doctor",
-    description: "Check environment prerequisites (Node.js, git, config, Claude CLI)",
+    description:
+      "Check environment prerequisites: Node.js >= 22, git >= 2.20, global config, repo registration, tmux, Claude CLI, agents, journals",
   },
   args: {
     output: {
       type: "string",
-      description: "Output format: json",
+      description:
+        "Output format: 'json' for structured output with check results (default: human-readable with pass/fail/info indicators)",
     },
   },
   async run({ args }) {

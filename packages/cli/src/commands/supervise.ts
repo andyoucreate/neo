@@ -239,32 +239,34 @@ export default defineCommand({
   args: {
     name: {
       type: "string",
-      description: "Supervisor instance name",
+      description:
+        "Supervisor instance name — allows running multiple independent supervisors (default: 'supervisor')",
       default: DEFAULT_NAME,
     },
     status: {
       type: "boolean",
-      description: "Show supervisor status",
+      description: "Show supervisor status: PID, port, session, heartbeats, cost breakdown",
       default: false,
     },
     kill: {
       type: "boolean",
-      description: "Stop the running supervisor",
+      description: "Stop the running supervisor — sends SIGTERM, waits 10s, then SIGKILL if needed",
       default: false,
     },
     daemon: {
       type: "boolean",
-      description: "Start daemon without tmux (detached process)",
+      description:
+        "Start as a detached process without tmux — headless mode, no TUI. Logs to ~/.neo/supervisors/<name>/daemon.log",
       default: false,
     },
     attach: {
       type: "boolean",
-      description: "Open the TUI for a running supervisor",
+      description: "Open the interactive TUI dashboard for a running supervisor",
       default: false,
     },
     message: {
       type: "string",
-      description: "Send a message to the supervisor inbox",
+      description: "Send a text message to the supervisor's inbox for processing on next heartbeat",
     },
   },
   async run({ args }) {

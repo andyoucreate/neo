@@ -78,7 +78,10 @@ async function loadAndModifyConfig(
 // ─── Subcommands ─────────────────────────────────────────
 
 const listCmd = defineCommand({
-  meta: { name: "list", description: "List configured MCP servers" },
+  meta: {
+    name: "list",
+    description: "List all configured MCP servers with type and connection details",
+  },
   async run() {
     const config = await loadGlobalConfig();
     const servers = config.mcpServers ?? {};
@@ -103,16 +106,34 @@ const listCmd = defineCommand({
 });
 
 const addCmd = defineCommand({
-  meta: { name: "add", description: "Add an MCP server (use a preset name or custom flags)" },
+  meta: {
+    name: "add",
+    description:
+      "Add an MCP server — use a preset name (linear, notion, github, jira, slack) or custom flags",
+  },
   args: {
     name: {
       type: "positional",
-      description: "Server name or preset (linear, notion, github, jira, slack)",
+      description:
+        "Server name. If it matches a preset (linear, notion, github, jira, slack), the preset config is used automatically",
     },
-    type: { type: "string", description: "Server type: stdio or http" },
-    command: { type: "string", description: "Command for stdio servers" },
-    serverArgs: { type: "string", description: "Comma-separated args for stdio servers" },
-    url: { type: "string", description: "URL for http servers" },
+    type: {
+      type: "string",
+      description:
+        "Server type: 'stdio' for local process or 'http' for remote server (required for custom servers)",
+    },
+    command: {
+      type: "string",
+      description: "Command to spawn for stdio servers (e.g. 'npx', 'node')",
+    },
+    serverArgs: {
+      type: "string",
+      description: "Comma-separated arguments for stdio servers (e.g. '-y,@my/mcp-server')",
+    },
+    url: {
+      type: "string",
+      description: "Endpoint URL for http servers (e.g. 'https://mcp.example.com')",
+    },
   },
   async run({ args }) {
     const name = args.name as string | undefined;
@@ -192,9 +213,12 @@ const addCmd = defineCommand({
 });
 
 const removeCmd = defineCommand({
-  meta: { name: "remove", description: "Remove an MCP server" },
+  meta: { name: "remove", description: "Remove an MCP server from the global config" },
   args: {
-    name: { type: "positional", description: "Server name to remove" },
+    name: {
+      type: "positional",
+      description: "Name of the MCP server to remove (as shown in 'neo mcp list')",
+    },
   },
   async run({ args }) {
     const name = args.name as string | undefined;

@@ -71,17 +71,28 @@ export default defineCommand({
   args: {
     action: {
       type: "positional",
-      description: "Action: add, remove (omit to list)",
+      description:
+        "Action to perform: 'add' to register a repo, 'remove' to unregister (omit to list all repos)",
       required: false,
     },
     target: {
       type: "positional",
-      description: "Path (for add) or name/path (for remove)",
+      description:
+        "Repository path for 'add' (default: current directory), or name/path for 'remove'",
       required: false,
     },
-    name: { type: "string", description: "Custom name for the repo (add only)" },
-    branch: { type: "string", description: "Default branch (add only, auto-detected if omitted)" },
-    output: { type: "string", description: "Output format: json" },
+    name: {
+      type: "string",
+      description: "Custom display name for the repo (add only, defaults to directory name)",
+    },
+    branch: {
+      type: "string",
+      description: "Default branch override (add only, auto-detected from git if omitted)",
+    },
+    output: {
+      type: "string",
+      description: "Output format: 'json' for structured output (default: human-readable table)",
+    },
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";

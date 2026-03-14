@@ -30,7 +30,8 @@ export default defineCommand({
   args: {
     force: {
       type: "boolean",
-      description: "Re-register even if already initialized",
+      description:
+        "Re-register even if .neo/agents/ already exists — overwrites config and re-detects branch",
       default: false,
     },
   },

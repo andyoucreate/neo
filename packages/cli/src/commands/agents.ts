@@ -13,7 +13,8 @@ export default defineCommand({
   args: {
     output: {
       type: "string",
-      description: "Output format: json",
+      description:
+        "Output format: 'json' for structured output with name/model/sandbox/source (default: human-readable table)",
     },
   },
   async run({ args }) {

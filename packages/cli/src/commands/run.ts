@@ -139,35 +139,39 @@ export default defineCommand({
   args: {
     agent: {
       type: "positional",
-      description: "Agent name to run (e.g. developer, architect, reviewer-quality)",
+      description:
+        "Agent name to run (e.g. developer, architect, reviewer-quality). Use 'neo agents' to list available agents",
       required: true,
     },
     repo: {
       type: "string",
-      description: "Target repository path",
+      description: "Target repository path (default: current directory)",
       default: ".",
     },
     prompt: {
       type: "string",
-      description: "Task description for the agent",
+      description: "Task description for the agent — what it should accomplish",
       required: true,
     },
     priority: {
       type: "string",
-      description: "Priority level: critical, high, medium, low",
+      description:
+        "Priority level: critical, high, medium, low (default: medium). Affects queue ordering when concurrency is saturated",
     },
     meta: {
       type: "string",
-      description: "Metadata as JSON string",
+      description:
+        'Arbitrary metadata as a JSON string, e.g. \'{"ticket": "PROJ-123"}\'. Persisted in the run record',
     },
     output: {
       type: "string",
-      description: "Output format: json",
+      description: "Output format: 'json' for structured output (default: human-readable)",
     },
     detach: {
       type: "boolean",
       alias: "d",
-      description: "Run in background and return immediately with the run ID",
+      description:
+        "Run in background as a detached process and return immediately with the run ID. Follow with 'neo logs -f <runId>'",
       default: false,
     },
   },

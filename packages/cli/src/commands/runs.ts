@@ -90,21 +90,21 @@ export default defineCommand({
   args: {
     runId: {
       type: "positional",
-      description: "Run ID to show details (omit to list all runs)",
+      description: "Run ID to show details — supports prefix match (omit to list all runs)",
       required: false,
     },
     all: {
       type: "boolean",
-      description: "Show runs from all repos",
+      description: "Show runs from all registered repos (default: current repo only)",
       default: false,
     },
     repo: {
       type: "string",
-      description: "Filter by repo name or path",
+      description: "Filter runs by repo name or path",
     },
     last: {
       type: "string",
-      description: "Show only the last N runs",
+      description: "Show only the last N runs (e.g. --last 5)",
     },
     status: {
       type: "string",
@@ -112,12 +112,12 @@ export default defineCommand({
     },
     short: {
       type: "boolean",
-      description: "Compact output for supervisor agents (saves tokens)",
+      description: "Compact one-line-per-run output optimized for supervisor agents (saves tokens)",
       default: false,
     },
     output: {
       type: "string",
-      description: "Output format: json",
+      description: "Output format: 'json' for structured output (default: human-readable table)",
     },
   },
   async run({ args }) {

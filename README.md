@@ -37,7 +37,7 @@ npm install -g neotx
 
 # Initialize in your repo
 cd your-project
-neo init --budget 100
+neo init
 
 # Dispatch a developer agent
 neo run developer --prompt "Add input validation to the user registration endpoint"
@@ -83,24 +83,26 @@ Each agent works in its own worktree. The main branch is never touched. The supe
 ## CLI
 
 ```
-neo init       Initialize a .neo/ project directory
-neo run        Dispatch an agent to execute a task
-neo runs       List runs and inspect results
-neo logs       Show event logs from journals
-neo cost       Show cost breakdown (today, by agent)
-neo agents     List available agents
-neo doctor     Check environment prerequisites
+neo init        Initialize a .neo/ project directory and register the repo
+neo run         Dispatch an agent to execute a task in an isolated worktree
+neo runs        List runs or show details of a specific run
+neo logs        Show event logs from journals
+neo cost        Show cost breakdown (today, by agent, by run)
+neo repos       Manage registered repositories (list, add, remove)
+neo agents      List available agents (built-in and custom)
+neo supervise   Manage the autonomous supervisor daemon
+neo mcp         Manage MCP server integrations (Linear, Notion, GitHub, etc.)
+neo doctor      Check environment prerequisites
 ```
 
 ### neo init
 
 ```bash
-neo init                    # defaults: $500/day budget, auto-detects branch
-neo init --budget 50        # set daily budget cap
-neo init --force            # overwrite existing config
+neo init                    # auto-detects branch, creates .neo/agents/, registers repo
+neo init --force            # re-register even if already initialized
 ```
 
-Creates `.neo/config.yml`, agent and journal directories, and installs supervisor skills for Claude Code.
+Creates `.neo/agents/` for project-local agent definitions, adds `.neo/worktrees/` to `.gitignore`, registers the repo in the global config (`~/.neo/config.yml`), and auto-detects the default branch.
 
 ### neo run
 
@@ -114,11 +116,15 @@ neo run reviewer-quality --prompt "Review the changes in src/auth/"
 neo run fixer --prompt "Fix all issues from the quality review"
 
 # Options
-neo run developer --prompt "..." --repo ../other-repo
-neo run developer --prompt "..." --priority critical
-neo run developer --prompt "..." --output json
-neo run developer --prompt "..." --meta '{"ticket": "PROJ-123"}'
+neo run developer --prompt "..." --repo ../other-repo      # target a different repo
+neo run developer --prompt "..." --priority critical        # priority: critical, high, medium, low
+neo run developer --prompt "..." --output json              # JSON output for scripting
+neo run developer --prompt "..." --meta '{"ticket": "PROJ-123"}'  # attach metadata
+neo run developer --prompt "..." --detach                   # run in background, return immediately
+neo run developer --prompt "..." -d                         # short alias for --detach
 ```
+
+When `--detach` / `-d` is used, neo forks a background worker and returns the run ID immediately. Follow with `neo logs -f <runId>` to tail the output.
 
 ### neo agents
 
@@ -130,10 +136,12 @@ neo agents --output json  # JSON for scripting
 ### neo runs
 
 ```bash
-neo runs                        # table of all runs
+neo runs                        # table of all runs (current repo)
 neo runs <runId>                # detailed view of a specific run (prefix match)
 neo runs --last 5               # last 5 runs only
 neo runs --status failed        # filter by status: completed, failed, running
+neo runs --all                  # show runs from all registered repos
+neo runs --repo ../other-repo   # filter by repo name or path
 neo runs --short                # one-line-per-run, minimal tokens for supervisors
 neo runs --output json          # full JSON for programmatic use
 ```
@@ -147,22 +155,68 @@ neo logs --type session:fail    # filter: session:start, session:complete, sessi
 neo logs --run abc123           # filter by run ID prefix
 neo logs --short                # ultra compact output for supervisors
 neo logs --output json
+neo logs -f <runId>             # follow a detached run log in real time
+neo logs --follow --run abc123  # same as above (long form)
 ```
+
+The `--follow` / `-f` flag tails a detached run's log file and exits when the run completes.
 
 ### neo cost
 
 ```bash
-neo cost                        # today's total, all-time total, breakdown by agent
+neo cost                        # today's total, all-time total, breakdown by agent (current repo)
+neo cost --all                  # show costs from all registered repos (adds per-repo breakdown)
+neo cost --repo ../other-repo   # filter by repo name or path
 neo cost --short                # one-liner: today=$0.52 sessions=3 developer=$0.32
 neo cost --output json          # structured JSON with today/allTime/byAgent
 ```
 
+### neo repos
+
+```bash
+neo repos                               # list all registered repos
+neo repos add                           # register CWD (auto-detects branch)
+neo repos add ../other-repo             # register a specific path
+neo repos add ../other-repo --name api  # register with a custom name
+neo repos add ../other-repo --branch develop  # override default branch
+neo repos remove <name-or-path>         # unregister a repo
+neo repos --output json                 # JSON output for scripting
+```
+
+### neo supervise
+
+```bash
+neo supervise                   # start daemon (tmux) + open TUI
+neo supervise --daemon          # start daemon without tmux (detached process, no TUI)
+neo supervise --status          # show supervisor status (PID, port, cost, heartbeats)
+neo supervise --attach          # open TUI for a running supervisor
+neo supervise --kill            # stop the running supervisor (SIGTERM, then SIGKILL after 10s)
+neo supervise --message "..."   # send a message to the supervisor inbox
+neo supervise --name prod       # use a named instance (default: "supervisor")
+```
+
+The supervisor daemon exposes an HTTP health endpoint and webhook. When started via tmux, the session persists after terminal close.
+
+### neo mcp
+
+```bash
+neo mcp list                                    # list configured MCP servers
+neo mcp add linear                              # add from preset (linear, notion, github, jira, slack)
+neo mcp add my-server --type stdio --command npx --serverArgs "-y,@my/mcp-server"
+neo mcp add my-api --type http --url https://mcp.example.com
+neo mcp remove <name>                           # remove an MCP server
+```
+
+Available presets: `linear`, `notion`, `github`, `jira`, `slack`. Each preset requires environment variables (shown on add if not set).
+
 ### neo doctor
 
 ```bash
-neo doctor              # check Node.js, git, config, Claude CLI, agents
+neo doctor              # check Node.js, git, config, tmux, Claude CLI, agents, journals
 neo doctor --output json
 ```
+
+Checks: Node.js >= 22, git >= 2.20, global config, repo registration, legacy config detection, tmux availability, Claude CLI, agent definitions, journal directory permissions.
 
 ## Supervisor patterns
 
@@ -257,7 +311,7 @@ Agents support inheritance with `extends`, tool customization with `$inherited`,
 
 ## Configuration
 
-`.neo/config.yml` - created by `neo init`:
+`~/.neo/config.yml` - global config (auto-created with defaults on first use):
 
 ```yaml
 repos:

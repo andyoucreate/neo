@@ -45,21 +45,23 @@ export default defineCommand({
   args: {
     all: {
       type: "boolean",
-      description: "Show costs from all repos",
+      description:
+        "Show costs from all registered repos with per-repo breakdown (default: current repo only)",
       default: false,
     },
     repo: {
       type: "string",
-      description: "Filter by repo name or path",
+      description: "Filter costs by repo name or path",
     },
     short: {
       type: "boolean",
-      description: "Compact output for supervisor agents (saves tokens)",
+      description: "One-liner output optimized for supervisor agents: today=$X sessions=N agent=$Y",
       default: false,
     },
     output: {
       type: "string",
-      description: "Output format: json",
+      description:
+        "Output format: 'json' for structured output with today/allTime/byAgent (default: human-readable)",
     },
   },
   async run({ args }) {

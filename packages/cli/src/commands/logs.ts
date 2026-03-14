@@ -178,7 +178,7 @@ export default defineCommand({
   args: {
     last: {
       type: "string",
-      description: "Show only the last N events (default: 20)",
+      description: "Number of events to show (default: 20)",
       default: "20",
     },
     type: {
@@ -188,22 +188,23 @@ export default defineCommand({
     },
     run: {
       type: "string",
-      description: "Filter by run ID (prefix match)",
+      description: "Filter by run ID — supports prefix match (e.g. --run abc123)",
     },
     short: {
       type: "boolean",
-      description: "Compact output for supervisor agents (saves tokens)",
+      description: "Ultra-compact output optimized for supervisor agents (saves tokens)",
       default: false,
     },
     follow: {
       type: "boolean",
       alias: "f",
-      description: "Follow a detached run log in real time (requires --run)",
+      description:
+        "Tail a detached run's log file in real time, exits when run completes (requires --run)",
       default: false,
     },
     output: {
       type: "string",
-      description: "Output format: json",
+      description: "Output format: 'json' for structured output (default: human-readable)",
     },
   },
   async run({ args }) {
