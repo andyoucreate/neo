@@ -42,3 +42,6 @@ archive/
 
 # Test coverage reports
 coverage/
+
+# neo worktrees (ephemeral)
+.neo/worktrees/
