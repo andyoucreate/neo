@@ -348,8 +348,8 @@ function ThinkingPanel({ entries }: { entries: ActivityEntry[] }) {
   const color = TYPE_COLORS[latest.type] ?? "#9ca3af";
   const label = (latest.type as string) === "thinking" ? "THINKING" : "PLANNING";
 
-  // Truncate to ~3 lines worth
-  const text = latest.summary.length > 200 ? `${latest.summary.slice(0, 200)}...` : latest.summary;
+  // Show more context in planning section
+  const text = latest.summary.length > 600 ? `${latest.summary.slice(0, 600)}...` : latest.summary;
 
   return (
     <Box flexDirection="column">

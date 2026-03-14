@@ -285,7 +285,7 @@ export class HeartbeatLoop {
         durationMs,
         turnCount,
         memoryUpdated: !!newMemory,
-        responseSummary: output.slice(0, 500),
+        responseSummary: output,
       },
     );
   }
