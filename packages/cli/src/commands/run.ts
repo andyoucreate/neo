@@ -1,14 +1,20 @@
+import { fork } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { NeoEvent } from "@neo-cli/core";
+import { fileURLToPath } from "node:url";
+import type { NeoEvent, PersistedRun } from "@neo-cli/core";
 import {
   AgentRegistry,
+  getRepoRunsDir,
+  getRunDispatchPath,
   loadGlobalConfig,
-  loadRepoProjectConfig,
   Orchestrator,
+  toRepoSlug,
 } from "@neo-cli/core";
 import { defineCommand } from "citty";
-import { printError, printJson } from "../output.js";
+import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
 
 function printProgress(event: NeoEvent): void {
@@ -37,6 +43,91 @@ function parseMetadata(meta: string | undefined): Record<string, unknown> | unde
     return JSON.parse(meta) as Record<string, unknown>;
   } catch {
     throw new Error(`Invalid --meta JSON: ${meta}`);
+  }
+}
+
+function printResult(result: import("@neo-cli/core").TaskResult, agentName: string): void {
+  console.log("");
+  console.log(`Run:      ${result.runId}`);
+  console.log(`Agent:    ${agentName}`);
+  console.log(`Status:   ${result.status}`);
+  console.log(`Cost:     $${result.costUsd.toFixed(4)}`);
+  console.log(`Duration: ${(result.durationMs / 1000).toFixed(1)}s`);
+  if (result.branch) {
+    console.log(`Branch:   ${result.branch}`);
+  }
+
+  const stepResult = Object.values(result.steps)[0];
+  const output = stepResult?.output ?? result.summary;
+  if (output) {
+    console.log("");
+    console.log(typeof output === "string" ? output : JSON.stringify(output, null, 2));
+  }
+}
+
+interface DetachParams {
+  agentName: string;
+  repo: string;
+  prompt: string;
+  priority: string;
+  metadata: Record<string, unknown> | undefined;
+  bundledAgentsDir: string;
+  customAgentsDir: string | undefined;
+  jsonOutput: boolean;
+}
+
+async function runDetached(params: DetachParams): Promise<void> {
+  const runId = randomUUID();
+  const repoSlug = toRepoSlug({ path: params.repo });
+  const runsDir = getRepoRunsDir(repoSlug);
+  await mkdir(runsDir, { recursive: true });
+
+  const persistedRun: PersistedRun = {
+    version: 1,
+    runId,
+    workflow: `_run_${params.agentName}`,
+    repo: params.repo,
+    prompt: params.prompt,
+    status: "running",
+    steps: {},
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    metadata: params.metadata,
+  };
+  await writeFile(
+    path.join(runsDir, `${runId}.json`),
+    JSON.stringify(persistedRun, null, 2),
+    "utf-8",
+  );
+
+  const dispatchPath = getRunDispatchPath(repoSlug, runId);
+  await writeFile(
+    dispatchPath,
+    JSON.stringify({
+      agentName: params.agentName,
+      repo: params.repo,
+      prompt: params.prompt,
+      priority: params.priority,
+      metadata: params.metadata,
+      bundledAgentsDir: params.bundledAgentsDir,
+      customAgentsDir: params.customAgentsDir,
+    }),
+    "utf-8",
+  );
+
+  const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "daemon", "worker.js");
+  const child = fork(workerPath, [runId, repoSlug], {
+    detached: true,
+    stdio: "ignore",
+  });
+  child.unref();
+
+  if (params.jsonOutput) {
+    printJson({ runId, status: "detached", pid: child.pid });
+  } else {
+    printSuccess(`Detached run started: ${runId}`);
+    console.log(`  PID:  ${String(child.pid)}`);
+    console.log(`  Logs: neo logs -f ${runId}`);
   }
 }
 
@@ -69,34 +160,29 @@ export default defineCommand({
       type: "string",
       description: "Metadata as JSON string",
     },
-    config: {
-      type: "string",
-      description: "Config file path",
-    },
     output: {
       type: "string",
       description: "Output format: json",
     },
+    detach: {
+      type: "boolean",
+      alias: "d",
+      description: "Run in background and return immediately with the run ID",
+      default: false,
+    },
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const repoConfigPath = args.config ?? path.resolve(".neo/config.yml");
 
-    if (!existsSync(repoConfigPath)) {
-      printError(".neo/config.yml not found. Run 'neo init' first.");
-      process.exitCode = 1;
-      return;
-    }
-
-    const globalConfig = await loadGlobalConfig();
-    const repoProjectConfig = await loadRepoProjectConfig(repoConfigPath);
-    const config = { ...globalConfig, ...repoProjectConfig };
+    // Zero-config: only need global config (auto-creates ~/.neo/config.yml if absent)
+    const config = await loadGlobalConfig();
     const repo = path.resolve(args.repo);
 
-    // Load agent registry
+    // Load agent registry (bundled + project-local agents)
+    const bundledAgentsDir = resolveAgentsDir();
     const customAgentsDir = path.resolve(".neo/agents");
     const agentRegistry = new AgentRegistry(
-      resolveAgentsDir(),
+      bundledAgentsDir,
       existsSync(customAgentsDir) ? customAgentsDir : undefined,
     );
     await agentRegistry.load();
@@ -113,13 +199,23 @@ export default defineCommand({
       return;
     }
 
-    // Create orchestrator — no workflow dirs, we register an inline single-step workflow
+    if (args.detach) {
+      await runDetached({
+        agentName: args.agent,
+        repo,
+        prompt: args.prompt,
+        priority: args.priority ?? "medium",
+        metadata: parseMetadata(args.meta),
+        bundledAgentsDir,
+        customAgentsDir: existsSync(customAgentsDir) ? customAgentsDir : undefined,
+        jsonOutput,
+      });
+      return;
+    }
+
+    // ─── Foreground mode (default) ──────────────────────
     const orchestrator = new Orchestrator(config);
-
-    // Register the requested agent
     orchestrator.registerAgent(agent);
-
-    // Register an inline single-step workflow for this agent
     orchestrator.registerWorkflow({
       name: `_run_${args.agent}`,
       description: `Direct dispatch to ${args.agent}`,
@@ -128,7 +224,6 @@ export default defineCommand({
       },
     });
 
-    // Subscribe to events for progress display
     if (!jsonOutput) {
       orchestrator.on("*", printProgress);
     }
@@ -147,23 +242,7 @@ export default defineCommand({
       if (jsonOutput) {
         printJson(result);
       } else {
-        console.log("");
-        console.log(`Run:      ${result.runId}`);
-        console.log(`Agent:    ${args.agent}`);
-        console.log(`Status:   ${result.status}`);
-        console.log(`Cost:     $${result.costUsd.toFixed(4)}`);
-        console.log(`Duration: ${(result.durationMs / 1000).toFixed(1)}s`);
-        if (result.branch) {
-          console.log(`Branch:   ${result.branch}`);
-        }
-
-        // Show agent output
-        const stepResult = Object.values(result.steps)[0];
-        const output = stepResult?.output ?? result.summary;
-        if (output) {
-          console.log("");
-          console.log(typeof output === "string" ? output : JSON.stringify(output, null, 2));
-        }
+        printResult(result, args.agent);
       }
 
       await orchestrator.shutdown();

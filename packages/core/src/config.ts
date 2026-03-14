@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import { getDataDir } from "@/paths";
+import { getDataDir, toRepoSlug } from "@/paths";
 
 // ─── McpServerConfig schemas ─────────────────────────────
 
@@ -38,8 +38,11 @@ export const repoConfigSchema = z.object({
 });
 
 // ─── Global config schema (~/.neo/config.yml) ───────────
+// This is now the single source of truth — repos are registered here.
 
 export const globalConfigSchema = z.object({
+  repos: z.array(repoConfigSchema).default([]),
+
   concurrency: z
     .object({
       maxSessions: z.number().default(5),
@@ -69,6 +72,17 @@ export const globalConfigSchema = z.object({
     })
     .default({ initTimeoutMs: 120_000, maxDurationMs: 3_600_000 }),
 
+  webhooks: z
+    .array(
+      z.object({
+        url: z.string().url(),
+        events: z.array(z.string()).optional(),
+        secret: z.string().optional(),
+        timeoutMs: z.number().default(5000),
+      }),
+    )
+    .default([]),
+
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
   claudeCodePath: z.string().optional(),
 
@@ -81,27 +95,22 @@ export const globalConfigSchema = z.object({
     .optional(),
 });
 
-// ─── Repo project config schema (.neo/config.yml) ───────
+// ─── NeoConfig = GlobalConfig (single schema now) ────────
 
-export const repoProjectConfigSchema = z.object({
-  repos: z.array(repoConfigSchema).min(1, "At least one repo is required"),
-});
-
-// ─── Combined NeoConfig (what the Orchestrator receives) ─
-
-export const neoConfigSchema = globalConfigSchema.merge(repoProjectConfigSchema);
+export const neoConfigSchema = globalConfigSchema;
 
 // ─── Derived types ───────────────────────────────────────
 
 export type NeoConfig = z.infer<typeof neoConfigSchema>;
-export type GlobalConfig = z.infer<typeof globalConfigSchema>;
-export type RepoProjectConfig = z.infer<typeof repoProjectConfigSchema>;
+export type GlobalConfig = NeoConfig;
 export type RepoConfig = z.infer<typeof repoConfigSchema>;
+export type RepoConfigInput = z.input<typeof repoConfigSchema>;
 export type McpServerConfig = z.infer<typeof mcpServerConfigSchema>;
 
 // ─── Default global config ──────────────────────────────
 
 const DEFAULT_GLOBAL_CONFIG = {
+  repos: [],
   concurrency: {
     maxSessions: 5,
     maxPerRepo: 2,
@@ -133,17 +142,14 @@ function formatZodErrors(issues: z.ZodIssue[], filePath: string): string {
 // ─── Config loaders ─────────────────────────────────────
 
 /**
- * Load the combined NeoConfig from a single file (legacy).
- * Kept for backward compatibility — prefer loadGlobalConfig + loadRepoProjectConfig.
+ * Load NeoConfig from a single file (legacy compatibility).
  */
 export async function loadConfig(configPath: string): Promise<NeoConfig> {
   let raw: string;
   try {
     raw = await readFile(configPath, "utf-8");
   } catch {
-    throw new Error(
-      `Config file not found: ${configPath}. Create a .neo/config.yml file to get started.`,
-    );
+    throw new Error(`Config file not found: ${configPath}. Run 'neo init' to get started.`);
   }
 
   const parsed = parseYamlFile(raw, configPath);
@@ -160,7 +166,7 @@ export async function loadConfig(configPath: string): Promise<NeoConfig> {
  * Load the global config from ~/.neo/config.yml.
  * Creates the file with defaults if it does not exist.
  */
-export async function loadGlobalConfig(): Promise<GlobalConfig> {
+export async function loadGlobalConfig(): Promise<NeoConfig> {
   const configPath = path.join(getDataDir(), "config.yml");
 
   if (!existsSync(configPath)) {
@@ -180,25 +186,53 @@ export async function loadGlobalConfig(): Promise<GlobalConfig> {
   return result.data;
 }
 
+// ─── Repo CRUD operations ───────────────────────────────
+
 /**
- * Load the repo project config from .neo/config.yml (in the repo).
+ * Add a repo to ~/.neo/config.yml. Deduplicates by resolved path.
  */
-export async function loadRepoProjectConfig(configPath: string): Promise<RepoProjectConfig> {
-  let raw: string;
-  try {
-    raw = await readFile(configPath, "utf-8");
-  } catch {
-    throw new Error(
-      `Repo config not found: ${configPath}. Run 'neo init' to create .neo/config.yml.`,
-    );
+export async function addRepoToGlobalConfig(repo: RepoConfigInput): Promise<void> {
+  const config = await loadGlobalConfig();
+  const resolvedPath = path.resolve(repo.path);
+  const parsed = repoConfigSchema.parse({ ...repo, path: resolvedPath });
+
+  const existing = config.repos.findIndex((r) => path.resolve(r.path) === resolvedPath);
+  if (existing >= 0) {
+    config.repos[existing] = parsed;
+  } else {
+    config.repos.push(parsed);
   }
 
-  const parsed = parseYamlFile(raw, configPath);
+  const configPath = path.join(getDataDir(), "config.yml");
+  await writeFile(configPath, stringifyYaml(config), "utf-8");
+}
 
-  const result = repoProjectConfigSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(formatZodErrors(result.error.issues, configPath));
-  }
+/**
+ * Remove a repo from ~/.neo/config.yml by path, name, or slug.
+ */
+export async function removeRepoFromGlobalConfig(pathOrName: string): Promise<boolean> {
+  const config = await loadGlobalConfig();
+  const resolvedPath = path.resolve(pathOrName);
+  const initialLength = config.repos.length;
 
-  return result.data;
+  config.repos = config.repos.filter(
+    (r) =>
+      path.resolve(r.path) !== resolvedPath &&
+      r.name !== pathOrName &&
+      toRepoSlug(r) !== pathOrName,
+  );
+
+  if (config.repos.length === initialLength) return false;
+
+  const configPath = path.join(getDataDir(), "config.yml");
+  await writeFile(configPath, stringifyYaml(config), "utf-8");
+  return true;
+}
+
+/**
+ * List all registered repos from ~/.neo/config.yml.
+ */
+export async function listReposFromGlobalConfig(): Promise<RepoConfig[]> {
+  const config = await loadGlobalConfig();
+  return config.repos;
 }

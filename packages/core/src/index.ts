@@ -12,28 +12,36 @@ export {
   agentToolEntrySchema,
   agentToolSchema,
 } from "@/agents/schema";
-// ─── Concurrency ────────────────────────────────────────
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
 } from "@/concurrency/semaphore";
+// ─── Concurrency ────────────────────────────────────────
 export { Semaphore } from "@/concurrency/semaphore";
-export type { GlobalConfig, RepoProjectConfig } from "@/config";
+export type {
+  GlobalConfig,
+  McpServerConfig,
+  NeoConfig,
+  RepoConfig,
+  RepoConfigInput,
+} from "@/config";
 export {
+  addRepoToGlobalConfig,
   globalConfigSchema,
+  listReposFromGlobalConfig,
   loadConfig,
   loadGlobalConfig,
-  loadRepoProjectConfig,
   mcpServerConfigSchema,
   neoConfigSchema,
+  removeRepoFromGlobalConfig,
   repoConfigSchema,
-  repoProjectConfigSchema,
 } from "@/config";
 // ─── Cost ──────────────────────────────────────────────
 export { CostJournal } from "@/cost/journal";
 export { NeoEventEmitter } from "@/events";
 // ─── Events ────────────────────────────────────────────
 export { EventJournal } from "@/events/journal";
+export { matchesFilter, WebhookDispatcher } from "@/events/webhook";
 export {
   createBranch,
   deleteBranch,
@@ -64,7 +72,15 @@ export { loopDetection } from "@/middleware/loop-detection";
 export type { OrchestratorOptions } from "@/orchestrator";
 export { Orchestrator } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────
-export { getDataDir, getJournalsDir, getRunsDir } from "@/paths";
+export {
+  getDataDir,
+  getJournalsDir,
+  getRepoRunsDir,
+  getRunDispatchPath,
+  getRunLogPath,
+  getRunsDir,
+  toRepoSlug,
+} from "@/paths";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
