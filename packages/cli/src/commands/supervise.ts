@@ -1,3 +1,9 @@
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   getSupervisorDir,
   getSupervisorInboxPath,
@@ -8,12 +14,6 @@ import {
   supervisorDaemonStateSchema,
 } from "@neotx/core";
 import { defineCommand } from "citty";
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync } from "node:fs";
-import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { printError, printSuccess } from "../output.js";
 import { isTmuxInstalled, tmuxKill, tmuxNewSession, tmuxSessionExists } from "../tmux.js";
 

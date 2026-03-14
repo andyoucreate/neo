@@ -1,9 +1,9 @@
-import type { GlobalConfig } from "@/config";
-import { getDataDir } from "@/paths";
 import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { GlobalConfig } from "@/config";
+import { getDataDir } from "@/paths";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import { checkMemorySize, extractMemoryFromResponse, loadMemory, saveMemory } from "./memory.js";
