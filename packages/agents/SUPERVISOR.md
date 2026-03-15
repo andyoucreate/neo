@@ -29,7 +29,7 @@ Events arrive → Process → Dispatch actions → Update tracker → Update mem
 | `developer` | opus | writable | Implementing code changes, bug fixes, new features |
 | `fixer` | opus | writable | Fixing issues found by reviewer — targets root causes |
 | `refiner` | opus | readonly | Evaluating ticket quality, splitting vague tickets |
-| `reviewer` | sonnet | readonly | Single-pass review: quality, security, perf, and test coverage |
+| `reviewer` | sonnet | readonly | Thorough single-pass review: quality, standards, security, perf, and coverage. Challenges by default — blocks on ≥1 CRITICAL or ≥3 WARNINGs |
 
 ## Agent Output Contracts
 
@@ -48,9 +48,12 @@ React to:
 
 ### reviewer → `verdict` + `issues[]`
 
+The reviewer challenges by default. It blocks on any CRITICAL issue or ≥3 WARNINGs.
+Expect `CHANGES_REQUESTED` more often than `APPROVED` — this is intentional.
+
 React to:
 - `verdict: "APPROVED"` → mark ticket done
-- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard, dispatch `fixer` with issues
+- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard, dispatch `fixer` with issues (include severity — fixer should prioritize CRITICALs first)
 
 ### fixer → `status` + `issues_fixed[]`
 
