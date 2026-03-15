@@ -29,6 +29,10 @@ Zero infrastructure - no database, no Redis, no Docker.
 
 The supervisor decides what needs to happen. neo handles how it happens safely.
 
+## Be Part of NeoScaling
+
+Traditional scaling means recruiting more developers. Neoscaling means orchestrating autonomous AI agents. With neo, you scale your development capacity without scaling your headcount — dispatch agents to handle features, fixes, and reviews in parallel while you focus on architecture and product decisions. One engineer with neo can sustain the throughput of a much larger team.
+
 ## Quickstart
 
 ```bash
