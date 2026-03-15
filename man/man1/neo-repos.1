@@ -1,0 +1,126 @@
+.TH NEO-REPOS 1 "March 2026" "neo 0.1.0" "Neo CLI Manual"
+.SH NAME
+neo-repos \- manage registered repositories (list, add, remove)
+.SH SYNOPSIS
+.B neo repos
+.RB [ \-\-output
+.IR format ]
+.PP
+.B neo repos add
+.RI [ path ]
+.RB [ \-\-name
+.IR name ]
+.RB [ \-\-branch
+.IR branch ]
+.PP
+.B neo repos remove
+.I name-or-path
+.SH DESCRIPTION
+.B neo repos
+manages the repositories registered in the global neo configuration. Registered
+repositories can be targeted by agents and have their runs, costs, and logs
+tracked.
+.PP
+Without arguments, lists all registered repositories. Use
+.B add
+or
+.B remove
+to modify the registry.
+.SH SUBCOMMANDS
+.TP
+.B (no action)
+List all registered repositories showing their name, path, default branch,
+and push remote.
+.TP
+.B add \fR[\fIpath\fR]
+Register a repository. If
+.I path
+is omitted, uses the current directory. The default branch is auto-detected
+from the git repository.
+.TP
+.B remove \fIname-or-path\fR
+Unregister a repository by its name or path.
+.SH OPTIONS
+.TP
+.BR \-\-output =\fIformat\fR
+(list only) Output format. Use
+.B json
+for machine-readable JSON output.
+.TP
+.BR \-\-name =\fIname\fR
+(add only) Custom name for the repository. If not specified, the repository
+slug is derived from the path.
+.TP
+.BR \-\-branch =\fIbranch\fR
+(add only) Default branch name. If not specified, auto-detected from the
+git repository (looks for main, master, etc.).
+.SH OUTPUT COLUMNS
+.TP
+.B NAME
+Repository identifier (slug).
+.TP
+.B PATH
+Absolute filesystem path to the repository.
+.TP
+.B BRANCH
+Default branch name.
+.TP
+.B REMOTE
+Push remote URL (if configured).
+.SH FILES
+.TP
+.B ~/.neo/config.yml
+Repository registrations are stored in the
+.B repos
+section.
+.SH EXAMPLES
+List registered repositories:
+.PP
+.RS
+.nf
+neo repos
+.fi
+.RE
+.PP
+Register the current directory:
+.PP
+.RS
+.nf
+neo repos add
+.fi
+.RE
+.PP
+Register a specific path with custom name:
+.PP
+.RS
+.nf
+neo repos add /path/to/repo --name my-project
+.fi
+.RE
+.PP
+Remove a repository:
+.PP
+.RS
+.nf
+neo repos remove my-project
+.fi
+.RE
+.PP
+List as JSON:
+.PP
+.RS
+.nf
+neo repos --output json
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Not a git repository (add), or repository not found (remove).
+.SH SEE ALSO
+.BR neo (1),
+.BR neo-init (1),
+.BR neo-run (1)

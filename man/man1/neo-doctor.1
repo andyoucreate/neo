@@ -1,0 +1,98 @@
+.TH NEO-DOCTOR 1 "March 2026" "neo 0.1.0" "Neo CLI Manual"
+.SH NAME
+neo-doctor \- check environment prerequisites (Node.js, git, config, Claude CLI)
+.SH SYNOPSIS
+.B neo doctor
+.RB [ \-\-fix ]
+.RB [ \-\-output
+.IR format ]
+.SH DESCRIPTION
+.B neo doctor
+performs a comprehensive check of the environment to ensure all prerequisites
+for running neo are met. It verifies:
+.PP
+.RS
+.IP \(bu 2
+Node.js version (requires >= 22)
+.IP \(bu 2
+Git version (requires >= 2.20)
+.IP \(bu 2
+Data directory existence and write permissions
+.IP \(bu 2
+Global configuration validity
+.IP \(bu 2
+Repository registration status
+.IP \(bu 2
+Claude CLI installation
+.IP \(bu 2
+Agent definitions availability
+.IP \(bu 2
+Journals directory existence and permissions
+.IP \(bu 2
+Stale session clones
+.RE
+.PP
+Some issues can be automatically fixed using the
+.B \-\-fix
+option.
+.SH OPTIONS
+.TP
+.B \-\-fix
+Attempt to automatically fix detected issues. Fixable issues include:
+.RS
+.IP \(bu 2
+Missing directories (data, journals)
+.IP \(bu 2
+Stale session clones
+.RE
+.TP
+.BR \-\-output =\fIformat\fR
+Output format. Use
+.B json
+for machine-readable JSON output including all check results and any fix results.
+.SH CHECK RESULTS
+Each check reports one of three statuses:
+.TP
+.B pass
+The check passed successfully.
+.TP
+.B fail
+The check failed. Some failures may be fixable with
+.BR \-\-fix .
+.TP
+.B info
+Informational notice (e.g., repository not registered but zero-config mode works).
+.SH EXAMPLES
+Run all environment checks:
+.PP
+.RS
+.nf
+neo doctor
+.fi
+.RE
+.PP
+Automatically fix issues:
+.PP
+.RS
+.nf
+neo doctor --fix
+.fi
+.RE
+.PP
+Get results as JSON:
+.PP
+.RS
+.nf
+neo doctor --output json
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+All checks passed (or all fixable issues were fixed).
+.TP
+.B 1
+One or more checks failed.
+.SH SEE ALSO
+.BR neo (1),
+.BR neo-init (1)

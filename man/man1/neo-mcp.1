@@ -1,0 +1,146 @@
+.TH NEO-MCP 1 "March 2026" "neo 0.1.0" "Neo CLI Manual"
+.SH NAME
+neo-mcp \- manage MCP server integrations (Linear, Notion, GitHub, etc.)
+.SH SYNOPSIS
+.B neo mcp list
+.PP
+.B neo mcp add
+.I name
+.RB [ \-\-type
+.IR stdio | http ]
+.RB [ \-\-command
+.IR cmd ]
+.RB [ \-\-serverArgs
+.IR args ]
+.RB [ \-\-url
+.IR url ]
+.PP
+.B neo mcp remove
+.I name
+.SH DESCRIPTION
+.B neo mcp
+manages Model Context Protocol (MCP) server integrations that extend agent
+capabilities. MCP servers allow agents to interact with external services
+like Linear, Notion, GitHub, Jira, and Slack.
+.PP
+Several presets are available for popular services. Custom servers can be
+configured using stdio or HTTP transport.
+.SH SUBCOMMANDS
+.TP
+.B list
+List all configured MCP servers showing their name, type, and configuration.
+.TP
+.B add \fIname\fR
+Add an MCP server. If
+.I name
+matches a preset, the preset configuration is used. Otherwise, use
+.B \-\-type
+to configure a custom server.
+.TP
+.B remove \fIname\fR
+Remove an MCP server configuration.
+.SH PRESETS
+Available presets (use name as the argument to add):
+.TP
+.B linear
+Linear issue tracking. Requires
+.B LINEAR_API_KEY
+environment variable.
+.TP
+.B notion
+Notion workspace. Requires
+.B NOTION_TOKEN
+environment variable.
+.TP
+.B github
+GitHub repository access. Requires
+.B GITHUB_TOKEN
+environment variable.
+.TP
+.B jira
+Jira issue tracking. Requires
+.B JIRA_API_TOKEN
+and
+.B JIRA_URL
+environment variables.
+.TP
+.B slack
+Slack messaging. Requires
+.B SLACK_BOT_TOKEN
+environment variable.
+.SH OPTIONS FOR CUSTOM SERVERS
+.TP
+.BR \-\-type =\fIstdio\fR | \fIhttp\fR
+Server transport type.
+.B stdio
+for command-line servers,
+.B http
+for HTTP API servers.
+.TP
+.BR \-\-command =\fIcmd\fR
+Command to run for stdio servers (required for stdio type).
+.TP
+.BR \-\-serverArgs =\fIargs\fR
+Comma-separated arguments for the command (stdio only).
+.TP
+.BR \-\-url =\fIurl\fR
+URL for HTTP servers (required for http type).
+.SH FILES
+.TP
+.B ~/.neo/config.yml
+MCP server configurations are stored in the
+.B mcpServers
+section of the global config.
+.SH EXAMPLES
+List configured servers:
+.PP
+.RS
+.nf
+neo mcp list
+.fi
+.RE
+.PP
+Add Linear integration (preset):
+.PP
+.RS
+.nf
+export LINEAR_API_KEY=your-key
+neo mcp add linear
+.fi
+.RE
+.PP
+Add a custom stdio server:
+.PP
+.RS
+.nf
+neo mcp add myserver --type stdio --command npx \\
+  --serverArgs "-y,@myorg/mcp-server"
+.fi
+.RE
+.PP
+Add a custom HTTP server:
+.PP
+.RS
+.nf
+neo mcp add myapi --type http --url https://api.example.com/mcp
+.fi
+.RE
+.PP
+Remove a server:
+.PP
+.RS
+.nf
+neo mcp remove linear
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success.
+.TP
+.B 1
+Server name required, unknown preset without --type, missing required options,
+or server not found (remove).
+.SH SEE ALSO
+.BR neo (1),
+.BR neo-supervise (1)
