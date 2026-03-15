@@ -1,3 +1,9 @@
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NeoEvent, PersistedRun } from "@neotx/core";
 import {
   AgentRegistry,
@@ -8,12 +14,6 @@ import {
   toRepoSlug,
 } from "@neotx/core";
 import { defineCommand } from "citty";
-import { fork } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
 
@@ -121,9 +121,13 @@ async function runDetached(params: DetachParams): Promise<void> {
   );
 
   const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "daemon", "worker.js");
-  const child = fork(workerPath, [runId, repoSlug], {
+  // Use spawn (not fork) so the child gets its own process group via detached: true.
+  // fork() shares the parent's process group, so when the SDK kills the Bash
+  // process tree the worker dies too.
+  const child = spawn(process.execPath, [workerPath, runId, repoSlug], {
     detached: true,
     stdio: "ignore",
+    env: process.env,
   });
   child.unref();
 
