@@ -109,10 +109,12 @@ function buildFullPrompt(
   taskPrompt: string,
   knowledgeContext?: string | undefined,
   crossRunLessons?: string | undefined,
+  cwdInstructions?: string | undefined,
 ): string {
   const sections: string[] = [];
 
   if (agentPrompt) sections.push(agentPrompt);
+  if (cwdInstructions) sections.push(cwdInstructions);
   if (knowledgeContext) sections.push(knowledgeContext);
   if (crossRunLessons) sections.push(crossRunLessons);
   if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
@@ -596,6 +598,12 @@ export class Orchestrator extends NeoEventEmitter {
     // Cross-run learning: extract lessons from recent failed runs on this repo
     const crossRunLessons = await this.loadCrossRunLessons(input.repo);
 
+    // Inject working directory context so the agent knows where to operate.
+    // Without this, Claude Code may resolve to the wrong directory.
+    const cwdInstructions = sessionPath
+      ? `## Working directory\n\nYou are working in an isolated clone at: \`${sessionPath}\`\nALWAYS run commands from this directory. NEVER cd to or operate on any other repository.`
+      : undefined;
+
     const fullPrompt = buildFullPrompt(
       agent.definition.prompt,
       repoInstructions,
@@ -603,6 +611,7 @@ export class Orchestrator extends NeoEventEmitter {
       taskPrompt,
       knowledgeContext,
       crossRunLessons,
+      cwdInstructions,
     );
 
     const recoveryOpts = stepDef.recovery;
