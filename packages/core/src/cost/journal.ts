@@ -1,5 +1,6 @@
-import { appendFile, mkdir, readFile } from "node:fs/promises";
-import path from "node:path";
+import { appendFile, readFile } from "node:fs/promises";
+import { fileForDate, toDateKey } from "@/shared/date";
+import { ensureDir } from "@/shared/fs";
 import type { CostEntry } from "@/types";
 
 /**
@@ -8,7 +9,7 @@ import type { CostEntry } from "@/types";
  */
 export class CostJournal {
   private readonly dir: string;
-  private dirCreated = false;
+  private readonly dirCache = new Set<string>();
   private dayCache: { key: string; total: number } | null = null;
 
   constructor(options: { dir: string }) {
@@ -16,8 +17,8 @@ export class CostJournal {
   }
 
   async append(entry: CostEntry): Promise<void> {
-    await this.ensureDir();
-    const file = this.fileForDate(new Date(entry.timestamp));
+    await ensureDir(this.dir, this.dirCache);
+    const file = fileForDate(new Date(entry.timestamp), "cost", this.dir);
     await appendFile(file, `${JSON.stringify(entry)}\n`, "utf-8");
     // Invalidate cache — the day total may have changed
     this.dayCache = null;
@@ -31,7 +32,7 @@ export class CostJournal {
       return this.dayCache.total;
     }
 
-    const file = this.fileForDate(d);
+    const file = fileForDate(d, "cost", this.dir);
     let total = 0;
 
     try {
@@ -51,20 +52,4 @@ export class CostJournal {
     this.dayCache = { key: dayKey, total };
     return total;
   }
-
-  private fileForDate(date: Date): string {
-    const yyyy = date.getUTCFullYear();
-    const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-    return path.join(this.dir, `cost-${yyyy}-${mm}.jsonl`);
-  }
-
-  private async ensureDir(): Promise<void> {
-    if (this.dirCreated) return;
-    await mkdir(this.dir, { recursive: true });
-    this.dirCreated = true;
-  }
-}
-
-function toDateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
 }
