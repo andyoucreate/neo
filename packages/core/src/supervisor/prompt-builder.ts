@@ -2,6 +2,7 @@ import type { RepoConfig } from "@/config";
 import type { GroupedEvents } from "./event-queue.js";
 import { buildAgentDigest, computeHotState } from "./log-buffer.js";
 import type { SupervisorMemory } from "./memory.js";
+import { getActiveRunsWithNotes } from "./run-notes.js";
 import type { LogBufferEntry, QueuedEvent } from "./schemas.js";
 
 // ─── Shared options ─────────────────────────────────────
@@ -238,13 +239,41 @@ function formatDuration(since: Date, now: Date): string {
   return `${hours}h${String(minutes).padStart(2, "0")}m`;
 }
 
+/**
+ * Render the hot state using active runs with notes (from persisted run files).
+ * Format: runId [STATUS duration] agent — notes
+ * Also includes blockers from memory and pending entries.
+ */
+export async function renderHotStateWithRunNotes(
+  memory: SupervisorMemory,
+  pendingEntries: LogBufferEntry[],
+  now: Date = new Date(),
+): Promise<string> {
+  const lines: string[] = [];
+
+  // Active runs with notes from persisted run files
+  const activeRunsWithNotes = await getActiveRunsWithNotes(3);
+  if (activeRunsWithNotes) {
+    lines.push("activeRuns:");
+    for (const line of activeRunsWithNotes.split("\n")) {
+      lines.push(`  ${line}`);
+    }
+  }
+
+  // Blockers from memory
+  const hotState = computeHotState(memory, pendingEntries);
+  renderBlockers(lines, memory, hotState.blockers, now);
+
+  return lines.length > 0 ? lines.join("\n") : "No active runs or blockers.";
+}
+
 // ─── Standard prompt (lightweight, no full memory) ──────
 
 /**
  * Build the standard heartbeat prompt (4 out of 5 heartbeats).
  * Includes hot state + agent digest, but NOT full memory/knowledge.
  */
-export function buildStandardPrompt(opts: StandardPromptOptions): string {
+export async function buildStandardPrompt(opts: StandardPromptOptions): Promise<string> {
   const sections: string[] = [];
 
   // Role
@@ -275,8 +304,8 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
   // Budget
   sections.push(buildBudgetSection(opts.budgetStatus));
 
-  // Hot state
-  const hotState = renderHotState(opts.memory, opts.recentEntries);
+  // Hot state (uses getActiveRunsWithNotes for active runs)
+  const hotState = await renderHotStateWithRunNotes(opts.memory, opts.recentEntries);
   sections.push(`## Current state\n${hotState}`);
 
   // Active runs
@@ -305,7 +334,7 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
  * Build the consolidation heartbeat prompt (1 out of 5 heartbeats).
  * Includes full memory + knowledge + accumulated digest.
  */
-export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): string {
+export async function buildConsolidationPrompt(opts: ConsolidationPromptOptions): Promise<string> {
   const sections: string[] = [];
 
   // Role
@@ -336,8 +365,8 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
   // Budget
   sections.push(buildBudgetSection(opts.budgetStatus));
 
-  // Hot state
-  const hotState = renderHotState(opts.memory, opts.allUnconsolidatedEntries);
+  // Hot state (uses getActiveRunsWithNotes for active runs)
+  const hotState = await renderHotStateWithRunNotes(opts.memory, opts.allUnconsolidatedEntries);
   sections.push(`## Current state\n${hotState}`);
 
   // Active runs
@@ -405,6 +434,29 @@ Use <knowledge-ops> for knowledge updates:
 </knowledge-ops>
 \`\`\`
 
+**Knowledge provenance fields** (optional, for tracking fact origin):
+- \`sourceType\`: \`"agent"\` | \`"supervisor"\` | \`"user"\` | \`"test"\`
+- \`runId\`: ID of the run that produced this fact
+- \`confidence\`: 0-1 confidence score
+- \`expiresAt\`: ISO date when fact should be reconsidered
+
+Example with provenance:
+\`\`\`
+{"op":"append","section":"/repos/myapp","fact":"Uses PostgreSQL 15","source":"developer","date":"${new Date().toISOString().slice(0, 10)}","sourceType":"agent","runId":"abc12345","confidence":0.9}
+\`\`\`
+
+Use <run-notes> to record observations about active runs:
+\`\`\`
+<run-notes>
+{"runId":"abc12345","type":"observation","text":"Tests passing, PR ready"}
+{"runId":"abc12345","type":"decision","text":"Using JWT for auth"}
+{"runId":"def67890","type":"blocker","text":"Missing API key"}
+{"runId":"def67890","type":"resolution","text":"Key added to vault"}
+</run-notes>
+\`\`\`
+
+**run-notes types**: \`observation\`, \`decision\`, \`stage\`, \`blocker\`, \`resolution\`
+
 Review and update your agenda. Remove completed items, add new ones.
 If nothing to change, skip the ops blocks entirely.`);
 
@@ -417,7 +469,7 @@ If nothing to change, skip the ops blocks entirely.`);
  * Build the compaction heartbeat prompt (every ~50 heartbeats).
  * Deep cleanup: remove stale facts, merge duplicates, summarize old decisions.
  */
-export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string {
+export async function buildCompactionPrompt(opts: ConsolidationPromptOptions): Promise<string> {
   const sections: string[] = [];
 
   // Role
@@ -493,6 +545,29 @@ Use <knowledge-ops> for knowledge updates:
 {"op":"remove","section":"/repos/myapp","index":2}
 </knowledge-ops>
 \`\`\`
+
+**Knowledge provenance fields** (optional, for tracking fact origin):
+- \`sourceType\`: \`"agent"\` | \`"supervisor"\` | \`"user"\` | \`"test"\`
+- \`runId\`: ID of the run that produced this fact
+- \`confidence\`: 0-1 confidence score
+- \`expiresAt\`: ISO date when fact should be reconsidered
+
+Example with provenance:
+\`\`\`
+{"op":"append","section":"/repos/myapp","fact":"Uses PostgreSQL 15","source":"supervisor","date":"${new Date().toISOString().slice(0, 10)}","sourceType":"supervisor","confidence":0.95}
+\`\`\`
+
+Use <run-notes> to record observations about active runs:
+\`\`\`
+<run-notes>
+{"runId":"abc12345","type":"observation","text":"Tests passing, PR ready"}
+{"runId":"abc12345","type":"decision","text":"Using JWT for auth"}
+{"runId":"def67890","type":"blocker","text":"Missing API key"}
+{"runId":"def67890","type":"resolution","text":"Key added to vault"}
+</run-notes>
+\`\`\`
+
+**run-notes types**: \`observation\`, \`decision\`, \`stage\`, \`blocker\`, \`resolution\`
 
 If nothing to change, skip the ops blocks entirely.`);
 

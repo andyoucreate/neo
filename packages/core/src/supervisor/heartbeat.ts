@@ -33,6 +33,7 @@ import {
   buildConsolidationPrompt,
   buildStandardPrompt,
 } from "./prompt-builder.js";
+import { findRepoSlugForRun, persistExtendedRunNotes } from "./run-notes.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
 
 // ─── SDK message shapes (same as runner/session.ts) ──────
@@ -257,6 +258,9 @@ export class HeartbeatLoop {
     // Call SDK with timeout + shutdown abort
     const { output, costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
 
+    // Extract and persist run notes from output (all modes)
+    await persistExtendedRunNotes(output, findRepoSlugForRun);
+
     // Post-response: extract and apply ops based on mode
     if (isConsolidation) {
       const knowledgeMd = await loadKnowledge(this.supervisorDir);
@@ -374,7 +378,7 @@ export class HeartbeatLoop {
 
     if (opts.isCompaction) {
       return {
-        prompt: buildCompactionPrompt({
+        prompt: await buildCompactionPrompt({
           ...sharedOpts,
           memory,
           memoryJson: opts.earlyMemory,
@@ -387,7 +391,7 @@ export class HeartbeatLoop {
 
     if (opts.isConsolidation) {
       return {
-        prompt: buildConsolidationPrompt({
+        prompt: await buildConsolidationPrompt({
           ...sharedOpts,
           memory,
           memoryJson: opts.earlyMemory,
@@ -399,7 +403,7 @@ export class HeartbeatLoop {
     }
 
     return {
-      prompt: buildStandardPrompt({
+      prompt: await buildStandardPrompt({
         ...sharedOpts,
         memory,
         recentEntries: await readLogBufferSince(
