@@ -49,6 +49,7 @@ function baseOpts() {
     activeRuns: [],
     heartbeatCount: 10,
     mcpServerNames: [],
+    supervisorDir: "/tmp/test-supervisor",
   };
 }
 

@@ -142,6 +142,7 @@ describe("buildCompactionPrompt", () => {
       activeRuns: [],
       heartbeatCount: 50,
       mcpServerNames: [],
+      supervisorDir: "/tmp/test-supervisor",
       memory: {
         agenda: "",
         activeWork: [],

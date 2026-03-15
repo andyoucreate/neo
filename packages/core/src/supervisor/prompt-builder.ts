@@ -18,6 +18,7 @@ export interface PromptOptions {
   heartbeatCount: number;
   mcpServerNames: string[];
   customInstructions?: string | undefined;
+  supervisorDir: string;
 }
 
 export interface StandardPromptOptions extends PromptOptions {
@@ -107,6 +108,45 @@ const REPORTING = `## Reporting
 - 1-3 sentences per log. Pack maximum info: ticket, agent, branch, runId, cost, PR#. No markdown.
 
 Your text output is NEVER shown to users. Do not write summaries, tables, or reports outside of \`neo log\`.`;
+
+// ─── Persistent notes section ───────────────────────────
+
+function buildPersistentNotesSection(supervisorDir: string): string {
+  const notesDir = `${supervisorDir}/notes`;
+  return `## Persistent Notes
+
+You have a personal notes directory at \`${notesDir}/\` for storing documents that don't fit in memory (6KB cap) or knowledge (short facts).
+
+Use this for:
+- **Plans**: implementation plans, milestone breakdowns, task sequences for multi-step work
+- **Context**: detailed analysis of a repo, architecture notes, or complex decision rationale
+- **Checklists**: per-ticket or per-project checklists that span multiple heartbeats
+- **Patterns**: recurring issues, agent behavior observations, dispatch strategies that work
+
+### Writing notes
+\`\`\`bash
+mkdir -p ${notesDir}
+cat > ${notesDir}/plan-example.md << 'EOF'
+# Plan title
+## Tasks
+1. First task
+2. Second task
+EOF
+echo "- Task 1 done at HB65" >> ${notesDir}/plan-example.md
+\`\`\`
+
+### Reading notes
+\`\`\`bash
+ls ${notesDir}/             # list all notes
+cat ${notesDir}/plan-example.md  # read a specific note
+\`\`\`
+
+### Guidelines
+- **Filenames**: \`kebab-case.md\` — prefix with type: \`plan-\`, \`context-\`, \`checklist-\`
+- **Reference in memory**: add a pointer in your \`agenda\` (e.g. "See notes/plan-memv2.md for task sequence")
+- **Prune**: delete notes when the work is done
+- **Not for ephemeral data**: if it only matters for 1-2 heartbeats, use memory instead`;
+}
 
 // ─── Hot state rendering ────────────────────────────────
 
@@ -216,6 +256,9 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
   // Reporting
   sections.push(REPORTING);
 
+  // Persistent notes
+  sections.push(buildPersistentNotesSection(opts.supervisorDir));
+
   // Custom instructions
   if (opts.customInstructions) {
     sections.push(`## Custom instructions\n${opts.customInstructions}`);
@@ -273,6 +316,9 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
 
   // Reporting
   sections.push(REPORTING);
+
+  // Persistent notes
+  sections.push(buildPersistentNotesSection(opts.supervisorDir));
 
   // Custom instructions
   if (opts.customInstructions) {
@@ -382,6 +428,9 @@ export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string 
 
   // Reporting
   sections.push(REPORTING);
+
+  // Persistent notes
+  sections.push(buildPersistentNotesSection(opts.supervisorDir));
 
   // Custom instructions
   if (opts.customInstructions) {

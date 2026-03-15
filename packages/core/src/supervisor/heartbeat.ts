@@ -369,6 +369,7 @@ export class HeartbeatLoop {
       heartbeatCount: opts.heartbeatCount,
       mcpServerNames,
       customInstructions: this.customInstructions,
+      supervisorDir: this.supervisorDir,
     };
 
     if (opts.isCompaction) {
