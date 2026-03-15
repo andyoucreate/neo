@@ -62,6 +62,14 @@ export {
   buildStandardPrompt,
   renderHotState,
 } from "./prompt-builder.js";
+// ─── Run notes ───────────────────────────────────────────
+export {
+  appendRunNote,
+  extractRunNotes,
+  getActiveRunsWithNotes,
+  readRecentNotes,
+  readRunNotes,
+} from "./run-notes.js";
 export type {
   ActivityEntry,
   InboxMessage,
@@ -69,6 +77,7 @@ export type {
   LogBufferEntry,
   MemoryOp,
   QueuedEvent,
+  RunNote,
   SupervisorDaemonState,
   WebhookIncomingEvent,
 } from "./schemas.js";
@@ -79,6 +88,7 @@ export {
   knowledgeOpSchema,
   logBufferEntrySchema,
   memoryOpSchema,
+  runNoteSchema,
   supervisorDaemonStateSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";
