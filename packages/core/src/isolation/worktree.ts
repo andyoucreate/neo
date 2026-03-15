@@ -41,10 +41,31 @@ export async function createWorktree(options: {
       // No remote available — use local branch as-is
     }
 
-    await execFileAsync("git", ["worktree", "add", "-b", options.branch, worktreeDir, startPoint], {
+    // Check if branch already exists (e.g. fixer dispatched to an existing PR branch)
+    const branchExists = await execFileAsync("git", ["rev-parse", "--verify", options.branch], {
       cwd: repoPath,
       timeout: GIT_TIMEOUT,
-    });
+    })
+      .then(() => true)
+      .catch(() => false);
+
+    if (branchExists) {
+      // Checkout existing branch into the new worktree
+      await execFileAsync("git", ["worktree", "add", worktreeDir, options.branch], {
+        cwd: repoPath,
+        timeout: GIT_TIMEOUT,
+      });
+    } else {
+      // Create new branch from startPoint
+      await execFileAsync(
+        "git",
+        ["worktree", "add", "-b", options.branch, worktreeDir, startPoint],
+        {
+          cwd: repoPath,
+          timeout: GIT_TIMEOUT,
+        },
+      );
+    }
   });
 
   // Disable git hooks in the worktree — pre-commit hooks (husky, lint-staged)
