@@ -1,5 +1,5 @@
 name: reviewer
-description: "Single-pass code reviewer. Covers quality, security, performance, and test coverage in one lightweight sweep. Use for fast reviews on small PRs or budget-constrained runs."
+description: "Thorough single-pass code reviewer. Covers quality, standards, security, performance, and test coverage. Challenges code by default — approves only when standards are met."
 model: sonnet
 tools:
   - Read
