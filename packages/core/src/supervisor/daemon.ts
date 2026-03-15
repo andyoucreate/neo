@@ -117,6 +117,7 @@ export class SupervisorDaemon {
 
     // Install signal handlers
     const shutdown = () => {
+      // biome-ignore lint/suspicious/noConsole: Intentional daemon logging for signal handler errors
       this.stop().catch(console.error);
     };
     process.on("SIGTERM", shutdown);
