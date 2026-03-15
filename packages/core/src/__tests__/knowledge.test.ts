@@ -3,7 +3,10 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyKnowledgeOps,
+  compactKnowledge,
   extractKnowledgeOps,
+  isExpired,
+  isTestData,
   loadKnowledge,
   parseKnowledge,
   renderKnowledge,
@@ -254,5 +257,180 @@ describe("loadKnowledge / saveKnowledge", () => {
     await saveKnowledge(TMP_DIR, md);
     const loaded = await loadKnowledge(TMP_DIR);
     expect(loaded).toBe(md);
+  });
+});
+
+describe("applyKnowledgeOps with provenance", () => {
+  it("includes runId in attribution when present", () => {
+    const result = applyKnowledgeOps("", [
+      {
+        op: "append",
+        section: "Global",
+        fact: "API uses REST",
+        source: "agent",
+        runId: "run-123",
+      },
+    ]);
+    expect(result).toContain("API uses REST [agent] (runId: run-123)");
+  });
+
+  it("includes confidence in attribution when present", () => {
+    const result = applyKnowledgeOps("", [
+      {
+        op: "append",
+        section: "Global",
+        fact: "Uses PostgreSQL",
+        source: "supervisor",
+        confidence: 0.95,
+      },
+    ]);
+    expect(result).toContain("Uses PostgreSQL [supervisor] (confidence: 0.95)");
+  });
+
+  it("includes expiresAt in attribution when present", () => {
+    const result = applyKnowledgeOps("", [
+      {
+        op: "append",
+        section: "Global",
+        fact: "Temporary setting",
+        source: "agent",
+        expiresAt: "2026-04-01T00:00:00Z",
+      },
+    ]);
+    expect(result).toContain("Temporary setting [agent] (expiresAt: 2026-04-01T00:00:00Z)");
+  });
+
+  it("includes all provenance fields when present", () => {
+    const result = applyKnowledgeOps("", [
+      {
+        op: "append",
+        section: "Global",
+        fact: "Full provenance fact",
+        source: "agent",
+        date: "2026-03-15",
+        runId: "run-abc",
+        confidence: 0.8,
+        expiresAt: "2026-06-15T00:00:00Z",
+      },
+    ]);
+    expect(result).toContain("[agent, 2026-03-15]");
+    expect(result).toContain("runId: run-abc");
+    expect(result).toContain("confidence: 0.8");
+    expect(result).toContain("expiresAt: 2026-06-15T00:00:00Z");
+  });
+
+  it("handles append without any provenance (backwards compatible)", () => {
+    const result = applyKnowledgeOps("", [
+      { op: "append", section: "Global", fact: "Simple fact" },
+    ]);
+    expect(result).toContain("- Simple fact\n");
+    expect(result).not.toContain("[");
+  });
+});
+
+describe("isExpired", () => {
+  it("returns false for facts without expiresAt", () => {
+    expect(isExpired("Simple fact [agent, 2026-03-15]")).toBe(false);
+    expect(isExpired("No expiration")).toBe(false);
+  });
+
+  it("returns true for expired facts", () => {
+    // Use a date in the past
+    const pastDate = "2020-01-01T00:00:00Z";
+    expect(isExpired(`Expired fact [agent] (expiresAt: ${pastDate})`)).toBe(true);
+  });
+
+  it("returns false for facts with future expiresAt", () => {
+    const futureDate = "2099-12-31T23:59:59Z";
+    expect(isExpired(`Future fact [agent] (expiresAt: ${futureDate})`)).toBe(false);
+  });
+
+  it("handles expiresAt with other provenance fields", () => {
+    const pastDate = "2020-01-01";
+    expect(isExpired(`Fact [agent] (runId: abc, expiresAt: ${pastDate}, confidence: 0.9)`)).toBe(
+      true,
+    );
+  });
+});
+
+describe("isTestData", () => {
+  it("returns true for facts with [test] source", () => {
+    expect(isTestData("Some fact [test]")).toBe(true);
+    expect(isTestData("Some fact [test, 2026-03-15]")).toBe(true);
+  });
+
+  it("returns true for facts with test as second attribute", () => {
+    expect(isTestData("Some fact [agent, test]")).toBe(true);
+  });
+
+  it("returns true for facts with test data keywords", () => {
+    expect(isTestData("Uses test-data for development")).toBe(true);
+    expect(isTestData("mock_data in fixtures")).toBe(true);
+    expect(isTestData("fixture used for testing")).toBe(true);
+    expect(isTestData("__test__ helper")).toBe(true);
+    expect(isTestData("spec-helper utilities")).toBe(true);
+  });
+
+  it("returns false for normal facts", () => {
+    expect(isTestData("Uses PostgreSQL [agent, 2026-03-15]")).toBe(false);
+    expect(isTestData("Production ready")).toBe(false);
+  });
+});
+
+describe("compactKnowledge with cleanup", () => {
+  it("removes expired facts during compaction", () => {
+    const md = `## Global
+- Valid fact [agent, 2026-03-15]
+- Expired fact [agent] (expiresAt: 2020-01-01T00:00:00Z)
+- Another valid fact [supervisor]
+`;
+    const result = compactKnowledge(md);
+    expect(result).toContain("Valid fact");
+    expect(result).toContain("Another valid fact");
+    expect(result).not.toContain("Expired fact");
+  });
+
+  it("removes test data facts during compaction", () => {
+    const md = `## Global
+- Production fact [agent]
+- Test data fixture [test]
+- Real config [supervisor]
+`;
+    const result = compactKnowledge(md);
+    expect(result).toContain("Production fact");
+    expect(result).toContain("Real config");
+    expect(result).not.toContain("Test data fixture");
+  });
+
+  it("removes section when all facts are filtered", () => {
+    const md = `## TestSection
+- test-data helper [test]
+- mock_data fixture [test]
+
+## Production
+- Real fact [agent]
+`;
+    const result = compactKnowledge(md);
+    const sections = parseKnowledge(result);
+    expect(sections.has("TestSection")).toBe(false);
+    expect(sections.has("Production")).toBe(true);
+  });
+
+  it("still trims to maxFactsPerRepo after filtering", () => {
+    const facts = Array.from({ length: 25 }, (_, i) => `- Fact ${i} [agent]`).join("\n");
+    const md = `## Global\n${facts}\n`;
+    const result = compactKnowledge(md, 20);
+    const sections = parseKnowledge(result);
+    expect(sections.get("Global")).toHaveLength(20);
+    // Should keep last 20 (Fact 5 through Fact 24)
+    expect(sections.get("Global")?.[0]).toContain("Fact 5");
+  });
+
+  it("returns empty string when all facts are filtered", () => {
+    const md = `## OnlyTest
+- test-data [test]
+`;
+    const result = compactKnowledge(md);
+    expect(result).toBe("");
   });
 });

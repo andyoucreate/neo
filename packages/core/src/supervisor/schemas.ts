@@ -97,6 +97,10 @@ export type MemoryOp = z.infer<typeof memoryOpSchema>;
 
 // ─── Knowledge delta operations ─────────────────────────
 
+export const knowledgeSourceTypeSchema = z.enum(["agent", "supervisor", "user", "test"]);
+
+export type KnowledgeSourceType = z.infer<typeof knowledgeSourceTypeSchema>;
+
 export const knowledgeOpSchema = z.discriminatedUnion("op", [
   z.object({
     op: z.literal("append"),
@@ -104,6 +108,11 @@ export const knowledgeOpSchema = z.discriminatedUnion("op", [
     fact: z.string(),
     source: z.string().optional(),
     date: z.string().optional(),
+    // Provenance fields (all optional for backwards compatibility)
+    sourceType: knowledgeSourceTypeSchema.optional(),
+    runId: z.string().optional(),
+    confidence: z.number().min(0).max(1).optional(),
+    expiresAt: z.string().optional(), // ISO date string
   }),
   z.object({ op: z.literal("remove"), section: z.string(), index: z.number() }),
 ]);
