@@ -1,10 +1,10 @@
 # neo
 
-Neoscaling - the new way to scale your engineering team. Instead of hiring, you give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
+**Neoscaling** — the new way to scale your engineering team. Instead of hiring, give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
 
-neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo gives it the primitives to dispatch work safely: git clone isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
+neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything — a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo provides the primitives to dispatch work safely: git clone isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
 
-Zero infrastructure - no database, no Redis, no Docker.
+**Zero infrastructure** — no database, no Redis, no Docker.
 
 ```
 ┌─────────────────────────────────────┐
@@ -27,33 +27,100 @@ Zero infrastructure - no database, no Redis, no Docker.
 └──────┘ └──────┘ └──────┘ └──────┘
 ```
 
-The supervisor decides what needs to happen. neo handles how it happens safely.
+The supervisor decides *what* needs to happen. neo handles *how* it happens safely.
 
-## Quickstart
+---
+
+## Table of Contents
+
+- [Why neo?](#why-neo)
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [How It Works](#how-it-works)
+- [CLI Reference](#cli-reference)
+- [Agents](#agents)
+- [Configuration](#configuration)
+- [Programmatic API](#programmatic-api)
+- [Supervisor Patterns](#supervisor-patterns)
+- [Architecture](#architecture)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## Why neo?
+
+Traditional approaches to scaling engineering have limits:
+
+| Approach | Problem |
+|----------|---------|
+| Hire more engineers | Expensive, slow, coordination overhead |
+| Single AI coding assistant | One task at a time, no orchestration |
+| Custom agent infrastructure | Months of setup, maintenance burden |
+
+neo gives you:
+
+- **Parallel execution** — Run 5+ agents simultaneously across repos
+- **Safe isolation** — Each agent works in its own git clone; main is never touched
+- **Budget control** — Hard daily caps with real-time cost tracking
+- **3-level recovery** — Automatic retries with context preservation
+- **Framework, not product** — Integrate with your existing tools (Linear, Notion, Slack)
+
+---
+
+## Installation
+
+### Prerequisites
+
+- **Node.js** >= 22
+- **git** >= 2.20
+- **[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)** installed and authenticated
+
+### Install the CLI
 
 ```bash
-# Install
 npm install -g neotx
-
-# (Optional) Verify prerequisites
-neo doctor
-
-# Initialize in your repo (must be a git repository)
-cd your-project
-neo init --budget 100    # budget in USD per day (e.g., $100/day)
-
-# Dispatch a developer agent
-neo run developer --prompt "Add input validation to the user registration endpoint"
-
-# Check the result
-neo runs               # list all runs with status, cost, duration
-neo runs --last 1      # show the most recent run
-neo cost               # see today's spend and breakdown by agent
 ```
 
-A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing - it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
+Or with other package managers:
 
-### Supervisor skills for Claude Code
+```bash
+# pnpm
+pnpm add -g neotx
+
+# yarn
+yarn global add neotx
+```
+
+### Verify Installation
+
+```bash
+neo doctor
+```
+
+This checks all prerequisites and reports any issues.
+
+---
+
+## Quick Start
+
+```bash
+# 1. Initialize neo in your repository (must be a git repo)
+cd your-project
+neo init --budget 100    # Set daily budget cap (e.g., $100/day)
+
+# 2. Dispatch a developer agent
+neo run developer --prompt "Add input validation to the user registration endpoint"
+
+# 3. Check the result
+neo runs               # List all runs with status, cost, duration
+neo runs --last 1      # Show the most recent run
+neo cost               # See today's spend and breakdown by agent
+```
+
+A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing — it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
+
+### Supervisor Skills for Claude Code
 
 Install the neo skills so your Claude Code supervisor knows how to dispatch, monitor, and recover agents:
 
@@ -67,23 +134,28 @@ cp -r neo/skills/neo-recover .claude/skills/
 ```
 
 This gives your supervisor two skills:
-- `/neo-supervisor` - Full dispatch-monitor-decide loop with agent selection guide
-- `/neo-recover` - Failure diagnosis and recovery strategies
 
-## How it works
+- `/neo-supervisor` — Full dispatch-monitor-decide loop with agent selection guide
+- `/neo-recover` — Failure diagnosis and recovery strategies
+
+---
+
+## How It Works
 
 When a supervisor dispatches `neo run developer --prompt "..."`, neo:
 
-1. Loads the agent definition (model, tools, sandbox permissions, system prompt)
-2. Creates an isolated git clone on a new branch
-3. Starts a Claude session with the agent's configuration
-4. Streams events back to the supervisor (start, cost updates, completion)
-5. Tracks costs in JSONL journals with daily budget enforcement
-6. Persists the run result to `.neo/runs/<runId>.json`
+1. **Loads** the agent definition (model, tools, sandbox permissions, system prompt)
+2. **Isolates** by creating a git clone on a new branch
+3. **Starts** a Claude session with the agent's configuration
+4. **Streams** events back to the supervisor (start, cost updates, completion)
+5. **Tracks** costs in JSONL journals with daily budget enforcement
+6. **Persists** the run result to `.neo/runs/<runId>.json`
 
 Each agent works in its own clone. The main branch is never touched. The supervisor can inspect results, dispatch follow-up agents, or kill sessions at any point.
 
-## CLI
+---
+
+## CLI Reference
 
 ```
 neo init       Initialize a .neo/ project directory
@@ -97,15 +169,19 @@ neo doctor     Check environment prerequisites
 
 ### neo init
 
+Initialize neo in your repository:
+
 ```bash
-neo init                    # defaults: $500/day budget, auto-detects branch
-neo init --budget 50        # set daily budget cap
-neo init --force            # overwrite existing config
+neo init                    # Defaults: $500/day budget, auto-detects branch
+neo init --budget 50        # Set daily budget cap
+neo init --force            # Overwrite existing config
 ```
 
 Creates `.neo/config.yml`, agent and journal directories, and installs supervisor skills for Claude Code.
 
 ### neo run
+
+Dispatch an agent to execute a task:
 
 ```bash
 neo run <agent> --prompt "..."
@@ -123,110 +199,61 @@ neo run developer --prompt "..." --output json
 neo run developer --prompt "..." --meta '{"ticket": "PROJ-123"}'
 ```
 
-### neo agents
-
-```bash
-neo agents              # table view
-neo agents --output json  # JSON for scripting
-```
-
 ### neo runs
 
+List and inspect runs:
+
 ```bash
-neo runs                        # table of all runs
-neo runs <runId>                # detailed view of a specific run (prefix match)
-neo runs --last 5               # last 5 runs only
-neo runs --status failed        # filter by status: completed, failed, running
-neo runs --short                # one-line-per-run, minimal tokens for supervisors
-neo runs --output json          # full JSON for programmatic use
+neo runs                        # Table of all runs
+neo runs <runId>                # Detailed view of a specific run (prefix match)
+neo runs --last 5               # Last 5 runs only
+neo runs --status failed        # Filter by status: completed, failed, running
+neo runs --short                # One-line-per-run, minimal tokens for supervisors
+neo runs --output json          # Full JSON for programmatic use
 ```
 
 ### neo logs
 
+View event logs:
+
 ```bash
-neo logs                        # last 20 events
-neo logs --last 50              # last 50 events
-neo logs --type session:fail    # filter: session:start, session:complete, session:fail, cost:update, budget:alert
-neo logs --run abc123           # filter by run ID prefix
-neo logs --short                # ultra compact output for supervisors
+neo logs                        # Last 20 events
+neo logs --last 50              # Last 50 events
+neo logs --type session:fail    # Filter: session:start, session:complete, session:fail, cost:update, budget:alert
+neo logs --run abc123           # Filter by run ID prefix
+neo logs --short                # Ultra compact output for supervisors
 neo logs --output json
 ```
 
 ### neo cost
 
+View cost breakdown:
+
 ```bash
-neo cost                        # today's total, all-time total, breakdown by agent
-neo cost --short                # one-liner: today=$0.52 sessions=3 developer=$0.32
-neo cost --output json          # structured JSON with today/allTime/byAgent
+neo cost                        # Today's total, all-time total, breakdown by agent
+neo cost --short                # One-liner: today=$0.52 sessions=3 developer=$0.32
+neo cost --output json          # Structured JSON with today/allTime/byAgent
+```
+
+### neo agents
+
+List available agents:
+
+```bash
+neo agents              # Table view
+neo agents --output json  # JSON for scripting
 ```
 
 ### neo doctor
 
+Check environment prerequisites:
+
 ```bash
-neo doctor              # check Node.js, git, config, Claude CLI, agents
+neo doctor              # Check Node.js, git, config, Claude CLI, agents
 neo doctor --output json
 ```
 
-## Supervisor patterns
-
-neo is designed to be driven by a supervisor. Here are the common patterns:
-
-### Claude Code as supervisor
-
-A Claude Code session in a loop that reads tickets, dispatches agents, and reviews results:
-
-```bash
-# The supervisor reads a ticket, then dispatches
-neo run architect --prompt "Design the auth system from ticket PROJ-42"
-
-# Monitor progress and check results
-neo runs --last 1 --short         # quick status check
-neo logs --type session:fail      # any failures?
-neo cost --short                  # budget check
-
-# Read the architect's output, then dispatch implementation
-neo runs <runId> --output json    # get full result
-neo run developer --prompt "Implement the auth system based on this plan: ..."
-
-# Dispatch a review
-neo run reviewer-security --prompt "Review the auth changes on branch feat/run-..."
-
-# If issues found, dispatch a fix
-neo run fixer --prompt "Fix the issues found in the security review: ..."
-```
-
-### OpenClaw agent as supervisor
-
-An OpenClaw agent with Linear, Notion, and Slack tools that manages the full cycle:
-
-```typescript
-import { Orchestrator, loadConfig, AgentRegistry } from "@neotx/core";
-
-// The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
-// updates ticket status, and posts results to Slack
-const result = await orchestrator.dispatch({
-  workflow: "_run_developer",
-  repo: "/path/to/repo",
-  prompt: ticketDescription,
-  metadata: { ticket: "PROJ-42", assignee: "openclaw-supervisor" },
-});
-
-// Supervisor reads result and decides next action
-if (result.status === "success") {
-  await linearClient.updateIssue(ticketId, { state: "in-review" });
-  await slackClient.postMessage(channel, `Agent completed PROJ-42: ${result.branch}`);
-}
-```
-
-### Events for monitoring
-
-The supervisor subscribes to events to monitor agent progress in real time:
-
-```typescript
-orchestrator.on("session:start", (e) => log(`Agent ${e.agent} started on ${e.repo}`));
-orchestrator.on("session:complete", (e) => log(`Done in ${e.durationMs}ms for $${e.costUsd}`));
-orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct}%`));
-```
+---
 
 ## Agents
 
@@ -240,10 +267,10 @@ orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct
 | `refiner` | Evaluates tickets and splits vague requirements into precise specs. | opus | readonly |
 | `reviewer-quality` | Catches real bugs and DRY violations. Approves by default. | sonnet | readonly |
 | `reviewer-security` | Flags exploitable vulnerabilities. Approves by default. | opus | readonly |
-| `reviewer-perf` | Flags N+1 queries and O(n^2) on unbounded data. Approves by default. | sonnet | readonly |
+| `reviewer-perf` | Flags N+1 queries and O(n²) on unbounded data. Approves by default. | sonnet | readonly |
 | `reviewer-coverage` | Recommends missing tests for critical paths. Never blocks. | sonnet | readonly |
 
-### Custom agents
+### Custom Agents
 
 Drop a YAML file in `.neo/agents/` to define custom agents or extend built-in ones:
 
@@ -256,36 +283,55 @@ promptAppend: |
   Follow the patterns in src/shared/conventions.ts.
 ```
 
-Agents support inheritance with `extends`, tool customization with `$inherited`, and per-agent `maxTurns` and `mcpServers`.
+Agents support:
+
+- **Inheritance** with `extends`
+- **Tool customization** with `$inherited`
+- **Per-agent settings**: `maxTurns`, `mcpServers`
+
+---
 
 ## Configuration
 
-`.neo/config.yml` - created by `neo init`:
+Configuration is stored in `.neo/config.yml`, created by `neo init`:
 
 ```yaml
 repos:
   - path: "."
-    defaultBranch: main      # auto-detected from git
-    branchPrefix: feat        # prefix for session branches
-    autoCreatePr: false       # auto PR creation (coming soon)
+    defaultBranch: main      # Auto-detected from git
+    branchPrefix: feat        # Prefix for session branches
+    autoCreatePr: false       # Auto PR creation (coming soon)
 
 concurrency:
-  maxSessions: 5              # total concurrent agent sessions
-  maxPerRepo: 2               # max sessions per repository
-  queueMax: 50                # max queued dispatches
+  maxSessions: 5              # Total concurrent agent sessions
+  maxPerRepo: 2               # Max sessions per repository
+  queueMax: 50                # Max queued dispatches
 
 budget:
-  dailyCapUsd: 500            # hard daily spending limit
-  alertThresholdPct: 80       # emit budget:alert at this threshold
+  dailyCapUsd: 500            # Hard daily spending limit
+  alertThresholdPct: 80       # Emit budget:alert at this threshold
 
 recovery:
-  maxRetries: 3               # retry attempts per session
-  backoffBaseMs: 30000        # base delay between retries
+  maxRetries: 3               # Retry attempts per session
+  backoffBaseMs: 30000        # Base delay between retries
 
 sessions:
-  initTimeoutMs: 120000       # timeout waiting for session init
-  maxDurationMs: 3600000      # max session duration (1 hour)
+  initTimeoutMs: 120000       # Timeout waiting for session init
+  maxDurationMs: 3600000      # Max session duration (1 hour)
 ```
+
+### Configuration Options
+
+| Section | Option | Description | Default |
+|---------|--------|-------------|---------|
+| `concurrency` | `maxSessions` | Total concurrent agent sessions | 5 |
+| `concurrency` | `maxPerRepo` | Max sessions per repository | 2 |
+| `budget` | `dailyCapUsd` | Hard daily spending limit | 500 |
+| `budget` | `alertThresholdPct` | Budget alert threshold | 80 |
+| `recovery` | `maxRetries` | Retry attempts per session | 3 |
+| `sessions` | `maxDurationMs` | Max session duration | 3600000 (1h) |
+
+---
 
 ## Programmatic API
 
@@ -363,12 +409,12 @@ import { Orchestrator } from "@neotx/core";
 
 const orchestrator = new Orchestrator(config, {
   middleware: [
-    Orchestrator.middleware.budgetGuard(),           // block when over budget
-    Orchestrator.middleware.loopDetection({           // detect tool loops
+    Orchestrator.middleware.budgetGuard(),           // Block when over budget
+    Orchestrator.middleware.loopDetection({          // Detect tool loops
       threshold: 5,
       scope: "session",
     }),
-    Orchestrator.middleware.auditLog({                // JSONL audit trail
+    Orchestrator.middleware.auditLog({               // JSONL audit trail
       dir: ".neo/audit",
       includeInput: true,
     }),
@@ -376,46 +422,169 @@ const orchestrator = new Orchestrator(config, {
 });
 ```
 
+---
+
+## Supervisor Patterns
+
+neo is designed to be driven by a supervisor. Here are common patterns:
+
+### Claude Code as Supervisor
+
+A Claude Code session in a loop that reads tickets, dispatches agents, and reviews results:
+
+```bash
+# The supervisor reads a ticket, then dispatches
+neo run architect --prompt "Design the auth system from ticket PROJ-42"
+
+# Monitor progress and check results
+neo runs --last 1 --short         # Quick status check
+neo logs --type session:fail      # Any failures?
+neo cost --short                  # Budget check
+
+# Read the architect's output, then dispatch implementation
+neo runs <runId> --output json    # Get full result
+neo run developer --prompt "Implement the auth system based on this plan: ..."
+
+# Dispatch a review
+neo run reviewer-security --prompt "Review the auth changes on branch feat/run-..."
+
+# If issues found, dispatch a fix
+neo run fixer --prompt "Fix the issues found in the security review: ..."
+```
+
+### OpenClaw Agent as Supervisor
+
+An OpenClaw agent with Linear, Notion, and Slack tools that manages the full cycle:
+
+```typescript
+import { Orchestrator, loadConfig, AgentRegistry } from "@neotx/core";
+
+// The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
+// updates ticket status, and posts results to Slack
+const result = await orchestrator.dispatch({
+  workflow: "_run_developer",
+  repo: "/path/to/repo",
+  prompt: ticketDescription,
+  metadata: { ticket: "PROJ-42", assignee: "openclaw-supervisor" },
+});
+
+// Supervisor reads result and decides next action
+if (result.status === "success") {
+  await linearClient.updateIssue(ticketId, { state: "in-review" });
+  await slackClient.postMessage(channel, `Agent completed PROJ-42: ${result.branch}`);
+}
+```
+
+### Events for Monitoring
+
+The supervisor subscribes to events to monitor agent progress in real time:
+
+```typescript
+orchestrator.on("session:start", (e) => log(`Agent ${e.agent} started on ${e.repo}`));
+orchestrator.on("session:complete", (e) => log(`Done in ${e.durationMs}ms for $${e.costUsd}`));
+orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct}%`));
+```
+
+---
+
 ## Architecture
 
 ```
 neotx              Thin CLI wrapper (citty)
-  |
+  │
 @neotx/core        Orchestration engine
-  |--- orchestrator   Dispatch, lifecycle, budget, events
-  |--- runner         SDK session management, 3-level recovery
-  |--- isolation      Git clone isolation, sandbox config
-  |--- concurrency    Priority semaphore with per-repo limits
-  |--- middleware      Chain execution, SDK hooks conversion
-  |--- events         Typed emitter, JSONL journals
-  |--- cost           Daily tracking, monthly rotation
-  |
+  ├── orchestrator   Dispatch, lifecycle, budget, events
+  ├── runner         SDK session management, 3-level recovery
+  ├── isolation      Git clone isolation, sandbox config
+  ├── concurrency    Priority semaphore with per-repo limits
+  ├── middleware     Chain execution, SDK hooks conversion
+  ├── events         Typed emitter, JSONL journals
+  └── cost           Daily tracking, monthly rotation
+  │
 @neotx/agents      YAML agent definitions and prompts
 ```
 
-### Design principles
+### Packages
 
-- **Framework, not product** - no UI, no database, no opinions on trackers
-- **SDK-first** - wraps the Claude Agent SDK, SDK updates flow through naturally
-- **YAML for definitions, TypeScript for dispatch** - agents are YAML, orchestration is code
-- **Zero infrastructure** - JSONL journals, git clone isolation, in-memory semaphore
-- **Events are the integration primitive** - everything emits typed events
+| Package | Description |
+|---------|-------------|
+| `@neotx/cli` | CLI interface built with citty |
+| `@neotx/core` | Orchestration engine with dispatch, recovery, budgeting |
+| `@neotx/agents` | Built-in agent definitions and system prompts |
+
+### Design Principles
+
+- **Framework, not product** — No UI, no database, no opinions on trackers
+- **SDK-first** — Wraps the Claude Agent SDK; SDK updates flow through naturally
+- **YAML for definitions, TypeScript for dispatch** — Agents are YAML, orchestration is code
+- **Zero infrastructure** — JSONL journals, git clone isolation, in-memory semaphore
+- **Events are the integration primitive** — Everything emits typed events
 
 ### Recovery
 
 Sessions use 3-level recovery escalation:
 
-1. **Normal retry** - same session, same context
-2. **Resume session** - new session, previous session ID for context continuity
-3. **Fresh session** - clean slate, no previous context
+1. **Normal retry** — Same session, same context
+2. **Resume session** — New session, previous session ID for context continuity
+3. **Fresh session** — Clean slate, no previous context
 
 Each level uses exponential backoff. Non-retryable errors (auth failures, invalid config) skip retries entirely.
 
-## Requirements
+---
 
-- Node.js >= 22
-- git >= 2.20
-- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated
+## Contributing
+
+We welcome contributions! Here's how to get started:
+
+### Development Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/andyoucreate/neo.git
+cd neo
+
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run tests
+pnpm test
+
+# Type check
+pnpm typecheck
+
+# Lint (with auto-fix)
+pnpm lint:fix
+```
+
+### Project Structure
+
+```
+neo/
+├── packages/
+│   ├── cli/          # CLI interface (@neotx/cli)
+│   ├── core/         # Orchestration engine (@neotx/core)
+│   └── agents/       # Agent definitions (@neotx/agents)
+├── package.json      # Root workspace config
+└── README.md
+```
+
+### Guidelines
+
+1. **Run checks before committing**: `pnpm typecheck && pnpm test && pnpm lint`
+2. **Follow existing patterns**: Look at adjacent code for style and conventions
+3. **Write tests**: Add tests for new functionality
+4. **Keep commits focused**: One logical change per commit
+
+### Reporting Issues
+
+- Check existing issues before opening a new one
+- Include reproduction steps and environment details
+- For security issues, please email directly instead of opening a public issue
+
+---
 
 ## License
 
