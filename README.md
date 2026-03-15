@@ -1,6 +1,6 @@
 # neo
 
-Neoscaling - the new way to scale your engineering team. Instead of hiring, you give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories.
+Neoscaling - the new way to scale your engineering team. Instead of hiring, you give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
 
 neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo gives it the primitives to dispatch work safely: git worktree isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
 
