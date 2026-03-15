@@ -29,11 +29,28 @@
   "engines": {
     "node": ">=22"
   },
+  "man": [
+    "../../man/man1/neo.1",
+    "../../man/man1/neo-agents.1",
+    "../../man/man1/neo-cost.1",
+    "../../man/man1/neo-doctor.1",
+    "../../man/man1/neo-init.1",
+    "../../man/man1/neo-log.1",
+    "../../man/man1/neo-logs.1",
+    "../../man/man1/neo-mcp.1",
+    "../../man/man1/neo-memory.1",
+    "../../man/man1/neo-repos.1",
+    "../../man/man1/neo-run.1",
+    "../../man/man1/neo-runs.1",
+    "../../man/man1/neo-supervise.1",
+    "../../man/man1/neo-version.1"
+  ],
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "lint": "biome check src/",
-    "test": "vitest run"
+    "test": "vitest run",
+    "install-man": "mkdir -p /usr/local/share/man/man1 && cp ../../man/man1/*.1 /usr/local/share/man/man1/ && mandb 2>/dev/null || true"
   },
   "dependencies": {
     "@neotx/agents": "workspace:*",

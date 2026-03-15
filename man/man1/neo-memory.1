@@ -1,0 +1,123 @@
+.TH NEO-MEMORY 1 "March 2026" "neo 0.1.0" "Neo CLI Manual"
+.SH NAME
+neo-memory \- inspect and search supervisor memory and knowledge
+.SH SYNOPSIS
+.B neo memory search
+.I query
+.RB [ \-\-name
+.IR supervisor ]
+.RB [ \-\-repo
+.IR filter ]
+.RB [ \-\-short ]
+.PP
+.B neo memory list
+.RB [ \-\-name
+.IR supervisor ]
+.PP
+.B neo memory show
+.RB [ \-\-name
+.IR supervisor ]
+.SH DESCRIPTION
+.B neo memory
+provides tools for inspecting the supervisor's memory and knowledge stores.
+Memory contains the supervisor's working state (agenda, active work, blockers,
+decisions). Knowledge contains learned facts about repositories organized by
+section.
+.SH SUBCOMMANDS
+.TP
+.B search \fIquery\fR
+Search across both memory and knowledge for matching content. Results show
+the matching lines with context.
+.TP
+.B list
+Display a summary of memory and knowledge contents, showing counts of items
+in each category.
+.TP
+.B show
+Pretty-print the full contents of memory and knowledge stores.
+.SH OPTIONS
+.TP
+.BR \-\-name =\fIsupervisor\fR
+Supervisor instance name. Defaults to "supervisor".
+.TP
+.BR \-\-repo =\fIfilter\fR
+(search only) Filter knowledge results to a specific repository section.
+.TP
+.B \-\-short
+(search only) Compact output for agent consumption.
+.SH MEMORY STRUCTURE
+The memory store contains:
+.TP
+.B agenda
+Current supervisor agenda or goals.
+.TP
+.B activeWork
+List of currently active work items.
+.TP
+.B blockers
+List of blocking issues requiring resolution.
+.TP
+.B decisions
+List of decisions made by the supervisor.
+.TP
+.B trackerSync
+State of external tracker synchronization.
+.SH KNOWLEDGE STRUCTURE
+Knowledge is stored as a markdown file with sections per repository:
+.PP
+.RS
+.nf
+## Global
+- Fact about the overall system
+
+## /path/to/repo
+- Fact about this specific repository
+.fi
+.RE
+.SH FILES
+.TP
+.B ~/.neo/supervisors/<name>/memory.json
+Structured memory state.
+.TP
+.B ~/.neo/supervisors/<name>/knowledge.md
+Knowledge base in markdown format.
+.SH EXAMPLES
+Search for TypeScript-related facts:
+.PP
+.RS
+.nf
+neo memory search typescript
+.fi
+.RE
+.PP
+Show memory summary:
+.PP
+.RS
+.nf
+neo memory list
+.fi
+.RE
+.PP
+Print full memory and knowledge:
+.PP
+.RS
+.nf
+neo memory show
+.fi
+.RE
+.PP
+Search with repo filter:
+.PP
+.RS
+.nf
+neo memory search "database" --repo /path/to/repo
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success (or no results found).
+.SH SEE ALSO
+.BR neo (1),
+.BR neo-log (1),
+.BR neo-supervise (1)

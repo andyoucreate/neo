@@ -1,0 +1,158 @@
+.TH NEO-RUN 1 "March 2026" "neo 0.1.0" "Neo CLI Manual"
+.SH NAME
+neo-run \- dispatch an agent to execute a task in an isolated clone
+.SH SYNOPSIS
+.B neo run
+.I agent
+.B \-\-prompt
+.I task
+.RB [ \-\-repo
+.IR path ]
+.RB [ \-\-branch
+.IR name ]
+.RB [ \-\-priority
+.IR level ]
+.RB [ \-\-meta
+.IR json ]
+.RB [ \-\-git\-strategy
+.IR strategy ]
+.RB [ \-\-sync | \-s ]
+.RB [ \-\-detach | \-d ]
+.RB [ \-\-output
+.IR format ]
+.SH DESCRIPTION
+.B neo run
+dispatches an agent to execute a task. By default, the run is detached
+(runs in the background), allowing you to continue working while the agent
+executes.
+.PP
+The agent runs in an isolated git clone to prevent conflicts with your working
+directory. Changes made by the agent can be pushed to a branch or submitted
+as a pull request.
+.SH ARGUMENTS
+.TP
+.I agent
+Name of the agent to run (e.g., developer, architect, reviewer-quality).
+Use
+.B neo agents
+to list available agents.
+.SH OPTIONS
+.TP
+.BR \-\-prompt =\fItask\fR
+Task description for the agent. Required.
+.TP
+.BR \-\-repo =\fIpath\fR
+Target repository path. Defaults to current directory.
+.TP
+.BR \-\-branch =\fIname\fR
+Branch name for the session clone. Required for agents that write code.
+.TP
+.BR \-\-priority =\fIlevel\fR
+Priority level:
+.BR critical ", " high ", " medium ", or " low .
+Defaults to medium.
+.TP
+.BR \-\-meta =\fIjson\fR
+Metadata as JSON string for traceability (e.g., ticketId, stage).
+.TP
+.BR \-\-git\-strategy =\fIstrategy\fR
+Git strategy after completion:
+.RS
+.TP
+.B pr
+Create a pull request.
+.TP
+.B branch
+Push to branch only (default).
+.RE
+.TP
+.BR \-\-sync ", " \-s
+Run in foreground (blocking) instead of detached. The command will wait for
+the agent to complete and display results.
+.TP
+.BR \-\-detach ", " \-d
+Run in background and return immediately with the run ID. This is the default
+behavior.
+.TP
+.BR \-\-output =\fIformat\fR
+Output format. Use
+.B json
+for machine-readable JSON output.
+.SH OUTPUT
+In detached mode (default), outputs the run ID and instructions for monitoring:
+.PP
+.RS
+.nf
+Detached run started: abc12345-...
+  PID:  12345
+  Logs: neo logs -f abc12345
+.fi
+.RE
+.PP
+In sync mode, outputs full results including:
+.PP
+.RS
+.nf
+Run:      abc12345-...
+Agent:    developer
+Status:   success
+Cost:     $0.0234
+Duration: 45.2s
+Branch:   feat/add-tests
+.fi
+.RE
+.SH EXAMPLES
+Run developer agent with a task (detached):
+.PP
+.RS
+.nf
+neo run developer --prompt "Add unit tests for auth module"
+.fi
+.RE
+.PP
+Run in foreground and wait for completion:
+.PP
+.RS
+.nf
+neo run developer --prompt "Fix bug in login" --sync
+.fi
+.RE
+.PP
+Run with branch and PR strategy:
+.PP
+.RS
+.nf
+neo run developer --prompt "Implement feature X" \\
+  --branch feat/feature-x --git-strategy pr
+.fi
+.RE
+.PP
+Run with metadata for traceability:
+.PP
+.RS
+.nf
+neo run developer --prompt "Fix issue #123" \\
+  --meta '{"ticketId": "PROJ-123"}'
+.fi
+.RE
+.PP
+High priority critical fix:
+.PP
+.RS
+.nf
+neo run developer --prompt "Fix production bug" \\
+  --priority critical --sync
+.fi
+.RE
+.SH EXIT STATUS
+.TP
+.B 0
+Success (in sync mode: task completed successfully; in detached mode: task started).
+.TP
+.B 1
+Agent not found, or task failed (sync mode only).
+.SH SEE ALSO
+.BR neo (1),
+.BR neo-runs (1),
+.BR neo-agents (1),
+.BR neo-logs (1)
