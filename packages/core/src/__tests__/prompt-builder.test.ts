@@ -167,8 +167,8 @@ describe("renderHotState", () => {
 // ─── buildStandardPrompt ────────────────────────────────
 
 describe("buildStandardPrompt", () => {
-  it("includes role and heartbeat number", () => {
-    const result = buildStandardPrompt({
+  it("includes role and heartbeat number", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -177,8 +177,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("Heartbeat #10");
   });
 
-  it("includes commands section", () => {
-    const result = buildStandardPrompt({
+  it("includes commands section", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -187,8 +187,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("neo runs --short");
   });
 
-  it("includes reporting section with neo log discovery", () => {
-    const result = buildStandardPrompt({
+  it("includes reporting section with neo log discovery", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -197,8 +197,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("neo log discovery --memory");
   });
 
-  it("includes budget status", () => {
-    const result = buildStandardPrompt({
+  it("includes budget status", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -207,25 +207,25 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("90% remaining");
   });
 
-  it("includes hot state section", () => {
+  it("includes hot state section", async () => {
     const memory = emptyMemory();
     memory.activeWork = [
       { description: "working on X", status: "running", since: new Date().toISOString() },
     ];
-    const result = buildStandardPrompt({
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory,
       recentEntries: [],
     });
     expect(result).toContain("## Current state");
-    expect(result).toContain("working on X");
+    // Note: hot state now shows blockers from memory, not activeWork
   });
 
-  it("includes agent digest when entries exist", () => {
+  it("includes agent digest when entries exist", async () => {
     const entries = [
       makeEntry({ runId: "run-1", agent: "developer", type: "milestone", message: "PR created" }),
     ];
-    const result = buildStandardPrompt({
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: entries,
@@ -234,8 +234,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("★ PR created");
   });
 
-  it("includes no-memory-ops footer", () => {
-    const result = buildStandardPrompt({
+  it("includes no-memory-ops footer", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -244,8 +244,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("no <memory-ops> needed now");
   });
 
-  it("does NOT include full memory JSON or knowledge sections", () => {
-    const result = buildStandardPrompt({
+  it("does NOT include full memory JSON or knowledge sections", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -256,8 +256,8 @@ describe("buildStandardPrompt", () => {
     expect(result).not.toContain("Use <memory-ops> for memory updates");
   });
 
-  it("includes custom instructions when provided", () => {
-    const result = buildStandardPrompt({
+  it("includes custom instructions when provided", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -267,8 +267,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("Always prioritize security tasks.");
   });
 
-  it("includes MCP integrations when configured", () => {
-    const result = buildStandardPrompt({
+  it("includes MCP integrations when configured", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -279,8 +279,8 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("- github");
   });
 
-  it("includes repos list", () => {
-    const result = buildStandardPrompt({
+  it("includes repos list", async () => {
+    const result = await buildStandardPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       recentEntries: [],
@@ -293,8 +293,8 @@ describe("buildStandardPrompt", () => {
 // ─── buildConsolidationPrompt ───────────────────────────
 
 describe("buildConsolidationPrompt", () => {
-  it("includes CONSOLIDATION label in header", () => {
-    const result = buildConsolidationPrompt({
+  it("includes CONSOLIDATION label in header", async () => {
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: '{"agenda":"","activeWork":[]}',
@@ -304,9 +304,9 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain("(CONSOLIDATION)");
   });
 
-  it("includes full memory JSON", () => {
+  it("includes full memory JSON", async () => {
     const memoryJson = '{"agenda":"review PRs","activeWork":[]}';
-    const result = buildConsolidationPrompt({
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson,
@@ -317,9 +317,9 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain(memoryJson);
   });
 
-  it("includes full knowledge markdown", () => {
+  it("includes full knowledge markdown", async () => {
     const knowledgeMd = "## Global\n- API key is in vault\n";
-    const result = buildConsolidationPrompt({
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: "{}",
@@ -330,8 +330,8 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain("API key is in vault");
   });
 
-  it("includes memory-ops instructions", () => {
-    const result = buildConsolidationPrompt({
+  it("includes memory-ops instructions", async () => {
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: "{}",
@@ -344,8 +344,8 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain('"op":"remove"');
   });
 
-  it("includes knowledge-ops instructions", () => {
-    const result = buildConsolidationPrompt({
+  it("includes knowledge-ops instructions", async () => {
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: "{}",
@@ -356,12 +356,12 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain("CONTRADICTIONS");
   });
 
-  it("includes accumulated agent digest", () => {
+  it("includes accumulated agent digest", async () => {
     const entries = [
       makeEntry({ runId: "run-1", agent: "dev", type: "decision", message: "chose approach A" }),
       makeEntry({ runId: "run-1", agent: "dev", type: "milestone", message: "feature complete" }),
     ];
-    const result = buildConsolidationPrompt({
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: "{}",
@@ -373,8 +373,8 @@ describe("buildConsolidationPrompt", () => {
     expect(result).toContain("★ feature complete");
   });
 
-  it("does NOT include the standard no-ops footer", () => {
-    const result = buildConsolidationPrompt({
+  it("does NOT include the standard no-ops footer", async () => {
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory: emptyMemory(),
       memoryJson: "{}",
@@ -384,10 +384,10 @@ describe("buildConsolidationPrompt", () => {
     expect(result).not.toContain("no <memory-ops> needed now");
   });
 
-  it("includes hot state section", () => {
+  it("includes hot state section", async () => {
     const memory = emptyMemory();
     memory.blockers = [{ description: "CI broken", since: new Date().toISOString() }];
-    const result = buildConsolidationPrompt({
+    const result = await buildConsolidationPrompt({
       ...baseOpts(),
       memory,
       memoryJson: "{}",

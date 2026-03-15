@@ -237,10 +237,11 @@ describe("getActiveRunsWithNotes", () => {
 
     const hotState = await getActiveRunsWithNotes(3);
 
-    expect(hotState).toContain("[abcd1234]");
+    // New format: runId [STATUS duration] agent — repo
+    expect(hotState).toContain("abcd1234");
+    expect(hotState).toContain("[RUNNING");
     expect(hotState).toContain("test-workflow");
     expect(hotState).toContain("my-repo");
-    expect(hotState).toContain("(running)");
     expect(hotState).toContain("Using JWT");
     expect(hotState).toContain("Need key");
     expect(hotState).toContain("◆"); // decision marker
@@ -312,8 +313,9 @@ describe("getActiveRunsWithNotes", () => {
 
     const hotState = await getActiveRunsWithNotes();
 
-    expect(hotState).toContain("[no-notes");
-    expect(hotState).toContain("(paused)");
+    // New format: runId [STATUS duration] agent — repo
+    expect(hotState).toContain("no-notes");
+    expect(hotState).toContain("[PAUSED");
   });
 
   it("skips dispatch and notes files", async () => {
@@ -331,7 +333,8 @@ describe("getActiveRunsWithNotes", () => {
     const hotState = await getActiveRunsWithNotes();
 
     // Should only show up once (from the main .json file)
-    const matches = hotState.match(/\[skip-tes/g);
+    // Format: "skip-tes [RUNNING" (runId truncated to 8 chars)
+    const matches = hotState.match(/skip-tes \[RUNNING/g);
     expect(matches?.length).toBe(1);
   });
 });

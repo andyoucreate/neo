@@ -134,8 +134,8 @@ describe("knowledge injection for agents", () => {
 // ─── buildCompactionPrompt ──────────────────────────────
 
 describe("buildCompactionPrompt", () => {
-  it("includes COMPACTION label in the prompt", () => {
-    const prompt = buildCompactionPrompt({
+  it("includes COMPACTION label in the prompt", async () => {
+    const prompt = await buildCompactionPrompt({
       repos: [],
       grouped: { messages: [], webhooks: [], runCompletions: [] },
       budgetStatus: { todayUsd: 1, capUsd: 50, remainingPct: 98 },
