@@ -79,8 +79,7 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
 // ─── Session Runner ─────────────────────────────────────
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
-  const { agent, prompt, worktreePath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } =
-    options;
+  const { prompt, worktreePath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } = options;
 
   const startTime = Date.now();
   let sessionId = "";
@@ -100,7 +99,7 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
       // Always pass cwd: worktree for writable agents, repo root for readonly.
       // Without this, readonly agents default to process.cwd() and may write to main tree.
       cwd: worktreePath ?? options.repoPath,
-      maxTurns: agent.maxTurns,
+      // maxTurns: agent.maxTurns,
       allowedTools: sandboxConfig.allowedTools,
       // Workers run detached without a TTY — bypass interactive permission prompts.
       // Required pair: permissionMode alone is not enough, SDK also needs the flag.

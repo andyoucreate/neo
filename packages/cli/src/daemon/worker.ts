@@ -43,8 +43,32 @@ async function main(): Promise<void> {
   const logPath = getRunLogPath(repoSlug, runId);
   await mkdir(path.dirname(logPath), { recursive: true });
   const logStream = createWriteStream(logPath, { flags: "a" });
+
+  function writeLog(msg: string): void {
+    logStream.write(`${new Date().toISOString()} ${msg}\n`);
+  }
+
   process.stdout.write = logStream.write.bind(logStream);
   process.stderr.write = logStream.write.bind(logStream);
+
+  // Catch crashes and signals so we always leave a trace
+  process.on("uncaughtException", (err) => {
+    writeLog(`[worker] UNCAUGHT EXCEPTION: ${err.message}\n${err.stack}`);
+    logStream.end();
+    process.exit(1);
+  });
+  process.on("unhandledRejection", (reason) => {
+    writeLog(`[worker] UNHANDLED REJECTION: ${String(reason)}`);
+  });
+  for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"] as const) {
+    process.on(sig, () => {
+      writeLog(`[worker] Received ${sig}, exiting`);
+      logStream.end();
+      process.exit(1);
+    });
+  }
+
+  writeLog(`[worker] Starting run ${runId} (PID ${process.pid})`);
 
   const dispatchPath = getRunDispatchPath(repoSlug, runId);
   const runPath = path.join(getRepoRunsDir(repoSlug), `${runId}.json`);
@@ -56,6 +80,7 @@ async function main(): Promise<void> {
 
     // Clean up dispatch file
     await unlink(dispatchPath).catch(() => {});
+    writeLog(`[worker] Dispatch loaded: agent=${request.agentName} repo=${request.repo}`);
 
     // Load config and agents
     const config = await loadGlobalConfig();
@@ -93,12 +118,14 @@ async function main(): Promise<void> {
     }, config.sessions.maxDurationMs + 60_000);
     safetyTimeout.unref();
 
+    writeLog("[worker] Starting orchestrator...");
     await orchestrator.start();
 
     // Re-assert running status — orchestrator.start() calls recoverOrphanedRuns()
     // which marks any "running" persisted runs as "failed"
     await updatePersistedRun(runPath, { status: "running", pid: process.pid });
 
+    writeLog("[worker] Dispatching...");
     const result = await orchestrator.dispatch({
       runId,
       workflow: `_run_${request.agentName}`,
