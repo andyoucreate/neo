@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { access, constants, mkdir, readdir } from "node:fs/promises";
+import { access, constants, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -8,9 +8,9 @@ import {
   getDataDir,
   getJournalsDir,
   listReposFromGlobalConfig,
-  listWorktrees,
+  listSessionClones,
   loadGlobalConfig,
-  removeWorktree,
+  removeSessionClone,
   toRepoSlug,
 } from "@neotx/core";
 import { defineCommand } from "citty";
@@ -19,7 +19,7 @@ import { resolveAgentsDir } from "../resolve.js";
 
 const execFileAsync = promisify(execFile);
 
-type FixableIssue = "missing-directory" | "stale-worktree";
+type FixableIssue = "missing-directory" | "stale-session";
 
 interface CheckResult {
   name: string;
@@ -165,68 +165,41 @@ async function checkDataDir(): Promise<CheckResult> {
   }
 }
 
-interface StaleWorktree {
+interface StaleSession {
   path: string;
   branch: string;
-  repoPath: string;
 }
 
-async function checkStaleWorktrees(): Promise<CheckResult> {
-  const cwd = process.cwd();
-  const worktreesDir = path.join(cwd, ".neo", "worktrees");
+async function checkStaleSessions(): Promise<CheckResult> {
+  const config = await loadGlobalConfig();
+  const sessionsDir = config.sessions.dir;
 
-  if (!existsSync(worktreesDir)) {
-    return { name: "Worktrees", status: "pass", message: "No worktrees directory" };
+  if (!existsSync(sessionsDir)) {
+    return { name: "Sessions", status: "pass", message: "No sessions directory" };
   }
 
   try {
-    const entries = await readdir(worktreesDir, { withFileTypes: true });
-    const staleWorktrees: StaleWorktree[] = [];
+    const clones = await listSessionClones(sessionsDir);
 
-    // Get all worktrees known to git
-    let knownWorktrees: string[] = [];
-    try {
-      const worktrees = await listWorktrees(cwd);
-      knownWorktrees = worktrees.map((w) => w.path);
-    } catch {
-      // Not a git repo or can't list worktrees
+    if (clones.length === 0) {
+      return { name: "Sessions", status: "pass", message: "No stale session clones" };
     }
 
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const worktreePath = path.join(worktreesDir, entry.name);
-
-      // A worktree is stale if its directory exists but git doesn't know about it
-      const isKnown = knownWorktrees.some(
-        (known) => path.resolve(known) === path.resolve(worktreePath),
-      );
-
-      if (!isKnown) {
-        // Check if it looks like a worktree (has .git file)
-        const gitFile = path.join(worktreePath, ".git");
-        if (existsSync(gitFile)) {
-          staleWorktrees.push({ path: worktreePath, branch: entry.name, repoPath: cwd });
-        } else {
-          // Directory exists but isn't a worktree - still consider it stale
-          staleWorktrees.push({ path: worktreePath, branch: entry.name, repoPath: cwd });
-        }
-      }
-    }
-
-    if (staleWorktrees.length === 0) {
-      return { name: "Worktrees", status: "pass", message: "No stale worktrees" };
-    }
+    const staleSessions: StaleSession[] = clones.map((c) => ({
+      path: c.path,
+      branch: c.branch,
+    }));
 
     return {
-      name: "Worktrees",
+      name: "Sessions",
       status: "fail",
-      message: `${staleWorktrees.length} stale worktree(s) found`,
-      fixable: "stale-worktree",
-      fixData: { worktrees: staleWorktrees },
+      message: `${staleSessions.length} stale session clone(s) found`,
+      fixable: "stale-session",
+      fixData: { sessions: staleSessions },
     };
   } catch (error) {
     return {
-      name: "Worktrees",
+      name: "Sessions",
       status: "fail",
       message: error instanceof Error ? error.message : String(error),
     };
@@ -246,13 +219,13 @@ async function fixMissingDirectory(dirPath: string): Promise<FixResult> {
   }
 }
 
-async function fixStaleWorktree(worktree: StaleWorktree): Promise<FixResult> {
+async function fixStaleSession(session: StaleSession): Promise<FixResult> {
   try {
-    await removeWorktree(worktree.path);
-    return { name: `Remove ${worktree.path}`, success: true, message: "Removed" };
+    await removeSessionClone(session.path);
+    return { name: `Remove ${session.path}`, success: true, message: "Removed" };
   } catch (error) {
     return {
-      name: `Remove ${worktree.path}`,
+      name: `Remove ${session.path}`,
       success: false,
       message: error instanceof Error ? error.message : String(error),
     };
@@ -271,10 +244,10 @@ async function applyFixes(checks: CheckResult[]): Promise<FixResult[]> {
         results.push(await fixMissingDirectory(data.path));
         break;
       }
-      case "stale-worktree": {
-        const data = check.fixData as { worktrees: StaleWorktree[] };
-        for (const worktree of data.worktrees) {
-          results.push(await fixStaleWorktree(worktree));
+      case "stale-session": {
+        const data = check.fixData as { sessions: StaleSession[] };
+        for (const session of data.sessions) {
+          results.push(await fixStaleSession(session));
         }
         break;
       }
@@ -294,7 +267,7 @@ async function runAllChecks(): Promise<CheckResult[]> {
     checkClaudeCli(),
     checkAgents(),
     checkJournalDirs(),
-    checkStaleWorktrees(),
+    checkStaleSessions(),
   ]);
   return results.filter((c): c is CheckResult => c !== null);
 }

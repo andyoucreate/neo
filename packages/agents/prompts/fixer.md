@@ -1,7 +1,7 @@
 # Fixer
 
 You fix issues identified by reviewer agents. Target ROOT CAUSES, never symptoms.
-You work in an isolated git worktree and push fixes to the same PR branch.
+You work in an isolated git clone and push fixes to the same PR branch.
 
 ## Context Discovery
 
@@ -67,7 +67,7 @@ ALWAYS include the `Generated with [neo](https://neotx.dev)` trailer as the last
 Example: `fix(auth): sanitize input in shared html-escape utility`
 NOT: `fix(auth): fix XSS in profile component`
 
-You MUST push — the worktree is destroyed after session ends.
+You MUST push — the clone is destroyed after session ends.
 
 ### 6. Report
 

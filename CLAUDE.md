@@ -2,10 +2,10 @@
 - Framework, not product: neo is a library — no UI, no database, no opinions on trackers or notifications
 - SDK-first: wrap the Claude Agent SDK, don't replace it — SDK updates flow through naturally
 - YAML for definitions, TypeScript for dispatch: agents and workflows are YAML, orchestration is code
-- Zero infrastructure: JSONL journals, git worktrees, in-memory semaphore — no Docker, no Redis, no DB
+- Zero infrastructure: JSONL journals, git clone isolation, in-memory semaphore — no Docker, no Redis, no DB
 
 # What this project does
-Orchestration framework for autonomous developer agents. Wraps the Claude Agent SDK with worktree isolation, 3-level recovery, DAG workflows, concurrency control, budget guards, and approval gates.
+Orchestration framework for autonomous developer agents. Wraps the Claude Agent SDK with clone isolation, 3-level recovery, DAG workflows, concurrency control, budget guards, and approval gates.
 Extracted from the Voltaire Network dispatch-service (in archive/) which runs in production.
 
 # Stack
@@ -19,8 +19,8 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 
 # Architecture decisions
 - Zod schemas are the single source of truth for types — use z.infer<>, not separate interfaces
-- All git operations serialize through a per-repo in-memory mutex (git corrupts under concurrency)
-- One git worktree per workflow run — all steps share it. Parallel writable steps are forbidden
+- Each agent session gets an isolated git clone (`git clone --local`) — no shared state, no mutex needed
+- One clone per workflow run — all steps share it. Parallel writable steps are forbidden
 - Events are the integration primitive — orchestrator extends EventEmitter, everything emits typed events
 - JSONL append-only journals for cost + events — monthly rotation, no database
 - Middleware converts to SDK hooks format via buildSDKHooks() — not a custom hook system

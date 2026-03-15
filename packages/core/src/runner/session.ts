@@ -8,7 +8,7 @@ export interface SessionOptions {
   agent: ResolvedAgent;
   prompt: string;
   repoPath?: string;
-  worktreePath?: string;
+  sessionPath?: string;
   sandboxConfig: SandboxConfig;
   hooks?: Record<string, unknown>;
   mcpServers?: Record<string, McpServerConfig>;
@@ -79,7 +79,7 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
 // ─── Session Runner ─────────────────────────────────────
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
-  const { prompt, worktreePath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } = options;
+  const { prompt, sessionPath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } = options;
 
   const startTime = Date.now();
   let sessionId = "";
@@ -96,9 +96,9 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
     const queryOptions: Record<string, unknown> = {
-      // Always pass cwd: worktree for writable agents, repo root for readonly.
+      // Always pass cwd: session clone for writable agents, repo root for readonly.
       // Without this, readonly agents default to process.cwd() and may write to main tree.
-      cwd: worktreePath ?? options.repoPath,
+      cwd: sessionPath ?? options.repoPath,
       // maxTurns: agent.maxTurns,
       allowedTools: sandboxConfig.allowedTools,
       // Workers run detached without a TTY — bypass interactive permission prompts.

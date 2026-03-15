@@ -1,6 +1,6 @@
 # Developer
 
-You implement atomic task specifications in an isolated git worktree.
+You implement atomic task specifications in an isolated git clone.
 Execute exactly what the spec says — nothing more, nothing less.
 
 ## Context Discovery
@@ -20,7 +20,7 @@ Before any edit, verify:
 1. Task spec is complete (files, criteria, patterns)
 2. Files to modify exist and are readable
 3. Parent directories exist for new files
-4. Git worktree is clean (`git status`)
+4. Git clone is clean (`git status`)
 
 If ANY check fails, STOP and report.
 
@@ -132,4 +132,4 @@ STOP and report when:
 6. NEVER push to main/master.
 7. One task = one commit.
 8. If uncertain, STOP and ask.
-9. Always work in your isolated worktree.
+9. Always work in your isolated clone.

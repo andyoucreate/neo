@@ -5,10 +5,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
+import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
 import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
-import { withGitLock } from "@/isolation/git-mutex";
 import { buildSandboxConfig } from "@/isolation/sandbox";
-import { createWorktree, listWorktrees, removeWorktree } from "@/isolation/worktree";
 import type { ResolvedAgent } from "@/types";
 
 const execFileAsync = promisify(execFile);
@@ -39,135 +38,68 @@ afterEach(async () => {
   await rm(TMP_DIR, { recursive: true, force: true });
 });
 
-// ─── Git Mutex ──────────────────────────────────────────
+// ─── Session Clone Lifecycle ─────────────────────────────
 
-describe("withGitLock", () => {
-  it("serializes concurrent operations on the same repo", async () => {
-    const order: number[] = [];
-
-    const op1 = withGitLock("/fake/repo", async () => {
-      order.push(1);
-      await new Promise((r) => setTimeout(r, 50));
-      order.push(2);
-      return "a";
-    });
-
-    const op2 = withGitLock("/fake/repo", async () => {
-      order.push(3);
-      return "b";
-    });
-
-    const [r1, r2] = await Promise.all([op1, op2]);
-
-    expect(r1).toBe("a");
-    expect(r2).toBe("b");
-    // op1 must complete (1, 2) before op2 starts (3)
-    expect(order).toEqual([1, 2, 3]);
-  });
-
-  it("runs operations on different repos in parallel", async () => {
-    const order: string[] = [];
-
-    const op1 = withGitLock("/repo/a", async () => {
-      order.push("a-start");
-      await new Promise((r) => setTimeout(r, 50));
-      order.push("a-end");
-    });
-
-    const op2 = withGitLock("/repo/b", async () => {
-      order.push("b-start");
-      await new Promise((r) => setTimeout(r, 50));
-      order.push("b-end");
-    });
-
-    await Promise.all([op1, op2]);
-
-    // Both should start before either ends
-    expect(order.indexOf("a-start")).toBeLessThan(order.indexOf("a-end"));
-    expect(order.indexOf("b-start")).toBeLessThan(order.indexOf("b-end"));
-    // b-start should happen before a-end (parallel execution)
-    expect(order.indexOf("b-start")).toBeLessThan(order.indexOf("a-end"));
-  });
-
-  it("releases lock on error (try/finally)", async () => {
-    await expect(
-      withGitLock("/repo/err", async () => {
-        throw new Error("boom");
-      }),
-    ).rejects.toThrow("boom");
-
-    // Next operation on same repo should succeed (lock was released)
-    const result = await withGitLock("/repo/err", async () => "ok");
-    expect(result).toBe("ok");
-  });
-
-  it("propagates thrown errors", async () => {
-    const original = new TypeError("custom type error");
-
-    await expect(
-      withGitLock("/repo/propagate", async () => {
-        throw original;
-      }),
-    ).rejects.toThrow(original);
-  });
-
-  it("allows re-entry after error", async () => {
-    await withGitLock("/repo/reentry", async () => {
-      throw new Error("first failure");
-    }).catch(() => {});
-
-    const result = await withGitLock("/repo/reentry", async () => "recovered");
-    expect(result).toBe("recovered");
-  });
-});
-
-// ─── Worktree Lifecycle ─────────────────────────────────
-
-describe("worktree lifecycle", () => {
+describe("session clone lifecycle", () => {
   it("create → verify exists → remove → verify gone", async () => {
     const repoDir = await initBareRepo(TMP_DIR);
-    const worktreeDir = path.join(TMP_DIR, "wt-test");
+    const sessionDir = path.join(TMP_DIR, "session-test");
 
-    const info = await createWorktree({
+    const info = await createSessionClone({
       repoPath: repoDir,
       branch: "feat/test-branch",
       baseBranch: "main",
-      worktreeDir,
+      sessionDir,
     });
 
-    expect(info.path).toBe(path.resolve(worktreeDir));
+    expect(info.path).toBe(path.resolve(sessionDir));
     expect(info.branch).toBe("feat/test-branch");
     expect(info.repoPath).toBe(path.resolve(repoDir));
-    expect(existsSync(worktreeDir)).toBe(true);
+    expect(existsSync(sessionDir)).toBe(true);
+
+    // Clone should be a full git repo (has .git directory, not a .git file like worktrees)
+    expect(existsSync(path.join(sessionDir, ".git"))).toBe(true);
+
+    // Should be on the correct branch
+    const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      cwd: sessionDir,
+    });
+    expect(stdout.trim()).toBe("feat/test-branch");
 
     // Should appear in list
-    const list = await listWorktrees(repoDir);
-    const found = list.find((w) => w.branch === "feat/test-branch");
+    const sessionsBase = path.dirname(sessionDir);
+    const list = await listSessionClones(sessionsBase);
+    const found = list.find((c) => c.branch === "feat/test-branch");
     expect(found).toBeDefined();
 
     // Remove
-    await removeWorktree(worktreeDir);
-    expect(existsSync(worktreeDir)).toBe(false);
+    await removeSessionClone(sessionDir);
+    expect(existsSync(sessionDir)).toBe(false);
   });
 
-  it("throws when creating worktree on non-existent repo", async () => {
+  it("throws when creating clone from non-existent repo", async () => {
     const fakeRepo = path.join(TMP_DIR, "nonexistent-repo");
-    const worktreeDir = path.join(TMP_DIR, "wt-fail");
+    const sessionDir = path.join(TMP_DIR, "session-fail");
 
     await expect(
-      createWorktree({
+      createSessionClone({
         repoPath: fakeRepo,
         branch: "feat/fail",
         baseBranch: "main",
-        worktreeDir,
+        sessionDir,
       }),
     ).rejects.toThrow();
   });
 
-  it("removeWorktree is idempotent (no throw for non-existent)", async () => {
-    const fakePath = path.join(TMP_DIR, "nonexistent-worktree");
+  it("removeSessionClone is idempotent (no throw for non-existent)", async () => {
+    const fakePath = path.join(TMP_DIR, "nonexistent-session");
     // Should not throw
-    await removeWorktree(fakePath);
+    await removeSessionClone(fakePath);
+  });
+
+  it("listSessionClones returns empty for non-existent directory", async () => {
+    const list = await listSessionClones(path.join(TMP_DIR, "nonexistent"));
+    expect(list).toEqual([]);
   });
 });
 
@@ -255,24 +187,24 @@ describe("buildSandboxConfig", () => {
   }
 
   it("writable agent gets all tools and write paths", () => {
-    const config = buildSandboxConfig(makeAgent("writable"), "/tmp/wt");
+    const config = buildSandboxConfig(makeAgent("writable"), "/tmp/session");
 
     expect(config.writable).toBe(true);
     expect(config.allowedTools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
-    expect(config.writablePaths).toEqual(["/tmp/wt"]);
-    expect(config.readablePaths).toEqual(["/tmp/wt"]);
+    expect(config.writablePaths).toEqual(["/tmp/session"]);
+    expect(config.readablePaths).toEqual(["/tmp/session"]);
   });
 
   it("readonly agent has write tools filtered out", () => {
-    const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/wt");
+    const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/session");
 
     expect(config.writable).toBe(false);
     expect(config.allowedTools).toEqual(["Read", "Bash", "Glob", "Grep"]);
     expect(config.writablePaths).toEqual([]);
-    expect(config.readablePaths).toEqual(["/tmp/wt"]);
+    expect(config.readablePaths).toEqual(["/tmp/session"]);
   });
 
-  it("works without worktreePath", () => {
+  it("works without sessionPath", () => {
     const config = buildSandboxConfig(makeAgent("writable"));
 
     expect(config.writable).toBe(true);
@@ -280,17 +212,17 @@ describe("buildSandboxConfig", () => {
     expect(config.writablePaths).toEqual([]);
   });
 
-  it("includes worktreePath in readable and writable paths for writable agent", () => {
-    const config = buildSandboxConfig(makeAgent("writable"), "/tmp/wt");
+  it("includes sessionPath in readable and writable paths for writable agent", () => {
+    const config = buildSandboxConfig(makeAgent("writable"), "/tmp/session");
 
-    expect(config.readablePaths).toContain("/tmp/wt");
-    expect(config.writablePaths).toContain("/tmp/wt");
+    expect(config.readablePaths).toContain("/tmp/session");
+    expect(config.writablePaths).toContain("/tmp/session");
   });
 
-  it("includes worktreePath only in readable paths for readonly agent", () => {
-    const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/wt");
+  it("includes sessionPath only in readable paths for readonly agent", () => {
+    const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/session");
 
-    expect(config.readablePaths).toContain("/tmp/wt");
-    expect(config.writablePaths).not.toContain("/tmp/wt");
+    expect(config.readablePaths).toContain("/tmp/session");
+    expect(config.writablePaths).not.toContain("/tmp/session");
   });
 });

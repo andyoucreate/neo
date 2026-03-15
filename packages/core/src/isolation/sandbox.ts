@@ -22,19 +22,19 @@ const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
 /**
  * Build an SDK-compatible sandbox configuration for an agent.
  *
- * - Writable agents: all their tools are allowed, write paths include the worktree
+ * - Writable agents: all their tools are allowed, write paths include the session clone
  * - Readonly agents: write tools are filtered out, no writable paths
  */
-export function buildSandboxConfig(agent: ResolvedAgent, worktreePath?: string): SandboxConfig {
+export function buildSandboxConfig(agent: ResolvedAgent, sessionPath?: string): SandboxConfig {
   const isWritable = agent.sandbox === "writable";
-  const absWorktree = worktreePath ? resolve(worktreePath) : undefined;
+  const absSession = sessionPath ? resolve(sessionPath) : undefined;
 
   const allowedTools = isWritable
     ? agent.definition.tools
     : agent.definition.tools.filter((t) => !WRITE_TOOLS.has(t));
 
-  const readablePaths = absWorktree ? [absWorktree] : [];
-  const writablePaths = isWritable && absWorktree ? [absWorktree] : [];
+  const readablePaths = absSession ? [absSession] : [];
+  const writablePaths = isWritable && absSession ? [absSession] : [];
 
   return {
     allowedTools,

@@ -33,7 +33,7 @@ packages/agents/
 | Agent | Model | Sandbox | Tools | Role |
 |-------|-------|---------|-------|------|
 | **architect** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Strategic planner. Analyzes features, designs architecture, decomposes work into atomic tasks. Never writes code. |
-| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated worktrees. |
+| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated clones. |
 | **fixer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms. |
 | **refiner** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Ticket quality evaluator. Assesses clarity and splits vague tickets into precise sub-tickets. |
 | **reviewer-quality** | sonnet | readonly | Read, Glob, Grep, Bash | Code quality reviewer. Catches bugs and DRY violations. Approves by default. |

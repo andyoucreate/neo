@@ -29,7 +29,7 @@
     "orchestration",
     "autonomous-agents",
     "developer-tools",
-    "git-worktree",
+    "git-clone",
     "agent-sdk"
   ],
   "engines": {

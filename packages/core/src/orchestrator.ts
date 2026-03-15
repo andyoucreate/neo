@@ -8,9 +8,9 @@ import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
-import { pushWorktreeBranch } from "@/isolation/git";
+import { cleanupOrphanedSessions, createSessionClone, removeSessionClone } from "@/isolation/clone";
+import { pushSessionBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
-import { cleanupOrphanedWorktrees, createWorktree, removeWorktree } from "@/isolation/worktree";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
@@ -40,7 +40,7 @@ import { WorkflowRegistry } from "@/workflows/registry";
 const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-const WORKTREES_DIR = ".neo/worktrees";
+// Session clones are stored in the configured sessions.dir (default: /tmp/neo-sessions)
 const INSTRUCTIONS_PATH = ".neo/INSTRUCTIONS.md";
 const textEncoder = new TextEncoder();
 
@@ -309,10 +309,7 @@ export class Orchestrator extends NeoEventEmitter {
 
     await this.recoverOrphanedRuns();
 
-    for (const repo of this.config.repos) {
-      const worktreeBase = path.join(repo.path, WORKTREES_DIR);
-      await cleanupOrphanedWorktrees(worktreeBase).catch(() => {});
-    }
+    await cleanupOrphanedSessions(this.config.sessions.dir).catch(() => {});
   }
 
   async shutdown(): Promise<void> {
@@ -436,7 +433,7 @@ export class Orchestrator extends NeoEventEmitter {
 
   private async executeStep(ctx: DispatchContext): Promise<StepResult> {
     const { input, runId, sessionId, startedAt, agent, repoConfig, activeSession } = ctx;
-    let worktreePath: string | undefined;
+    let sessionPath: string | undefined;
 
     // Persist initial running state so `neo runs` shows this run immediately
     await this.persistRun({
@@ -453,21 +450,21 @@ export class Orchestrator extends NeoEventEmitter {
     });
 
     try {
-      // Create worktree if writable agent
+      // Create isolated clone if writable agent
       if (agent.sandbox === "writable") {
         const branchName = input.branch as string;
-        const worktreeDir = path.join(input.repo, WORKTREES_DIR, runId);
-        const info = await createWorktree({
+        const sessionDir = path.join(this.config.sessions.dir, runId);
+        const info = await createSessionClone({
           repoPath: input.repo,
           branch: branchName,
           baseBranch: repoConfig.defaultBranch,
-          worktreeDir,
+          sessionDir,
         });
-        worktreePath = info.path;
-        activeSession.worktreePath = worktreePath;
+        sessionPath = info.path;
+        activeSession.sessionPath = sessionPath;
       }
 
-      const stepResult = await this.runAgentSession(ctx, worktreePath);
+      const stepResult = await this.runAgentSession(ctx, sessionPath);
       this.emitCostEvents(sessionId, stepResult.costUsd, ctx);
       this.emitSessionComplete(ctx, stepResult);
       return stepResult;
@@ -487,9 +484,9 @@ export class Orchestrator extends NeoEventEmitter {
         attempt: 1,
       };
     } finally {
-      // Auto-commit, push, and cleanup worktree
-      if (worktreePath) {
-        await this.finalizeWorktree(worktreePath, ctx);
+      // Auto-commit, push, and cleanup session clone
+      if (sessionPath) {
+        await this.finalizeSession(sessionPath, ctx);
       }
 
       this.semaphore.release(sessionId);
@@ -504,16 +501,16 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   /**
-   * Push the branch, then remove the worktree.
+   * Push the branch, then remove the session clone.
    * Runs in `finally` so it executes on both success and failure.
    */
-  private async finalizeWorktree(worktreePath: string, ctx: DispatchContext): Promise<void> {
+  private async finalizeSession(sessionPath: string, ctx: DispatchContext): Promise<void> {
     const { repoConfig } = ctx;
     const branch = ctx.input.branch as string;
     const remote = repoConfig.pushRemote ?? "origin";
 
     try {
-      await pushWorktreeBranch(worktreePath, branch, remote).catch(() => {
+      await pushSessionBranch(sessionPath, branch, remote).catch(() => {
         // Push may fail (no remote, auth, etc.) — not critical
       });
     } catch {
@@ -521,19 +518,19 @@ export class Orchestrator extends NeoEventEmitter {
     }
 
     try {
-      await removeWorktree(worktreePath);
+      await removeSessionClone(sessionPath);
     } catch {
-      // Worktree cleanup is best-effort
+      // Session cleanup is best-effort
     }
   }
 
   private async runAgentSession(
     ctx: DispatchContext,
-    worktreePath: string | undefined,
+    sessionPath: string | undefined,
   ): Promise<StepResult> {
     const { input, runId, sessionId, stepName, stepDef, agent, activeSession } = ctx;
 
-    const sandboxConfig = buildSandboxConfig(agent, worktreePath);
+    const sandboxConfig = buildSandboxConfig(agent, sessionPath);
     const chain = buildMiddlewareChain(this.userMiddleware);
     const middlewareContext = this.buildMiddlewareContext(
       runId,
@@ -593,7 +590,7 @@ export class Orchestrator extends NeoEventEmitter {
       maxDurationMs: this.config.sessions.maxDurationMs,
       maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
       backoffBaseMs: this.config.recovery.backoffBaseMs,
-      ...(worktreePath ? { worktreePath } : {}),
+      ...(sessionPath ? { sessionPath } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(recoveryOpts?.nonRetryable ? { nonRetryable: recoveryOpts.nonRetryable } : {}),
       onAttempt: (attempt, strategy) => {
@@ -652,7 +649,7 @@ export class Orchestrator extends NeoEventEmitter {
       status: stepResult.status === "success" ? "success" : "failure",
       steps: { [stepName]: stepResult },
       branch:
-        stepResult.status === "success" && activeSession.worktreePath ? input.branch : undefined,
+        stepResult.status === "success" && activeSession.sessionPath ? input.branch : undefined,
       costUsd: stepResult.costUsd,
       durationMs: Date.now() - ctx.startedAt,
       timestamp: new Date().toISOString(),

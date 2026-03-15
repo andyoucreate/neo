@@ -343,46 +343,38 @@ const result = await runWithRecovery({
 
 Non-retryable errors (auth failures, budget exceeded, max turns) skip retries entirely.
 
-## Isolation & Worktrees
+## Isolation & Clones
 
-Each writable agent runs in an isolated git worktree. The main branch is never touched.
+Each writable agent runs in an isolated git clone (`git clone --local`). The main branch is never touched.
 
 ```typescript
 import {
-  createWorktree,
-  removeWorktree,
-  listWorktrees,
-  cleanupOrphanedWorktrees,
+  createSessionClone,
+  removeSessionClone,
+  listSessionClones,
+  cleanupOrphanedSessions,
 } from "@neotx/core";
 
-// Create a worktree with a new branch
-const info = await createWorktree({
+// Create a session clone with a new branch
+const info = await createSessionClone({
   repoPath: "/path/to/repo",
   branch: "feat/run-abc123",
   baseBranch: "main",
-  worktreeDir: "/path/to/repo/.neo/worktrees/abc123",
+  sessionDir: "/tmp/neo-sessions/abc123",
 });
 // { path, branch, repoPath }
 
-// List all worktrees
-const worktrees = await listWorktrees("/path/to/repo");
+// List all session clones
+const clones = await listSessionClones("/tmp/neo-sessions");
 
-// Remove a worktree (branch preserved for PR)
-await removeWorktree(info.path);
+// Remove a session clone (branch preserved for PR)
+await removeSessionClone(info.path);
 
-// Clean up orphaned worktrees
-await cleanupOrphanedWorktrees("/path/to/repo/.neo/worktrees");
+// Clean up orphaned sessions
+await cleanupOrphanedSessions("/tmp/neo-sessions");
 ```
 
-Git operations are protected by a mutex to prevent concurrent conflicts:
-
-```typescript
-import { withGitLock } from "@neotx/core";
-
-await withGitLock("/path/to/repo", async () => {
-  // Safe git operations here
-});
-```
+Each clone is fully independent — no shared git state, no mutex needed.
 
 ## Concurrency Control
 

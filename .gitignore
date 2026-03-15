@@ -43,5 +43,4 @@ archive/
 # Test coverage reports
 coverage/
 
-# neo worktrees (ephemeral)
-.neo/worktrees/
+# neo session clones are stored in /tmp/neo-sessions/ (configurable)

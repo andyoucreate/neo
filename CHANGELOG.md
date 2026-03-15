@@ -8,7 +8,7 @@ First public release.
 
 - **Orchestrator** - dispatch agents with concurrency control, budget guards, and typed event streaming
 - **8 built-in agents** - architect, developer, fixer, refiner, and 4 specialized reviewers (quality, security, perf, coverage)
-- **Git worktree isolation** - each run gets its own branch and worktree, working directory is never touched
+- **Git clone isolation** - each run gets its own branch and clone, working directory is never touched
 - **3-level recovery** - normal retry, session resume, fresh session with exponential backoff
 - **Cost tracking** - daily budget caps, JSONL journals with monthly rotation, real-time budget alerts
 - **Middleware system** - composable hooks with built-in budget guard, loop detection, and audit log

@@ -5,7 +5,7 @@ const main = defineCommand({
     name: "neo",
     version: "0.1.0",
     description:
-      "Orchestrate autonomous developer agents with worktree isolation, budget guards, and 3-level recovery. Run 'neo init' to get started.",
+      "Orchestrate autonomous developer agents with clone isolation, budget guards, and 3-level recovery. Run 'neo init' to get started.",
   },
   subCommands: {
     init: () => import("./commands/init.js").then((m) => m.default),

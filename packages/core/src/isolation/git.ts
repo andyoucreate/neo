@@ -2,14 +2,12 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import type { RepoConfig } from "@/config";
-import { withGitLock } from "@/isolation/git-mutex";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
 
 /**
  * Run a git command with execFile (no shell — prevents injection).
- * All callers should go through the public API which acquires the mutex.
  */
 async function git(repoPath: string, args: string[]): Promise<string> {
   const { stdout } = await execFileAsync("git", args, {
@@ -24,23 +22,23 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
-  await withGitLock(repoPath, () => git(repoPath, ["branch", branch, baseBranch]));
+  await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
-  await withGitLock(repoPath, () => git(repoPath, ["push", remote, branch]));
+  await git(repoPath, ["push", remote, branch]);
 }
 
 export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
-  await withGitLock(repoPath, () => git(repoPath, ["fetch", remote]));
+  await git(repoPath, ["fetch", remote]);
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
-  await withGitLock(repoPath, () => git(repoPath, ["branch", "-D", branch]));
+  await git(repoPath, ["branch", "-D", branch]);
 }
 
 export async function getCurrentBranch(repoPath: string): Promise<string> {
-  return withGitLock(repoPath, () => git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]));
+  return git(repoPath, ["rev-parse", "--abbrev-ref", "HEAD"]);
 }
 
 /**
@@ -56,43 +54,39 @@ export function getBranchName(config: RepoConfig, runId: string, branch?: string
 }
 
 /**
- * Check if a worktree has uncommitted changes (staged or unstaged).
+ * Check if a session clone has uncommitted changes (staged or unstaged).
  */
-export async function hasUncommittedChanges(worktreePath: string): Promise<boolean> {
-  const status = await withGitLock(worktreePath, () =>
-    git(worktreePath, ["status", "--porcelain"]),
-  );
+export async function hasUncommittedChanges(sessionPath: string): Promise<boolean> {
+  const status = await git(sessionPath, ["status", "--porcelain"]);
   return status.length > 0;
 }
 
 /**
- * Auto-commit all changes in a worktree. Used as a safety net after agent
- * sessions to prevent losing work when the worktree is cleaned up.
+ * Auto-commit all changes in a session clone. Used as a safety net after agent
+ * sessions to prevent losing work when the clone is cleaned up.
  */
-export async function autoCommitChanges(worktreePath: string, runId: string): Promise<boolean> {
-  const hasChanges = await hasUncommittedChanges(worktreePath);
+export async function autoCommitChanges(sessionPath: string, runId: string): Promise<boolean> {
+  const hasChanges = await hasUncommittedChanges(sessionPath);
   if (!hasChanges) return false;
 
-  await withGitLock(worktreePath, async () => {
-    await git(worktreePath, ["add", "-A"]);
-    await git(worktreePath, [
-      "commit",
-      "-m",
-      `chore: auto-commit uncommitted changes from run ${runId}`,
-    ]);
-  });
+  await git(sessionPath, ["add", "-A"]);
+  await git(sessionPath, [
+    "commit",
+    "-m",
+    `chore: auto-commit uncommitted changes from run ${runId}`,
+  ]);
 
   return true;
 }
 
 /**
- * Push a branch from a worktree to a remote. Silently succeeds if
+ * Push a branch from a session clone to a remote. Silently succeeds if
  * the branch has no new commits to push.
  */
-export async function pushWorktreeBranch(
-  worktreePath: string,
+export async function pushSessionBranch(
+  sessionPath: string,
   branch: string,
   remote: string,
 ): Promise<void> {
-  await withGitLock(worktreePath, () => git(worktreePath, ["push", "-u", remote, branch]));
+  await git(sessionPath, ["push", "-u", remote, branch]);
 }

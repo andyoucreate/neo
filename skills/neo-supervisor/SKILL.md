@@ -20,7 +20,7 @@ You are a supervisor managing developer agents through neo. Your job is to dispa
 | `reviewer-perf` | sonnet | readonly | N+1 queries, O(n^2) on unbounded data, memory leaks |
 | `reviewer-coverage` | sonnet | readonly | Missing tests for critical paths, untested error handling |
 
-Writable agents get their own git worktree. Readonly agents inspect code without modifying it.
+Writable agents get their own git clone. Readonly agents inspect code without modifying it.
 
 ## Commands
 

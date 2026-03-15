@@ -58,14 +58,14 @@ neo run <agent> --prompt "..." --repo <path> [--branch <name>] [--priority criti
 |------|----------|-------------|
 | \`--prompt\` | always | Task description for the agent |
 | \`--repo\` | always | Target repository path |
-| \`--branch\` | writable agents | Branch name for the isolated worktree (see below) |
+| \`--branch\` | writable agents | Branch name for the isolated clone (see below) |
 | \`--priority\` | no | \`critical\`, \`high\`, \`medium\`, \`low\` |
 | \`--meta\` | recommended | JSON metadata for traceability and deduplication |
 
-**Worktree isolation & \`--branch\`:**
-neo runs each agent in an isolated git worktree. The \`--branch\` flag controls this:
-- **Writable agents** (developer, fixer): \`--branch\` is **required**. neo creates a worktree at \`.neo/worktrees/<runId>/\` with \`git worktree add -b <branch>\`. The agent works on this branch. Omitting \`--branch\` causes a validation error.
-- **Read-only agents** (architect, reviewer, refiner): \`--branch\` is **not needed**. neo creates a read-only worktree from the repo's default branch. If passed, it is ignored.
+**Clone isolation & \`--branch\`:**
+neo runs each agent in an isolated git clone (\`git clone --local\`). The \`--branch\` flag controls this:
+- **Writable agents** (developer, fixer): \`--branch\` is **required**. neo creates a clone and checks out \`<branch>\`. The agent works on this branch. Omitting \`--branch\` causes a validation error.
+- **Read-only agents** (architect, reviewer, refiner): \`--branch\` is **not needed**. The agent reads from the repo's default branch. If passed, it is ignored.
 
 You choose the branch name. Convention: \`feat/<ticket>-<slug>\` or \`fix/<ticket>-<slug>\`.
 

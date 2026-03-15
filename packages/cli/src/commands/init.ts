@@ -1,25 +1,15 @@
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile } from "node:fs/promises";
+import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { addRepoToGlobalConfig, getDataDir, loadGlobalConfig } from "@neotx/core";
 import { defineCommand } from "citty";
 import { detectDefaultBranch } from "../git-utils.js";
 import { printError, printSuccess } from "../output.js";
 
-const GITIGNORE_ENTRY = ".neo/worktrees/";
-
 async function ensureGitignore(): Promise<boolean> {
-  const gitignorePath = path.resolve(".gitignore");
-
-  if (existsSync(gitignorePath)) {
-    const content = await readFile(gitignorePath, "utf-8");
-    if (content.includes(GITIGNORE_ENTRY)) return false;
-    await appendFile(gitignorePath, `\n# neo worktrees (ephemeral)\n${GITIGNORE_ENTRY}\n`);
-  } else {
-    await appendFile(gitignorePath, `# neo worktrees (ephemeral)\n${GITIGNORE_ENTRY}\n`);
-  }
-
-  return true;
+  // Session clones are stored in /tmp/neo-sessions/ by default,
+  // so no .gitignore entry is needed. Keep the function for future use.
+  return false;
 }
 
 export default defineCommand({
@@ -47,10 +37,7 @@ export default defineCommand({
     await mkdir(agentsDir, { recursive: true });
     printSuccess("Created .neo/agents/");
 
-    // Ensure .neo/worktrees/ is in .gitignore
-    if (await ensureGitignore()) {
-      printSuccess(`Added ${GITIGNORE_ENTRY} to .gitignore`);
-    }
+    await ensureGitignore();
 
     // Detect default branch and register repo in global config
     const branch = await detectDefaultBranch();

@@ -42,6 +42,14 @@ export { NeoEventEmitter } from "@/events";
 // ─── Events ────────────────────────────────────────────
 export { EventJournal } from "@/events/journal";
 export { matchesFilter, WebhookDispatcher } from "@/events/webhook";
+// ─── Isolation ──────────────────────────────────────────
+export type { SessionCloneInfo } from "@/isolation/clone";
+export {
+  cleanupOrphanedSessions,
+  createSessionClone,
+  listSessionClones,
+  removeSessionClone,
+} from "@/isolation/clone";
 export {
   createBranch,
   deleteBranch,
@@ -49,18 +57,10 @@ export {
   getBranchName,
   getCurrentBranch,
   pushBranch,
+  pushSessionBranch,
 } from "@/isolation/git";
-// ─── Isolation ──────────────────────────────────────────
-export { withGitLock } from "@/isolation/git-mutex";
 export type { SandboxConfig } from "@/isolation/sandbox";
 export { buildSandboxConfig } from "@/isolation/sandbox";
-export type { WorktreeInfo } from "@/isolation/worktree";
-export {
-  cleanupOrphanedWorktrees,
-  createWorktree,
-  listWorktrees,
-  removeWorktree,
-} from "@/isolation/worktree";
 export type { AuditLogMiddleware } from "@/middleware/audit-log";
 // ─── Middleware ─────────────────────────────────────────
 export { auditLog } from "@/middleware/audit-log";

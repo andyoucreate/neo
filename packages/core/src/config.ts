@@ -72,8 +72,9 @@ export const globalConfigSchema = z.object({
     .object({
       initTimeoutMs: z.number().default(120_000),
       maxDurationMs: z.number().default(3_600_000),
+      dir: z.string().default("/tmp/neo-sessions"),
     })
-    .default({ initTimeoutMs: 120_000, maxDurationMs: 3_600_000 }),
+    .default({ initTimeoutMs: 120_000, maxDurationMs: 3_600_000, dir: "/tmp/neo-sessions" }),
 
   webhooks: z
     .array(

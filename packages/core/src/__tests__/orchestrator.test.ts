@@ -42,18 +42,18 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   },
 }));
 
-// ─── Git/Worktree Mocks ────────────────────────────────
+// ─── Git/Clone Mocks ───────────────────────────────────
 
-vi.mock("@/isolation/worktree", () => ({
-  createWorktree: () =>
+vi.mock("@/isolation/clone", () => ({
+  createSessionClone: () =>
     Promise.resolve({
-      path: "/tmp/worktree",
+      path: "/tmp/session",
       branch: "feat/run-test",
       repoPath: "/tmp/repo",
     }),
-  removeWorktree: () => Promise.resolve(undefined),
-  cleanupOrphanedWorktrees: () => Promise.resolve(undefined),
-  listWorktrees: () => Promise.resolve([]),
+  removeSessionClone: () => Promise.resolve(undefined),
+  cleanupOrphanedSessions: () => Promise.resolve(undefined),
+  listSessionClones: () => Promise.resolve([]),
 }));
 
 // ─── Helpers ────────────────────────────────────────────
@@ -95,7 +95,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
     concurrency: { maxSessions: 5, maxPerRepo: 2, queueMax: 50 },
     budget: { dailyCapUsd: 100, alertThresholdPct: 80 },
     recovery: { maxRetries: 3, backoffBaseMs: 10 },
-    sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000 },
+    sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000, dir: "/tmp/neo-sessions" },
     webhooks: [],
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
     supervisor: {
@@ -958,11 +958,11 @@ describe("MCP server resolution", () => {
   });
 });
 
-// ─── Readonly agent (no worktree) ───────────────────────
+// ─── Readonly agent (no clone) ──────────────────────────
 
 describe("readonly agent", () => {
-  it("dispatches without creating a worktree", async () => {
-    await import("@/isolation/worktree");
+  it("dispatches without creating a clone", async () => {
+    await import("@/isolation/clone");
 
     const orchestrator = new Orchestrator(makeConfig());
     orchestrator.registerWorkflow(

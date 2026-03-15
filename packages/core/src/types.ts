@@ -70,7 +70,7 @@ export interface PersistedRun {
   repo: string;
   prompt: string;
   branch?: string | undefined;
-  worktreePath?: string | undefined;
+  sessionPath?: string | undefined;
   pid?: number | undefined;
   status: "running" | "paused" | "completed" | "failed";
   steps: Record<string, StepResult>;
@@ -147,7 +147,7 @@ export interface ActiveSession {
   repo: string;
   status: "running" | "queued" | "waiting_gate";
   startedAt: string;
-  worktreePath?: string | undefined;
+  sessionPath?: string | undefined;
 }
 
 export interface OrchestratorStatus {

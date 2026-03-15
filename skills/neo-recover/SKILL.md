@@ -53,17 +53,17 @@ Options:
 - Wait until tomorrow (budget resets daily)
 - Increase the budget in `.neo/config.yml` under `budget.dailyCapUsd`
 
-### Git worktree conflict
+### Git clone conflict
 
-Worktree already exists for this branch.
+Session clone already exists for this run.
 
-**Fix**: Clean up orphaned worktrees:
+**Fix**: Clean up orphaned session clones:
 
 ```bash
 neo doctor
 ```
 
-If `neo doctor` reports worktree issues, manually clean `.neo/worktrees/` and retry.
+If `neo doctor` reports stale sessions, run `neo doctor --fix` to clean them up and retry.
 
 ### Agent produced wrong output
 
@@ -97,7 +97,7 @@ Then dispatch each sub-task separately.
 | Transient (rate limit, timeout) | Neo auto-retries with 3-level recovery. Usually resolves itself. |
 | Prompt issue (loop, wrong output) | Refine the prompt and re-dispatch. Be more specific. |
 | Budget | Wait or increase cap. Check `neo cost` to understand spend. |
-| Infrastructure (git, worktree) | Run `neo doctor`, clean up manually if needed. |
+| Infrastructure (git, clone) | Run `neo doctor --fix`, clean up stale sessions if needed. |
 
 ## Prevention
 

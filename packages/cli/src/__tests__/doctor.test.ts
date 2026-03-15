@@ -1,11 +1,7 @@
-import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-const execFileAsync = promisify(execFile);
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_doctor_test__");
 
 beforeEach(async () => {
@@ -36,40 +32,22 @@ describe("doctor --fix", () => {
     });
   });
 
-  describe("stale worktree detection", () => {
-    async function initBareRepo(dir: string): Promise<string> {
-      const repoDir = path.join(dir, "repo");
-      await mkdir(repoDir, { recursive: true });
-      await execFileAsync("git", ["init", "--initial-branch", "main"], {
-        cwd: repoDir,
-      });
-      await execFileAsync("git", ["config", "user.email", "test@test.com"], {
-        cwd: repoDir,
-      });
-      await execFileAsync("git", ["config", "user.name", "Test"], { cwd: repoDir });
-      await execFileAsync("git", ["commit", "--allow-empty", "-m", "init"], {
-        cwd: repoDir,
-      });
-      return repoDir;
-    }
-
-    it("detects directories in .neo/worktrees that are not tracked by git", async () => {
-      const repoDir = await initBareRepo(TMP_DIR);
-      const worktreesDir = path.join(repoDir, ".neo", "worktrees");
-      const staleDir = path.join(worktreesDir, "stale-worktree");
+  describe("stale session detection", () => {
+    it("detects directories in sessions dir that are orphaned", async () => {
+      const sessionsDir = path.join(TMP_DIR, "neo-sessions");
+      const staleDir = path.join(sessionsDir, "stale-session");
 
       await mkdir(staleDir, { recursive: true });
 
-      const entries = await readdir(worktreesDir, { withFileTypes: true });
+      const entries = await readdir(sessionsDir, { withFileTypes: true });
       const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
 
-      expect(dirs).toContain("stale-worktree");
+      expect(dirs).toContain("stale-session");
     });
 
-    it("removes stale directory when fix is applied", async () => {
-      const repoDir = await initBareRepo(TMP_DIR);
-      const worktreesDir = path.join(repoDir, ".neo", "worktrees");
-      const staleDir = path.join(worktreesDir, "stale-worktree");
+    it("removes stale session directory when fix is applied", async () => {
+      const sessionsDir = path.join(TMP_DIR, "neo-sessions");
+      const staleDir = path.join(sessionsDir, "stale-session");
 
       await mkdir(staleDir, { recursive: true });
       expect(existsSync(staleDir)).toBe(true);
@@ -185,18 +163,18 @@ describe("CheckResult interface", () => {
     expect(check.fixData).toEqual({ path: "/path" });
   });
 
-  it("supports fixable property for stale-worktree", () => {
+  it("supports fixable property for stale-session", () => {
     const check = {
-      name: "Worktrees",
+      name: "Sessions",
       status: "fail" as const,
-      message: "1 stale worktree(s) found",
-      fixable: "stale-worktree" as const,
+      message: "1 stale session clone(s) found",
+      fixable: "stale-session" as const,
       fixData: {
-        worktrees: [{ path: "/path/to/worktree", branch: "feat/test", repoPath: "/repo" }],
+        sessions: [{ path: "/tmp/neo-sessions/run-123", branch: "feat/test" }],
       },
     };
 
-    expect(check.fixable).toBe("stale-worktree");
-    expect(check.fixData).toHaveProperty("worktrees");
+    expect(check.fixable).toBe("stale-session");
+    expect(check.fixData).toHaveProperty("sessions");
   });
 });

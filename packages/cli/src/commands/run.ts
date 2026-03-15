@@ -143,7 +143,7 @@ async function runDetached(params: DetachParams): Promise<void> {
 export default defineCommand({
   meta: {
     name: "run",
-    description: "Dispatch an agent to execute a task in an isolated worktree",
+    description: "Dispatch an agent to execute a task in an isolated clone",
   },
   args: {
     agent: {
@@ -163,7 +163,7 @@ export default defineCommand({
     },
     branch: {
       type: "string",
-      description: "Branch name for the worktree (required for writable agents)",
+      description: "Branch name for the session clone (required for writable agents)",
     },
     priority: {
       type: "string",

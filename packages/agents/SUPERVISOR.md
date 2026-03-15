@@ -67,9 +67,9 @@ React to:
 
 ## Dispatch — `--branch` and `--meta`
 
-Use `--branch` to control the worktree branch name. Use `--meta` for traceability metadata.
+Use `--branch` to control the session branch name. Use `--meta` for traceability metadata.
 
-**`--branch <name>`** — branch name for the worktree.
+**`--branch <name>`** — branch name for the session clone.
 - **Required** for all writable agents (`developer`, `fixer`). Dispatch will fail without it.
 - Not needed for readonly agents (`architect`, `refiner`, `reviewer`).
 
@@ -85,7 +85,7 @@ Use `--branch` to control the worktree branch name. Use `--meta` for traceabilit
 
 ### Branch & PR lifecycle
 
-- **develop**: pass `--branch feat/PROJ-42-description` to name the branch. The agent works in this worktree branch.
+- **develop**: pass `--branch feat/PROJ-42-description` to name the branch. The agent works in this isolated clone.
 - **review/fix**: pass the same `--branch` and `prNumber` in `--meta`.
 - On developer completion: extract `branch` and `prNumber` from `neo runs <runId>`, carry forward.
 
@@ -119,7 +119,7 @@ neo log blocker "..."        # log a blocker
 ### Examples
 
 ```bash
-# develop — explicit branch name, agent works in this worktree
+# develop — explicit branch name, agent works in an isolated clone
 neo run developer --prompt "Implement user auth flow. Criteria: login with email/password, JWT tokens, refresh flow. Open a PR when done." \
   --repo /path/to/repo \
   --branch feat/PROJ-42-add-auth \

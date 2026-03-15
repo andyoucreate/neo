@@ -41,16 +41,16 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   },
 }));
 
-vi.mock("@/isolation/worktree", () => ({
-  createWorktree: () =>
+vi.mock("@/isolation/clone", () => ({
+  createSessionClone: () =>
     Promise.resolve({
-      path: "/tmp/worktree",
+      path: "/tmp/session",
       branch: "feat/run-test",
       repoPath: "/tmp/repo",
     }),
-  removeWorktree: () => Promise.resolve(undefined),
-  cleanupOrphanedWorktrees: () => Promise.resolve(undefined),
-  listWorktrees: () => Promise.resolve([]),
+  removeSessionClone: () => Promise.resolve(undefined),
+  cleanupOrphanedSessions: () => Promise.resolve(undefined),
+  listSessionClones: () => Promise.resolve([]),
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────
@@ -889,7 +889,7 @@ describe("e2e: budget alerts", () => {
 // ─── Readonly agent dispatch ─────────────────────────────
 
 describe("e2e: readonly agent", () => {
-  it("dispatches with readonly agent (no worktree)", async () => {
+  it("dispatches with readonly agent (no clone)", async () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,

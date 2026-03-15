@@ -48,12 +48,12 @@ neo init --force  # Re-register even if already initialized
 
 Creates:
 - `.neo/agents/` directory for project-local agent definitions
-- Adds `.neo/worktrees/` to `.gitignore`
+- Registers the repo in global config
 - Registers the repo in `~/.neo/config.yml`
 
 ### `neo run <agent>`
 
-Dispatch an agent to execute a task in an isolated worktree.
+Dispatch an agent to execute a task in an isolated clone.
 
 ```bash
 neo run developer --prompt "Implement user authentication"

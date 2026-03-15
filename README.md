@@ -2,7 +2,7 @@
 
 Neoscaling - the new way to scale your engineering team. Instead of hiring, you give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
 
-neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo gives it the primitives to dispatch work safely: git worktree isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
+neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo gives it the primitives to dispatch work safely: git clone isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
 
 Zero infrastructure - no database, no Redis, no Docker.
 
@@ -19,7 +19,7 @@ Zero infrastructure - no database, no Redis, no Docker.
 │  isolation, recovery, budget,       │
 │  concurrency, events, journals      │
 └──────────────┬──────────────────────┘
-               │ spawns in isolated worktrees
+               │ spawns in isolated clones
                v
 ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
 │ dev  │ │ arch │ │ fix  │ │review│
@@ -75,13 +75,13 @@ This gives your supervisor two skills:
 When a supervisor dispatches `neo run developer --prompt "..."`, neo:
 
 1. Loads the agent definition (model, tools, sandbox permissions, system prompt)
-2. Creates an isolated git worktree on a new branch
+2. Creates an isolated git clone on a new branch
 3. Starts a Claude session with the agent's configuration
 4. Streams events back to the supervisor (start, cost updates, completion)
 5. Tracks costs in JSONL journals with daily budget enforcement
 6. Persists the run result to `.neo/runs/<runId>.json`
 
-Each agent works in its own worktree. The main branch is never touched. The supervisor can inspect results, dispatch follow-up agents, or kill sessions at any point.
+Each agent works in its own clone. The main branch is never touched. The supervisor can inspect results, dispatch follow-up agents, or kill sessions at any point.
 
 ## CLI
 
@@ -235,7 +235,7 @@ orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct
 | Agent | Role | Model | Sandbox |
 |-------|------|-------|---------|
 | `architect` | Plans architecture, decomposes features into tasks. Never writes code. | opus | readonly |
-| `developer` | Implements features and fixes in isolated worktrees. | opus | writable |
+| `developer` | Implements features and fixes in isolated clones. | opus | writable |
 | `fixer` | Fixes issues found by reviewers. Targets root causes. | opus | writable |
 | `refiner` | Evaluates tickets and splits vague requirements into precise specs. | opus | readonly |
 | `reviewer-quality` | Catches real bugs and DRY violations. Approves by default. | sonnet | readonly |
@@ -266,7 +266,7 @@ Agents support inheritance with `extends`, tool customization with `$inherited`,
 repos:
   - path: "."
     defaultBranch: main      # auto-detected from git
-    branchPrefix: feat        # prefix for worktree branches
+    branchPrefix: feat        # prefix for session branches
     autoCreatePr: false       # auto PR creation (coming soon)
 
 concurrency:
@@ -384,7 +384,7 @@ neotx              Thin CLI wrapper (citty)
 @neotx/core        Orchestration engine
   |--- orchestrator   Dispatch, lifecycle, budget, events
   |--- runner         SDK session management, 3-level recovery
-  |--- isolation      Git worktrees, sandbox config, mutex
+  |--- isolation      Git clone isolation, sandbox config
   |--- concurrency    Priority semaphore with per-repo limits
   |--- middleware      Chain execution, SDK hooks conversion
   |--- events         Typed emitter, JSONL journals
@@ -398,7 +398,7 @@ neotx              Thin CLI wrapper (citty)
 - **Framework, not product** - no UI, no database, no opinions on trackers
 - **SDK-first** - wraps the Claude Agent SDK, SDK updates flow through naturally
 - **YAML for definitions, TypeScript for dispatch** - agents are YAML, orchestration is code
-- **Zero infrastructure** - JSONL journals, git worktrees, in-memory semaphore
+- **Zero infrastructure** - JSONL journals, git clone isolation, in-memory semaphore
 - **Events are the integration primitive** - everything emits typed events
 
 ### Recovery
