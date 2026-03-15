@@ -50,6 +50,10 @@ export async function createSessionClone(options: {
     { timeout: GIT_TIMEOUT },
   );
 
+  // Remove .claude/ directory from clone to prevent Claude Code from
+  // detecting this as a known project and resolving back to the original repo.
+  await rm(resolve(sessionDir, ".claude"), { recursive: true, force: true }).catch(() => {});
+
   // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
   const branchExists = await execFileAsync(
     "git",
