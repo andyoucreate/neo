@@ -35,9 +35,12 @@ The supervisor decides what needs to happen. neo handles how it happens safely.
 # Install
 npm install -g neotx
 
-# Initialize in your repo
+# (Optional) Verify prerequisites
+neo doctor
+
+# Initialize in your repo (must be a git repository)
 cd your-project
-neo init --budget 100
+neo init --budget 100    # budget in USD per day (e.g., $100/day)
 
 # Dispatch a developer agent
 neo run developer --prompt "Add input validation to the user registration endpoint"
