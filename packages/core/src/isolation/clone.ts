@@ -39,20 +39,18 @@ export async function createSessionClone(options: {
 
   // After --local clone, origin points to the local repo path.
   // Re-point origin to the real upstream remote so pushes go to GitHub, not the user's repo.
-  const realRemoteUrl = await execFileAsync(
-    "git",
-    ["config", "--get", "remote.origin.url"],
-    { cwd: repoPath, timeout: GIT_TIMEOUT },
-  )
+  const realRemoteUrl = await execFileAsync("git", ["config", "--get", "remote.origin.url"], {
+    cwd: repoPath,
+    timeout: GIT_TIMEOUT,
+  })
     .then(({ stdout }) => stdout.trim())
     .catch(() => "");
 
   if (realRemoteUrl) {
-    await execFileAsync(
-      "git",
-      ["remote", "set-url", "origin", realRemoteUrl],
-      { cwd: sessionDir, timeout: GIT_TIMEOUT },
-    );
+    await execFileAsync("git", ["remote", "set-url", "origin", realRemoteUrl], {
+      cwd: sessionDir,
+      timeout: GIT_TIMEOUT,
+    });
   }
 
   // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
