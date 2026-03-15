@@ -19,6 +19,7 @@ const main = defineCommand({
     supervise: () => import("./commands/supervise.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
+    version: () => import("./commands/version.js").then((m) => m.default),
   },
 });
 
