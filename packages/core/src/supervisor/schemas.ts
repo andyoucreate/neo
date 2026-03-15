@@ -116,3 +116,13 @@ export type QueuedEvent =
   | { kind: "webhook"; data: WebhookIncomingEvent }
   | { kind: "message"; data: InboxMessage }
   | { kind: "run_complete"; runId: string; timestamp: string };
+
+// ─── Run notes (per-run narrative tracking) ──────────────
+
+export const runNoteSchema = z.object({
+  type: z.enum(["decision", "observation", "blocker", "outcome"]),
+  text: z.string(),
+  ts: z.string(), // ISO timestamp
+});
+
+export type RunNote = z.infer<typeof runNoteSchema>;
