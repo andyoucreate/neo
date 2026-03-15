@@ -6,6 +6,14 @@ neo is the orchestration layer between a supervisor and the developer agents it 
 
 Zero infrastructure - no database, no Redis, no Docker.
 
+## Be Part of NeoScaling
+
+neo is open source and we welcome contributors. Whether you're fixing bugs, adding agents, improving documentation, or building integrations — there's a place for you here.
+
+- **Get started**: Clone the repo, run `pnpm install && pnpm build`, and explore the codebase
+- **Read the guidelines**: See [CONTRIBUTING.md](CONTRIBUTING.md) for code style, PR process, and development setup
+- **Join the conversation**: Open an issue to discuss ideas or ask questions
+
 ```
 ┌─────────────────────────────────────┐
 │           SUPERVISOR                │
