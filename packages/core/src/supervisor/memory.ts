@@ -89,8 +89,7 @@ function normalizeActiveWork(raw: unknown): ActiveWorkItem[] {
       if (item == null || typeof item !== "object") return null;
       const obj = item as Record<string, unknown>;
       const result: ActiveWorkItem = {
-        description:
-          (obj.description as string) ?? (obj.ticket as string) ?? JSON.stringify(obj),
+        description: (obj.description as string) ?? (obj.ticket as string) ?? JSON.stringify(obj),
         status:
           validateStatus(obj.status) ??
           ((obj.stage as string) === "ci_pending" ? "waiting" : "running"),
