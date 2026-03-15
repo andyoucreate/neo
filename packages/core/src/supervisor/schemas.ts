@@ -15,6 +15,8 @@ export const supervisorDaemonStateSchema = z.object({
   costResetDate: z.string().optional(),
   idleSkipCount: z.number().default(0),
   status: z.enum(["running", "draining", "stopped"]).default("running"),
+  lastConsolidationHeartbeat: z.number().default(0),
+  lastCompactionHeartbeat: z.number().default(0),
 });
 
 export type SupervisorDaemonState = z.infer<typeof supervisorDaemonStateSchema>;
@@ -36,7 +38,7 @@ export type WebhookIncomingEvent = z.infer<typeof webhookIncomingEventSchema>;
 
 export const inboxMessageSchema = z.object({
   id: z.string(),
-  from: z.enum(["tui", "api", "external"]),
+  from: z.enum(["tui", "api", "external", "agent"]),
   text: z.string(),
   timestamp: z.string(),
   processedAt: z.string().optional(),
@@ -66,6 +68,47 @@ export const activityEntrySchema = z.object({
 });
 
 export type ActivityEntry = z.infer<typeof activityEntrySchema>;
+
+// ─── Log buffer entry (written by neo log, read by heartbeat) ──
+
+export const logBufferEntrySchema = z.object({
+  id: z.string(),
+  type: z.enum(["progress", "action", "decision", "blocker", "milestone", "discovery"]),
+  message: z.string(),
+  agent: z.string().optional(),
+  runId: z.string().optional(),
+  repo: z.string().optional(),
+  target: z.enum(["memory", "knowledge", "digest"]),
+  timestamp: z.string(),
+  consolidatedAt: z.string().optional(),
+});
+
+export type LogBufferEntry = z.infer<typeof logBufferEntrySchema>;
+
+// ─── Memory delta operations ────────────────────────────
+
+export const memoryOpSchema = z.discriminatedUnion("op", [
+  z.object({ op: z.literal("set"), path: z.string(), value: z.unknown() }),
+  z.object({ op: z.literal("append"), path: z.string(), value: z.unknown() }),
+  z.object({ op: z.literal("remove"), path: z.string(), index: z.number() }),
+]);
+
+export type MemoryOp = z.infer<typeof memoryOpSchema>;
+
+// ─── Knowledge delta operations ─────────────────────────
+
+export const knowledgeOpSchema = z.discriminatedUnion("op", [
+  z.object({
+    op: z.literal("append"),
+    section: z.string(),
+    fact: z.string(),
+    source: z.string().optional(),
+    date: z.string().optional(),
+  }),
+  z.object({ op: z.literal("remove"), section: z.string(), index: z.number() }),
+]);
+
+export type KnowledgeOp = z.infer<typeof knowledgeOpSchema>;
 
 // ─── Queued event (union of all event sources) ──────────
 

@@ -1,10 +1,10 @@
+import type { GlobalConfig } from "@/config";
+import { getSupervisorDir } from "@/paths";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
-import { getSupervisorDir } from "@/paths";
 import { ActivityLog } from "./activity-log.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
@@ -113,6 +113,8 @@ export class SupervisorDaemon {
       costResetDate: existingState?.costResetDate,
       idleSkipCount: existingState?.idleSkipCount ?? 0,
       status: "running",
+      lastConsolidationHeartbeat: existingState?.lastConsolidationHeartbeat ?? 0,
+      lastCompactionHeartbeat: existingState?.lastCompactionHeartbeat ?? 0,
     });
 
     // Install signal handlers

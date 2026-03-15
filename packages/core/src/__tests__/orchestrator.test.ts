@@ -106,6 +106,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,
       dailyCapUsd: 50,
+      consolidationInterval: 5,
     },
     ...overrides,
   };

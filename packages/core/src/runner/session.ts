@@ -12,6 +12,7 @@ export interface SessionOptions {
   sandboxConfig: SandboxConfig;
   hooks?: Record<string, unknown>;
   mcpServers?: Record<string, McpServerConfig>;
+  env?: Record<string, string>;
   initTimeoutMs: number;
   maxDurationMs: number;
   resumeSessionId?: string | undefined;
@@ -113,6 +114,10 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
 
     if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
       queryOptions.mcpServers = options.mcpServers;
+    }
+
+    if (options.env && Object.keys(options.env).length > 0) {
+      queryOptions.env = options.env;
     }
 
     let output = "";

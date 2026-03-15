@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Semaphore } from "@/concurrency/semaphore";
 import type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
@@ -16,6 +16,7 @@ import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
+import { loadKnowledge, selectKnowledgeForRepos } from "@/supervisor/knowledge";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import type {
@@ -87,6 +88,18 @@ function buildGitStrategyInstructions(
   return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nCommit your changes. The branch will be pushed automatically.`;
 }
 
+// ─── Helpers ────────────────────────────────────────────
+
+function formatTimeAgo(ms: number): string {
+  if (ms < 0) return "just now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
 // ─── Full prompt assembler ─────────────────────────────
 
 function buildFullPrompt(
@@ -94,10 +107,14 @@ function buildFullPrompt(
   repoInstructions: string | undefined,
   gitInstructions: string | null,
   taskPrompt: string,
+  knowledgeContext?: string | undefined,
+  crossRunLessons?: string | undefined,
 ): string {
   const sections: string[] = [];
 
   if (agentPrompt) sections.push(agentPrompt);
+  if (knowledgeContext) sections.push(knowledgeContext);
+  if (crossRunLessons) sections.push(crossRunLessons);
   if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
   if (gitInstructions) sections.push(gitInstructions);
   sections.push(`## Task\n\n${taskPrompt}`);
@@ -309,6 +326,7 @@ export class Orchestrator extends NeoEventEmitter {
 
     await this.recoverOrphanedRuns();
 
+    await mkdir(this.config.sessions.dir, { recursive: true });
     await cleanupOrphanedSessions(this.config.sessions.dir).catch(() => {});
   }
 
@@ -571,11 +589,20 @@ export class Orchestrator extends NeoEventEmitter {
       input.metadata,
     );
     const taskPrompt = stepDef.prompt ?? input.prompt;
+
+    // Knowledge injection: load known facts about this repo
+    const knowledgeContext = await this.loadKnowledgeContext(input.repo);
+
+    // Cross-run learning: extract lessons from recent failed runs on this repo
+    const crossRunLessons = await this.loadCrossRunLessons(input.repo);
+
     const fullPrompt = buildFullPrompt(
       agent.definition.prompt,
       repoInstructions,
       gitInstructions,
       taskPrompt,
+      knowledgeContext,
+      crossRunLessons,
     );
 
     const recoveryOpts = stepDef.recovery;
@@ -686,6 +713,82 @@ export class Orchestrator extends NeoEventEmitter {
     }
 
     return taskResult;
+  }
+
+  // ─── Private: Knowledge injection ─────────────────────
+
+  /**
+   * Load knowledge relevant to the target repo from the default supervisor.
+   * Returns a formatted section or undefined if no knowledge exists.
+   */
+  private async loadKnowledgeContext(repoPath: string): Promise<string | undefined> {
+    try {
+      const supervisorDir = path.join(getSupervisorsDir(), "supervisor");
+      const knowledge = await loadKnowledge(supervisorDir);
+      if (!knowledge.trim()) return undefined;
+
+      const relevant = selectKnowledgeForRepos(knowledge, [repoPath]);
+      if (!relevant.trim()) return undefined;
+
+      return `## Known facts about this repository\n${relevant}`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /**
+   * Load lessons from recent failed runs on the same repo.
+   * Returns a formatted section or undefined if no lessons exist.
+   */
+  private async loadCrossRunLessons(repoPath: string): Promise<string | undefined> {
+    try {
+      const repoSlug = toRepoSlug({ path: repoPath });
+      const repoRunsDir = getRepoRunsDir(repoSlug);
+      if (!existsSync(repoRunsDir)) return undefined;
+
+      const files = await readdir(repoRunsDir);
+      const jsonFiles = files.filter((f) => f.endsWith(".json") && !f.endsWith(".dispatch.json"));
+
+      // Read all run files and filter to recent failures
+      const failedRuns: Array<{ runId: string; agent: string; error: string; completedAt: string }> = [];
+      for (const file of jsonFiles) {
+        try {
+          const raw = await readFile(path.join(repoRunsDir, file), "utf-8");
+          const run = JSON.parse(raw) as PersistedRun;
+          if (run.status !== "failed") continue;
+
+          // Extract error from failed steps
+          for (const step of Object.values(run.steps)) {
+            if (step.status === "failure" && step.error && step.completedAt) {
+              failedRuns.push({
+                runId: run.runId.slice(0, 8),
+                agent: step.agent,
+                error: step.error.slice(0, 200),
+                completedAt: step.completedAt,
+              });
+            }
+          }
+        } catch {
+          // Skip corrupted files
+        }
+      }
+
+      if (failedRuns.length === 0) return undefined;
+
+      // Sort by most recent, take last 5
+      failedRuns.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+      const recent = failedRuns.slice(0, 5);
+
+      const now = Date.now();
+      const lines = recent.map((r) => {
+        const ago = formatTimeAgo(now - new Date(r.completedAt).getTime());
+        return `- Run ${r.runId} (${r.agent}, ${ago}): Failed — "${r.error}"`;
+      });
+
+      return `## Lessons from previous runs on this repository\n${lines.join("\n")}`;
+    } catch {
+      return undefined;
+    }
   }
 
   // ─── Private: Event helpers ────────────────────────────

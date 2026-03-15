@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, readdir, rm } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -26,6 +26,8 @@ export async function createSessionClone(options: {
 }): Promise<SessionCloneInfo> {
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
+
+  await mkdir(dirname(sessionDir), { recursive: true });
 
   // Clone the repo locally, starting from baseBranch.
   // --local uses hardlinks for .git/objects — fast and space-efficient.
@@ -97,14 +99,26 @@ export async function listSessionClones(sessionsBaseDir: string): Promise<Sessio
     const clonePath = resolve(absBase, entry.name);
 
     try {
-      const { stdout } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+      const { stdout: branchOut } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
         cwd: clonePath,
         timeout: GIT_TIMEOUT,
       });
+      let repoPath = clonePath;
+      try {
+        const { stdout: originUrl } = await execFileAsync(
+          "git",
+          ["config", "--get", "remote.origin.url"],
+          { cwd: clonePath, timeout: GIT_TIMEOUT },
+        );
+        const url = originUrl.trim();
+        if (url) repoPath = resolve(clonePath, url);
+      } catch {
+        // No origin or not a clone — keep clonePath as fallback
+      }
       clones.push({
         path: clonePath,
-        branch: stdout.trim(),
-        repoPath: clonePath,
+        branch: branchOut.trim(),
+        repoPath,
       });
     } catch {
       // Not a git repo — skip

@@ -1,9 +1,9 @@
+import { getDataDir, toRepoSlug } from "@/paths";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import { getDataDir, toRepoSlug } from "@/paths";
 
 // ─── McpServerConfig schemas ─────────────────────────────
 
@@ -97,6 +97,7 @@ export const globalConfigSchema = z.object({
       maxConsecutiveFailures: z.number().default(3),
       maxEventsPerSec: z.number().default(10),
       dailyCapUsd: z.number().default(50),
+      consolidationInterval: z.number().default(5),
       instructions: z.string().optional(),
     })
     .default({
@@ -107,6 +108,7 @@ export const globalConfigSchema = z.object({
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,
       dailyCapUsd: 50,
+      consolidationInterval: 5,
     }),
 
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),

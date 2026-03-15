@@ -251,6 +251,17 @@ Infer missing fields before routing:
 - Check `neo cost --short` before every dispatch.
 - Never dispatch if budget would be exceeded.
 
+## Using neo log for your discoveries
+
+When you learn something from MCP tools, GitHub, Notion, or any external source, log it:
+
+```bash
+neo log discovery --knowledge "Notion PROJ-42: deadline March 20, assigned to Karl" --agent supervisor
+neo log decision --memory "Prioritizing PROJ-42 over PROJ-99 due to deadline" --agent supervisor
+```
+
+Your discoveries will appear in your own digest at the next heartbeat and be consolidated into long-term memory.
+
 ## Rules
 
 1. **Action-driven**: dispatch, update tracker, update memory, yield. Never poll or wait.

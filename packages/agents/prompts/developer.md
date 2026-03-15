@@ -110,6 +110,30 @@ Output the PR URL on a dedicated line: `PR_URL: https://...`
 }
 ```
 
+## Reporting with neo log
+
+Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+
+Types:
+- `progress` — current status ("3/5 endpoints done")
+- `action` — completed action ("Pushed to branch")
+- `decision` — significant choice ("Chose JWT over sessions")
+- `blocker` — blocking issue ("Tests failing, missing dependency")
+- `milestone` — major achievement ("All tests passing, PR opened")
+- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
+
+Flags are auto-filled from environment: --agent, --run, --repo.
+Use --memory for facts the supervisor should remember in working memory.
+Use --knowledge for stable facts about the codebase.
+
+Examples:
+```bash
+# Chain with commands — NEVER log separately
+git push origin feat/auth && neo log action "Pushed feat/auth"
+pnpm test && neo log milestone "All tests passing" || neo log blocker "Tests failing"
+ls src/db/migrations ; neo log discovery "Repo uses Prisma with PostgreSQL"
+```
+
 ## Escalation
 
 STOP and report when:

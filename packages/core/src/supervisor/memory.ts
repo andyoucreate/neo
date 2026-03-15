@@ -1,8 +1,8 @@
 import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { type MemoryOp, memoryOpSchema } from "./schemas.js";
 
 const MEMORY_FILE = "memory.json";
-const KNOWLEDGE_FILE = "knowledge.json";
 const ARCHIVE_FILE = "memory-archive.jsonl";
 const LEGACY_FILE = "memory.md";
 const MAX_SIZE_KB = 6;
@@ -10,67 +10,131 @@ const MAX_DECISIONS = 10;
 
 // ─── Structured memory type ─────────────────────────────
 
+export interface ActiveWorkItem {
+  description: string;
+  runId?: string;
+  repo?: string;
+  status: "running" | "waiting" | "blocked";
+  priority?: "critical" | "high" | "medium" | "low";
+  since: string;
+  deadline?: string;
+}
+
+export interface BlockerItem {
+  description: string;
+  source?: string;
+  runId?: string;
+  repo?: string;
+  since: string;
+}
+
+export interface DecisionItem {
+  date: string;
+  decision: string;
+  outcome?: string;
+}
+
 export interface SupervisorMemory {
-  activeWork: string[];
-  blockers: string[];
-  repoNotes: Record<string, string>;
-  recentDecisions: Array<{
-    date: string;
-    decision: string;
-    outcome?: string;
-  }>;
+  agenda: string;
+  activeWork: ActiveWorkItem[];
+  blockers: BlockerItem[];
+  decisions: DecisionItem[];
   trackerSync: Record<string, string>;
-  notes: string;
 }
 
 /**
  * Parse raw memory content into structured format.
- * Tries JSON first, falls back to wrapping raw markdown in { notes }.
+ * Tries JSON first, falls back to empty memory.
+ * Handles migration from old format (string arrays).
  */
 export function parseStructuredMemory(raw: string): SupervisorMemory {
-  if (!raw.trim()) {
-    return emptyMemory();
-  }
+  if (!raw.trim()) return emptyMemory();
   try {
-    const parsed = JSON.parse(raw) as Partial<SupervisorMemory>;
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+    // Migration: detect old format
+    const isOldFormat =
+      Array.isArray(parsed.activeWork) &&
+      parsed.activeWork.length > 0 &&
+      typeof parsed.activeWork[0] === "string";
+
+    if (isOldFormat) {
+      return migrateFromOldFormat(parsed);
+    }
+
     return {
-      activeWork: parsed.activeWork ?? [],
-      blockers: parsed.blockers ?? [],
-      repoNotes: parsed.repoNotes ?? {},
-      recentDecisions: parsed.recentDecisions ?? [],
-      trackerSync: parsed.trackerSync ?? {},
-      notes: parsed.notes ?? "",
+      agenda: (parsed.agenda as string) ?? "",
+      activeWork: (parsed.activeWork as ActiveWorkItem[]) ?? [],
+      blockers: (parsed.blockers as BlockerItem[]) ?? [],
+      decisions:
+        (parsed.decisions as DecisionItem[]) ??
+        (parsed.recentDecisions as DecisionItem[]) ??
+        [],
+      trackerSync: (parsed.trackerSync as Record<string, string>) ?? {},
     };
   } catch {
-    // Legacy markdown format — wrap in notes
-    return { ...emptyMemory(), notes: raw };
+    return emptyMemory();
   }
+}
+
+function migrateFromOldFormat(
+  parsed: Record<string, unknown>,
+): SupervisorMemory {
+  const now = new Date().toISOString();
+
+  const activeWork = (parsed.activeWork as string[]).map((s) => ({
+    description: s,
+    status: "running" as const,
+    since: now,
+  }));
+
+  const blockers = Array.isArray(parsed.blockers)
+    ? (parsed.blockers as string[]).map((s) => ({
+        description: s,
+        since: now,
+      }))
+    : [];
+
+  const decisions = (parsed.recentDecisions as DecisionItem[]) ?? [];
+
+  // Log warnings for dropped fields
+  const notes = parsed.notes as string | undefined;
+  if (notes?.trim()) {
+    console.warn(
+      "[neo] Migration: dropping non-empty 'notes' field from old memory format",
+    );
+  }
+
+  const repoNotes = parsed.repoNotes as Record<string, string> | undefined;
+  if (repoNotes && Object.keys(repoNotes).length > 0) {
+    console.warn(
+      "[neo] Migration: dropping 'repoNotes' field — move content to knowledge.md",
+    );
+  }
+
+  return {
+    agenda: "",
+    activeWork,
+    blockers,
+    decisions,
+    trackerSync: (parsed.trackerSync as Record<string, string>) ?? {},
+  };
 }
 
 function emptyMemory(): SupervisorMemory {
   return {
+    agenda: "",
     activeWork: [],
     blockers: [],
-    repoNotes: {},
-    recentDecisions: [],
+    decisions: [],
     trackerSync: {},
-    notes: "",
   };
 }
 
-// ─── Knowledge (cold/static data) ───────────────────────
+// ─── Knowledge re-exports (deprecated — use knowledge.ts in Phase 3) ─
 
-export async function loadKnowledge(dir: string): Promise<string> {
-  try {
-    return await readFile(path.join(dir, KNOWLEDGE_FILE), "utf-8");
-  } catch {
-    return "";
-  }
-}
-
-export async function saveKnowledge(dir: string, content: string): Promise<void> {
-  await writeFile(path.join(dir, KNOWLEDGE_FILE), content, "utf-8");
-}
+/** @deprecated Import from knowledge.ts instead. */
+export { loadKnowledge, saveKnowledge } from "./knowledge.js";
 
 // ─── Memory (working/volatile data) ─────────────────────
 
@@ -91,7 +155,10 @@ export async function loadMemory(dir: string): Promise<string> {
     const legacy = await readFile(path.join(dir, LEGACY_FILE), "utf-8");
     if (legacy.trim()) {
       await writeFile(path.join(dir, MEMORY_FILE), legacy, "utf-8");
-      await rename(path.join(dir, LEGACY_FILE), path.join(dir, `${LEGACY_FILE}.bak`));
+      await rename(
+        path.join(dir, LEGACY_FILE),
+        path.join(dir, `${LEGACY_FILE}.bak`),
+      );
       return legacy;
     }
   } catch {
@@ -105,19 +172,34 @@ export async function loadMemory(dir: string): Promise<string> {
  * Save the supervisor memory to disk (full overwrite).
  * Automatically compacts if needed.
  */
-export async function saveMemory(dir: string, content: string): Promise<void> {
+export async function saveMemory(
+  dir: string,
+  content: string,
+): Promise<void> {
   const compacted = await compactMemory(dir, content);
   await writeFile(path.join(dir, MEMORY_FILE), compacted, "utf-8");
 }
 
 /**
- * Extract memory content from Claude's response using <memory>...</memory> tags.
+ * Check if memory content exceeds the recommended size limit.
+ */
+export function checkMemorySize(content: string): {
+  ok: boolean;
+  sizeKB: number;
+} {
+  const sizeKB = Buffer.byteLength(content, "utf-8") / 1024;
+  return { ok: sizeKB <= MAX_SIZE_KB, sizeKB: Math.round(sizeKB * 10) / 10 };
+}
+
+// ─── Legacy extractors (deprecated — remove in Phase 3) ─
+
+/**
+ * @deprecated Use extractMemoryOps() instead. Will be removed in Phase 3.
  */
 export function extractMemoryFromResponse(response: string): string | null {
   const match = /<memory>([\s\S]*?)<\/memory>/i.exec(response);
   if (!match?.[1]) return null;
   const content = match[1].trim();
-
   if (content.startsWith("{")) {
     try {
       JSON.parse(content);
@@ -130,7 +212,7 @@ export function extractMemoryFromResponse(response: string): string | null {
 }
 
 /**
- * Extract knowledge updates from Claude's response using <knowledge>...</knowledge> tags.
+ * @deprecated Use extractKnowledgeOps() from knowledge.ts instead. Will be removed in Phase 3.
  */
 export function extractKnowledgeFromResponse(response: string): string | null {
   const match = /<knowledge>([\s\S]*?)<\/knowledge>/i.exec(response);
@@ -138,18 +220,103 @@ export function extractKnowledgeFromResponse(response: string): string | null {
   return match[1].trim();
 }
 
-/**
- * Check if memory content exceeds the recommended size limit.
- */
-export function checkMemorySize(content: string): { ok: boolean; sizeKB: number } {
-  const sizeKB = Buffer.byteLength(content, "utf-8") / 1024;
-  return { ok: sizeKB <= MAX_SIZE_KB, sizeKB: Math.round(sizeKB * 10) / 10 };
+// ─── Memory delta operations ────────────────────────────
+
+export function extractMemoryOps(response: string): MemoryOp[] {
+  const match = /<memory-ops>([\s\S]*?)<\/memory-ops>/i.exec(response);
+  if (!match?.[1]) return [];
+  const ops: MemoryOp[] = [];
+  for (const line of match[1].trim().split("\n").filter(Boolean)) {
+    try {
+      ops.push(memoryOpSchema.parse(JSON.parse(line)));
+    } catch {
+      console.warn("[neo] Skipping malformed memory op:", line);
+    }
+  }
+  return ops;
+}
+
+function getAtPath(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split(".");
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current == null || typeof current !== "object") return undefined;
+    current = (current as Record<string, unknown>)[part];
+  }
+  return current;
+}
+
+function setAtPath(
+  obj: Record<string, unknown>,
+  path: string,
+  value: unknown,
+): void {
+  const parts = path.split(".");
+  let current: Record<string, unknown> = obj;
+  for (let i = 0; i < parts.length - 1; i++) {
+    const part = parts[i] as string;
+    if (current[part] == null || typeof current[part] !== "object") {
+      current[part] = {};
+    }
+    current = current[part] as Record<string, unknown>;
+  }
+  const lastKey = parts[parts.length - 1] as string;
+  current[lastKey] = value;
+}
+
+export function applyMemoryOps(
+  memory: SupervisorMemory,
+  ops: MemoryOp[],
+): SupervisorMemory {
+  const clone = JSON.parse(JSON.stringify(memory)) as Record<string, unknown>;
+
+  for (const op of ops) {
+    switch (op.op) {
+      case "set":
+        setAtPath(clone, op.path, op.value);
+        break;
+      case "append": {
+        const arr = getAtPath(clone, op.path);
+        if (Array.isArray(arr)) {
+          arr.push(op.value);
+        } else {
+          setAtPath(clone, op.path, [op.value]);
+        }
+        break;
+      }
+      case "remove": {
+        const arr = getAtPath(clone, op.path);
+        if (Array.isArray(arr) && op.index >= 0 && op.index < arr.length) {
+          arr.splice(op.index, 1);
+        }
+        break;
+      }
+    }
+  }
+
+  return clone as unknown as SupervisorMemory;
+}
+
+export async function auditMemoryOps(
+  dir: string,
+  heartbeat: number,
+  ops: MemoryOp[],
+): Promise<void> {
+  if (ops.length === 0) return;
+  const entry = {
+    type: "memory_ops",
+    timestamp: new Date().toISOString(),
+    heartbeat,
+    ops,
+  };
+  const archivePath = path.join(dir, ARCHIVE_FILE);
+  await appendFile(archivePath, `${JSON.stringify(entry)}\n`, "utf-8");
 }
 
 // ─── Compaction ─────────────────────────────────────────
 
 /**
- * Compact memory: archive old decisions, trim notes if over size limit.
+ * Compact memory: archive old decisions if over limit.
  * Archived data goes to memory-archive.jsonl (append-only, never lost).
  */
 async function compactMemory(dir: string, content: string): Promise<string> {
@@ -164,10 +331,9 @@ async function compactMemory(dir: string, content: string): Promise<string> {
 
   let changed = false;
 
-  // Archive old decisions (keep last MAX_DECISIONS)
-  if (parsed.recentDecisions.length > MAX_DECISIONS) {
-    const toArchive = parsed.recentDecisions.slice(0, -MAX_DECISIONS);
-    parsed.recentDecisions = parsed.recentDecisions.slice(-MAX_DECISIONS);
+  if (parsed.decisions.length > MAX_DECISIONS) {
+    const toArchive = parsed.decisions.slice(0, -MAX_DECISIONS);
+    parsed.decisions = parsed.decisions.slice(-MAX_DECISIONS);
     changed = true;
 
     const archivePath = path.join(dir, ARCHIVE_FILE);
@@ -179,22 +345,5 @@ async function compactMemory(dir: string, content: string): Promise<string> {
     await appendFile(archivePath, `${JSON.stringify(entry)}\n`, "utf-8");
   }
 
-  // If still over size, trim notes
-  const result = changed ? JSON.stringify(parsed, null, 2) : content;
-  const sizeKB = Buffer.byteLength(result, "utf-8") / 1024;
-
-  if (sizeKB > MAX_SIZE_KB && parsed.notes.length > 200) {
-    const archivePath = path.join(dir, ARCHIVE_FILE);
-    const entry = {
-      type: "notes_archived",
-      timestamp: new Date().toISOString(),
-      notes: parsed.notes,
-    };
-    await appendFile(archivePath, `${JSON.stringify(entry)}\n`, "utf-8");
-
-    parsed.notes = "(archived — see memory-archive.jsonl)";
-    return JSON.stringify(parsed, null, 2);
-  }
-
-  return result;
+  return changed ? JSON.stringify(parsed, null, 2) : content;
 }

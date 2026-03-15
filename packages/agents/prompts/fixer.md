@@ -91,6 +91,30 @@ You MUST push — the clone is destroyed after session ends.
 }
 ```
 
+## Reporting with neo log
+
+Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+
+Types:
+- `progress` — current status ("3/5 endpoints done")
+- `action` — completed action ("Pushed to branch")
+- `decision` — significant choice ("Chose JWT over sessions")
+- `blocker` — blocking issue ("Tests failing, missing dependency")
+- `milestone` — major achievement ("All tests passing, PR opened")
+- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
+
+Flags are auto-filled from environment: --agent, --run, --repo.
+Use --memory for facts the supervisor should remember in working memory.
+Use --knowledge for stable facts about the codebase.
+
+Examples:
+```bash
+# Chain with commands — NEVER log separately
+git push origin HEAD && neo log action "Pushed fixes to branch"
+pnpm test && neo log milestone "All tests passing after fix" || neo log blocker "Tests still failing"
+neo log decision "Fixed root cause in shared utility instead of component"
+```
+
 ## Limits
 
 | Limit             | Value | On exceed |

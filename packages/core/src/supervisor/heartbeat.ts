@@ -1,24 +1,36 @@
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import {
-  checkMemorySize,
-  extractKnowledgeFromResponse,
-  extractMemoryFromResponse,
+  applyKnowledgeOps,
+  extractKnowledgeOps,
   loadKnowledge,
-  loadMemory,
   saveKnowledge,
+} from "./knowledge.js";
+import {
+  compactLogBuffer,
+  markConsolidated,
+  readLogBufferSince,
+  readUnconsolidated,
+} from "./log-buffer.js";
+import {
+  applyMemoryOps,
+  auditMemoryOps,
+  extractMemoryFromResponse,
+  extractMemoryOps,
+  loadMemory,
+  parseStructuredMemory,
   saveMemory,
 } from "./memory.js";
-import { buildHeartbeatPrompt } from "./prompt-builder.js";
-import type { SupervisorDaemonState } from "./schemas.js";
+import { buildCompactionPrompt, buildConsolidationPrompt, buildStandardPrompt } from "./prompt-builder.js";
+import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
 
 // ─── SDK message shapes (same as runner/session.ts) ──────
 
@@ -26,6 +38,38 @@ interface SDKStreamMessage {
   type: string;
   subtype?: string;
   [key: string]: unknown;
+}
+
+// ─── Consolidation logic ────────────────────────────────
+
+/**
+ * Determine whether this heartbeat should be a consolidation cycle.
+ * Consolidation runs every `consolidationInterval` heartbeats,
+ * or earlier if there are pending memory/knowledge entries (after at least 2 heartbeats).
+ */
+export function shouldConsolidate(
+  heartbeatCount: number,
+  lastConsolidationHeartbeat: number,
+  consolidationInterval: number,
+  hasPendingMemoryEntries: boolean,
+): boolean {
+  const since = heartbeatCount - lastConsolidationHeartbeat;
+  if (since >= consolidationInterval) return true;
+  if (hasPendingMemoryEntries && since >= 2) return true;
+  return false;
+}
+
+/**
+ * Determine whether this heartbeat should run compaction.
+ * Compaction is a deep cleanup pass that runs every ~50 heartbeats.
+ */
+export function shouldCompact(
+  heartbeatCount: number,
+  lastCompactionHeartbeat: number,
+  compactionInterval = 50,
+): boolean {
+  const since = heartbeatCount - lastCompactionHeartbeat;
+  return since >= compactionInterval;
 }
 
 // ─── HeartbeatLoop ───────────────────────────────────────
@@ -44,11 +88,13 @@ export interface HeartbeatLoopOptions {
 /**
  * The core autonomous loop. At each iteration:
  * 1. Drain events from the queue
- * 2. Build a prompt with context + memory + events
- * 3. Call sdk.query() for Claude to reason and act
- * 4. Extract and save updated memory
- * 5. Log activity
- * 6. Wait for the next event or idle timeout
+ * 2. Read log buffer entries
+ * 3. Determine standard vs consolidation mode
+ * 4. Build the appropriate prompt
+ * 5. Call sdk.query() for Claude to reason and act
+ * 6. Extract and apply memory/knowledge ops (consolidation only)
+ * 7. Log activity
+ * 8. Wait for the next event or idle timeout
  */
 export class HeartbeatLoop {
   private stopping = false;
@@ -163,42 +209,217 @@ export class HeartbeatLoop {
       await this.updateState({ idleSkipCount: 0 });
     }
 
-    // Load memory + knowledge
-    const memory = await loadMemory(this.supervisorDir);
-    const knowledge = await loadKnowledge(this.supervisorDir);
-    const memoryCheck = checkMemorySize(memory);
+    // Determine heartbeat mode: compaction > consolidation > standard
+    const heartbeatCount = state?.heartbeatCount ?? 0;
+    const lastConsolidation = state?.lastConsolidationHeartbeat ?? 0;
+    const lastCompaction = state?.lastCompactionHeartbeat ?? 0;
+    const unconsolidated = await readUnconsolidated(this.supervisorDir);
+    const hasPendingMemoryEntries = unconsolidated.some(
+      (e) => e.target === "memory" || e.target === "knowledge",
+    );
+    const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
+    const isConsolidation =
+      isCompaction ||
+      shouldConsolidate(
+        heartbeatCount,
+        lastConsolidation,
+        this.config.supervisor.consolidationInterval,
+        hasPendingMemoryEntries,
+      );
 
-    // Build prompt
-    const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
-
-    const prompt = buildHeartbeatPrompt({
-      repos: this.config.repos,
-      memory,
-      knowledge,
-      memorySizeKB: memoryCheck.sizeKB,
+    // Build prompt based on mode
+    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
+      earlyMemory,
       grouped,
+      todayCost,
+      heartbeatCount,
+      unconsolidated,
+      isCompaction,
+      isConsolidation,
+      lastHeartbeat: state?.lastHeartbeat,
+    });
+    await this.activityLog.log(
+      "heartbeat",
+      `Heartbeat #${heartbeatCount} starting (${modeLabel})`,
+      {
+        heartbeatId,
+        eventCount: totalEventCount,
+        messages: grouped.messages.length,
+        webhooks: grouped.webhooks.length,
+        runCompletions: grouped.runCompletions.length,
+        isConsolidation,
+      },
+    );
+
+    // Call SDK with timeout + shutdown abort
+    const { output, costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+
+    // Post-response: extract and apply ops based on mode
+    if (isConsolidation) {
+      const knowledgeMd = await loadKnowledge(this.supervisorDir);
+      await this.handleConsolidation(
+        output,
+        heartbeatCount,
+        unconsolidated,
+        earlyMemory,
+        knowledgeMd,
+      );
+    } else {
+      // Standard mode: legacy fallback for <memory> block (transitional)
+      const newMemory = extractMemoryFromResponse(output);
+      if (newMemory) {
+        await saveMemory(this.supervisorDir, newMemory);
+      }
+    }
+
+    // Update state
+    const durationMs = Date.now() - startTime;
+    const stateUpdate: Partial<SupervisorDaemonState> = {
+      sessionId: this.sessionId,
+      lastHeartbeat: new Date().toISOString(),
+      heartbeatCount: heartbeatCount + 1,
+      totalCostUsd: (state?.totalCostUsd ?? 0) + costUsd,
+      todayCostUsd: todayCost + costUsd,
+      costResetDate: today,
+    };
+    if (isConsolidation) {
+      stateUpdate.lastConsolidationHeartbeat = heartbeatCount + 1;
+    }
+    if (isCompaction) {
+      stateUpdate.lastCompactionHeartbeat = heartbeatCount + 1;
+    }
+    await this.updateState(stateUpdate);
+
+    await this.activityLog.log(
+      "heartbeat",
+      `Heartbeat #${heartbeatCount + 1} complete (${modeLabel})`,
+      {
+        heartbeatId,
+        costUsd,
+        durationMs,
+        turnCount,
+        isConsolidation,
+      },
+    );
+  }
+
+  /**
+   * Handle consolidation: extract and apply memory/knowledge ops,
+   * mark entries consolidated, compact the log buffer.
+   */
+  private async handleConsolidation(
+    output: string,
+    heartbeatCount: number,
+    unconsolidated: { id: string }[],
+    rawMemory: string,
+    rawKnowledge: string,
+  ): Promise<void> {
+    // Extract and apply memory ops (NO fallback — if zero ops, memory stays untouched)
+    const memOps = extractMemoryOps(output);
+    if (memOps.length > 0) {
+      const memory = parseStructuredMemory(rawMemory);
+      const updated = applyMemoryOps(memory, memOps);
+      await saveMemory(this.supervisorDir, JSON.stringify(updated, null, 2));
+      await auditMemoryOps(this.supervisorDir, heartbeatCount, memOps);
+    }
+
+    // Extract and apply knowledge ops (NO fallback — same principle)
+    const knowledgeOps = extractKnowledgeOps(output);
+    if (knowledgeOps.length > 0) {
+      const updatedKnowledge = applyKnowledgeOps(rawKnowledge, knowledgeOps);
+      await saveKnowledge(this.supervisorDir, updatedKnowledge);
+
+      // Audit knowledge ops alongside memory ops
+      await auditMemoryOps(this.supervisorDir, heartbeatCount, []);
+    }
+
+    // Mark all entries as consolidated and compact
+    const allIds = unconsolidated.map((e) => e.id);
+    if (allIds.length > 0) {
+      await markConsolidated(this.supervisorDir, allIds);
+    }
+    await compactLogBuffer(this.supervisorDir);
+  }
+
+  /**
+   * Build the prompt for the current heartbeat mode.
+   */
+  private async buildHeartbeatModePrompt(opts: {
+    earlyMemory: string;
+    grouped: ReturnType<EventQueue["drainAndGroup"]>;
+    todayCost: number;
+    heartbeatCount: number;
+    unconsolidated: LogBufferEntry[];
+    isCompaction: boolean;
+    isConsolidation: boolean;
+    lastHeartbeat: string | undefined;
+  }): Promise<{ prompt: string; modeLabel: string }> {
+    const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
+    const memory = parseStructuredMemory(opts.earlyMemory);
+    const knowledge = await loadKnowledge(this.supervisorDir);
+    const sharedOpts = {
+      repos: this.config.repos,
+      grouped: opts.grouped,
       budgetStatus: {
-        todayUsd: todayCost,
+        todayUsd: opts.todayCost,
         capUsd: this.config.supervisor.dailyCapUsd,
         remainingPct:
-          ((this.config.supervisor.dailyCapUsd - todayCost) / this.config.supervisor.dailyCapUsd) *
+          ((this.config.supervisor.dailyCapUsd - opts.todayCost) /
+            this.config.supervisor.dailyCapUsd) *
           100,
       },
       activeRuns: await this.getActiveRuns(),
-      heartbeatCount: state?.heartbeatCount ?? 0,
+      heartbeatCount: opts.heartbeatCount,
       mcpServerNames,
       customInstructions: this.customInstructions,
-    });
+    };
 
-    await this.activityLog.log("heartbeat", `Heartbeat #${state?.heartbeatCount ?? 0} starting`, {
-      heartbeatId,
-      eventCount: totalEventCount,
-      messages: grouped.messages.length,
-      webhooks: grouped.webhooks.length,
-      runCompletions: grouped.runCompletions.length,
-    });
+    if (opts.isCompaction) {
+      return {
+        prompt: buildCompactionPrompt({
+          ...sharedOpts,
+          memory,
+          memoryJson: opts.earlyMemory,
+          knowledgeMd: knowledge,
+          allUnconsolidatedEntries: opts.unconsolidated,
+        }),
+        modeLabel: "compaction",
+      };
+    }
 
-    // Call SDK with timeout + shutdown abort
+    if (opts.isConsolidation) {
+      return {
+        prompt: buildConsolidationPrompt({
+          ...sharedOpts,
+          memory,
+          memoryJson: opts.earlyMemory,
+          knowledgeMd: knowledge,
+          allUnconsolidatedEntries: opts.unconsolidated,
+        }),
+        modeLabel: "consolidation",
+      };
+    }
+
+    return {
+      prompt: buildStandardPrompt({
+        ...sharedOpts,
+        memory,
+        recentEntries: await readLogBufferSince(
+          this.supervisorDir,
+          opts.lastHeartbeat ?? new Date(0).toISOString(),
+        ),
+      }),
+      modeLabel: "standard",
+    };
+  }
+
+  /**
+   * Call the Claude SDK and stream results.
+   */
+  private async callSdk(
+    prompt: string,
+    heartbeatId: string,
+  ): Promise<{ output: string; costUsd: number; turnCount: number }> {
     const abortController = new AbortController();
     this.activeAbort = abortController;
     const timeout = setTimeout(() => {
@@ -253,40 +474,7 @@ export class HeartbeatLoop {
       this.activeAbort = null;
     }
 
-    // Extract and save memory + knowledge
-    const newMemory = extractMemoryFromResponse(output);
-    if (newMemory) {
-      await saveMemory(this.supervisorDir, newMemory);
-    }
-
-    const newKnowledge = extractKnowledgeFromResponse(output);
-    if (newKnowledge) {
-      await saveKnowledge(this.supervisorDir, newKnowledge);
-    }
-
-    // Update state
-    const durationMs = Date.now() - startTime;
-    await this.updateState({
-      sessionId: this.sessionId,
-      lastHeartbeat: new Date().toISOString(),
-      heartbeatCount: (state?.heartbeatCount ?? 0) + 1,
-      totalCostUsd: (state?.totalCostUsd ?? 0) + costUsd,
-      todayCostUsd: todayCost + costUsd,
-      costResetDate: today,
-    });
-
-    await this.activityLog.log(
-      "heartbeat",
-      `Heartbeat #${(state?.heartbeatCount ?? 0) + 1} complete`,
-      {
-        heartbeatId,
-        costUsd,
-        durationMs,
-        turnCount,
-        memoryUpdated: !!newMemory,
-        responseSummary: output,
-      },
-    );
+    return { output, costUsd, turnCount };
   }
 
   private async readState(): Promise<SupervisorDaemonState | null> {

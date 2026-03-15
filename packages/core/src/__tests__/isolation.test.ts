@@ -66,11 +66,12 @@ describe("session clone lifecycle", () => {
     });
     expect(stdout.trim()).toBe("feat/test-branch");
 
-    // Should appear in list
+    // Should appear in list with source repo as repoPath (not the clone path)
     const sessionsBase = path.dirname(sessionDir);
     const list = await listSessionClones(sessionsBase);
     const found = list.find((c) => c.branch === "feat/test-branch");
     expect(found).toBeDefined();
+    expect(found!.repoPath).toBe(path.resolve(repoDir));
 
     // Remove
     await removeSessionClone(sessionDir);

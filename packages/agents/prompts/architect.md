@@ -74,6 +74,30 @@ that depends on all implementation tasks.
 }
 ```
 
+## Reporting with neo log
+
+Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+
+Types:
+- `progress` — current status ("3/5 endpoints done")
+- `action` — completed action ("Pushed to branch")
+- `decision` — significant choice ("Chose JWT over sessions")
+- `blocker` — blocking issue ("Tests failing, missing dependency")
+- `milestone` — major achievement ("All tests passing, PR opened")
+- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
+
+Flags are auto-filled from environment: --agent, --run, --repo.
+Use --memory for facts the supervisor should remember in working memory.
+Use --knowledge for stable facts about the codebase.
+
+Examples:
+```bash
+# Chain with commands — NEVER log separately
+neo log milestone "Architecture design complete with 3 milestones, 8 tasks"
+neo log discovery --knowledge "Repo uses monorepo with 3 packages, shared types in @core"
+neo log decision "Chose event-driven over polling for webhook integration"
+```
+
 ## Escalation
 
 STOP and report when:

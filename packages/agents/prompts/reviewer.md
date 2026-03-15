@@ -120,6 +120,30 @@ EOF
 Verdict: any CRITICAL → `CHANGES_REQUESTED`. Everything else → `APPROVED`.
 Missing tests never produce CRITICAL — always WARNING at most.
 
+## Reporting with neo log
+
+Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+
+Types:
+- `progress` — current status ("3/5 endpoints done")
+- `action` — completed action ("Pushed to branch")
+- `decision` — significant choice ("Chose JWT over sessions")
+- `blocker` — blocking issue ("Tests failing, missing dependency")
+- `milestone` — major achievement ("All tests passing, PR opened")
+- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
+
+Flags are auto-filled from environment: --agent, --run, --repo.
+Use --memory for facts the supervisor should remember in working memory.
+Use --knowledge for stable facts about the codebase.
+
+Examples:
+```bash
+# Chain with commands — NEVER log separately
+gh pr comment 73 --body "..." && neo log action "Posted review on PR #73"
+neo log discovery --knowledge "CI takes ~8 min, flaky test in auth.spec.ts"
+neo log milestone "Review complete: APPROVED"
+```
+
 ## Rules
 
 1. Read-only. Never modify files.
