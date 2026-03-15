@@ -32,11 +32,10 @@ export async function createSessionClone(options: {
   // Resolve the real upstream remote URL so the clone is completely
   // independent from the user's local repo. This prevents any git
   // operations in the clone from leaking into the user's working tree.
-  const remoteUrl = await execFileAsync(
-    "git",
-    ["config", "--get", "remote.origin.url"],
-    { cwd: repoPath, timeout: GIT_TIMEOUT },
-  )
+  const remoteUrl = await execFileAsync("git", ["config", "--get", "remote.origin.url"], {
+    cwd: repoPath,
+    timeout: GIT_TIMEOUT,
+  })
     .then(({ stdout }) => stdout.trim())
     .catch(() => "");
 
@@ -44,11 +43,9 @@ export async function createSessionClone(options: {
   // This ensures zero coupling: no hardlinks, no local-path origin,
   // no alternates. Falls back to local clone if no remote is configured.
   const cloneSource = remoteUrl || repoPath;
-  await execFileAsync(
-    "git",
-    ["clone", "--branch", options.baseBranch, cloneSource, sessionDir],
-    { timeout: GIT_TIMEOUT },
-  );
+  await execFileAsync("git", ["clone", "--branch", options.baseBranch, cloneSource, sessionDir], {
+    timeout: GIT_TIMEOUT,
+  });
 
   // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
   const branchExists = await execFileAsync(
