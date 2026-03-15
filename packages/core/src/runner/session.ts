@@ -92,10 +92,8 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
     // Required pair: permissionMode alone is not enough, SDK also needs the flag.
     permissionMode: "bypassPermissions",
     allowDangerouslySkipPermissions: true,
-    // SDK isolation: prevent Claude Code from loading filesystem settings
-    // (user/project/local) which can cause it to resolve back to the
-    // original repo instead of working in the session clone.
-    settingSources: [],
+    // Load project-level CLAUDE.md so agents inherit project rules and conventions.
+    settingSources: ["user", "project", "local"],
     // Don't persist agent sessions — they are ephemeral clones.
     persistSession: false,
   };
