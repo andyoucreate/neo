@@ -1,10 +1,10 @@
 # neo
 
-**Neoscaling** — the new way to scale your engineering team. Instead of hiring, give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
+**Neoscaling** - the new way to scale your engineering team. Instead of hiring, give a supervisor agent the ability to dispatch, monitor, and recover developer agents across your repositories. Scale development capacity instantly by running multiple autonomous agents in parallel.
 
-neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything — a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo provides the primitives to dispatch work safely: git clone isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
+neo is the orchestration layer between a supervisor and the developer agents it manages. The supervisor can be anything - a Claude Code session running in a loop, an OpenClaw agent with Linear/Notion/Slack tools, a custom script, or a human at the terminal. neo provides the primitives to dispatch work safely: git clone isolation, 3-level recovery, concurrency control, budget guards, and real-time cost tracking.
 
-**Zero infrastructure** — no database, no Redis, no Docker.
+**Zero infrastructure** - no database, no Redis, no Docker.
 
 ```
 ┌─────────────────────────────────────┐
@@ -60,11 +60,11 @@ Traditional approaches to scaling engineering have limits:
 
 neo gives you:
 
-- **Parallel execution** — Run 5+ agents simultaneously across repos
-- **Safe isolation** — Each agent works in its own git clone; main is never touched
-- **Budget control** — Hard daily caps with real-time cost tracking
-- **3-level recovery** — Automatic retries with context preservation
-- **Framework, not product** — Integrate with your existing tools (Linear, Notion, Slack)
+- **Parallel execution** - Run 5+ agents simultaneously across repos
+- **Safe isolation** - Each agent works in its own git clone; main is never touched
+- **Budget control** - Hard daily caps with real-time cost tracking
+- **3-level recovery** - Automatic retries with context preservation
+- **Framework, not product** - Integrate with your existing tools (Linear, Notion, Slack)
 
 ---
 
@@ -107,7 +107,7 @@ This checks all prerequisites and reports any issues.
 ```bash
 # 1. Initialize neo in your repository (must be a git repo)
 cd your-project
-neo init --budget 100    # Set daily budget cap (e.g., $100/day)
+neo init
 
 # 2. Dispatch a developer agent
 neo run developer --prompt "Add input validation to the user registration endpoint"
@@ -118,25 +118,7 @@ neo runs --last 1      # Show the most recent run
 neo cost               # See today's spend and breakdown by agent
 ```
 
-A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing — it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
-
-### Supervisor Skills for Claude Code
-
-Install the neo skills so your Claude Code supervisor knows how to dispatch, monitor, and recover agents:
-
-```bash
-# Install from skills.sh
-npx skills add voltaire-network/neo
-
-# Or copy manually to your project
-cp -r neo/skills/neo-supervisor .claude/skills/
-cp -r neo/skills/neo-recover .claude/skills/
-```
-
-This gives your supervisor two skills:
-
-- `/neo-supervisor` — Full dispatch-monitor-decide loop with agent selection guide
-- `/neo-recover` — Failure diagnosis and recovery strategies
+A supervisor agent (Claude Code, OpenClaw, etc.) does exactly the same thing - it calls `neo run` or uses the programmatic API to dispatch agents, read results, and decide what to do next.
 
 ---
 
@@ -149,7 +131,7 @@ When a supervisor dispatches `neo run developer --prompt "..."`, neo:
 3. **Starts** a Claude session with the agent's configuration
 4. **Streams** events back to the supervisor (start, cost updates, completion)
 5. **Tracks** costs in JSONL journals with daily budget enforcement
-6. **Persists** the run result to `.neo/runs/<runId>.json`
+6. **Persists** the run result to the global data directory
 
 Each agent works in its own clone. The main branch is never touched. The supervisor can inspect results, dispatch follow-up agents, or kill sessions at any point.
 
@@ -158,13 +140,19 @@ Each agent works in its own clone. The main branch is never touched. The supervi
 ## CLI Reference
 
 ```
-neo init       Initialize a .neo/ project directory
-neo run        Dispatch an agent to execute a task
-neo runs       List runs and inspect results
+neo init       Initialize a .neo/ project directory and register the repo
+neo run        Dispatch an agent to execute a task in an isolated clone
+neo runs       List runs or show details of a specific run
 neo logs       Show event logs from journals
 neo cost       Show cost breakdown (today, by agent)
-neo agents     List available agents
+neo agents     List available agents (built-in and custom)
 neo doctor     Check environment prerequisites
+neo repos      Manage registered repositories (list, add, remove)
+neo mcp        Manage MCP server integrations (Linear, Notion, GitHub, etc.)
+neo supervise  Manage the autonomous supervisor daemon
+neo memory     Inspect and search supervisor memory and knowledge
+neo log        Log structured progress reports to the supervisor
+neo version    Display the current neo version
 ```
 
 ### neo init
@@ -172,12 +160,11 @@ neo doctor     Check environment prerequisites
 Initialize neo in your repository:
 
 ```bash
-neo init                    # Defaults: $500/day budget, auto-detects branch
-neo init --budget 50        # Set daily budget cap
-neo init --force            # Overwrite existing config
+neo init                    # Creates .neo/agents/, registers repo in global config
+neo init --force            # Re-register even if already initialized
 ```
 
-Creates `.neo/config.yml`, agent and journal directories, and installs supervisor skills for Claude Code.
+Creates `.neo/agents/` for project-local agent definitions and registers the repository in the global config at `~/.neo/config.yml`.
 
 ### neo run
 
@@ -189,7 +176,7 @@ neo run <agent> --prompt "..."
 # Examples
 neo run developer --prompt "Fix the N+1 query in UserService.findAll"
 neo run architect --prompt "Design the notification system"
-neo run reviewer-quality --prompt "Review the changes in src/auth/"
+neo run reviewer --prompt "Review the changes in src/auth/"
 neo run fixer --prompt "Fix all issues from the quality review"
 
 # Options
@@ -197,15 +184,22 @@ neo run developer --prompt "..." --repo ../other-repo
 neo run developer --prompt "..." --priority critical
 neo run developer --prompt "..." --output json
 neo run developer --prompt "..." --meta '{"ticket": "PROJ-123"}'
+neo run developer --prompt "..." --branch feat/my-feature
+neo run developer --prompt "..." --sync         # Run in foreground (blocking)
+neo run developer --prompt "..." --git-strategy pr  # Create PR after completion
 ```
+
+By default, runs are detached (background). Use `--sync` to run in foreground.
 
 ### neo runs
 
 List and inspect runs:
 
 ```bash
-neo runs                        # Table of all runs
+neo runs                        # Table of all runs for current repo
 neo runs <runId>                # Detailed view of a specific run (prefix match)
+neo runs --all                  # Show runs from all repos
+neo runs --repo my-project      # Filter by repo name
 neo runs --last 5               # Last 5 runs only
 neo runs --status failed        # Filter by status: completed, failed, running
 neo runs --short                # One-line-per-run, minimal tokens for supervisors
@@ -221,6 +215,7 @@ neo logs                        # Last 20 events
 neo logs --last 50              # Last 50 events
 neo logs --type session:fail    # Filter: session:start, session:complete, session:fail, cost:update, budget:alert
 neo logs --run abc123           # Filter by run ID prefix
+neo logs -f <runId>             # Follow a detached run log in real time
 neo logs --short                # Ultra compact output for supervisors
 neo logs --output json
 ```
@@ -230,7 +225,9 @@ neo logs --output json
 View cost breakdown:
 
 ```bash
-neo cost                        # Today's total, all-time total, breakdown by agent
+neo cost                        # Today's total, all-time total, breakdown by agent (current repo)
+neo cost --all                  # Show costs from all repos
+neo cost --repo my-project      # Filter by repo name
 neo cost --short                # One-liner: today=$0.52 sessions=3 developer=$0.32
 neo cost --output json          # Structured JSON with today/allTime/byAgent
 ```
@@ -250,25 +247,89 @@ Check environment prerequisites:
 
 ```bash
 neo doctor              # Check Node.js, git, config, Claude CLI, agents
+neo doctor --fix        # Attempt to automatically fix detected issues
 neo doctor --output json
+```
+
+### neo repos
+
+Manage registered repositories:
+
+```bash
+neo repos                       # List all registered repos
+neo repos add                   # Add current directory
+neo repos add /path/to/repo     # Add specific path
+neo repos add --name myrepo     # Add with custom name
+neo repos remove myrepo         # Remove by name or path
+neo repos --output json
+```
+
+### neo mcp
+
+Manage MCP server integrations:
+
+```bash
+neo mcp list                    # List configured MCP servers
+neo mcp add linear              # Add preset (linear, notion, github, jira, slack)
+neo mcp add myserver --type stdio --command "node server.js"
+neo mcp add myapi --type http --url https://api.example.com
+neo mcp remove linear           # Remove a server
+```
+
+### neo supervise
+
+Manage the autonomous supervisor daemon:
+
+```bash
+neo supervise                   # Start daemon (if needed) and open TUI
+neo supervise --detach          # Start daemon in background without TUI
+neo supervise --attach          # Open TUI for running supervisor
+neo supervise --status          # Show supervisor status
+neo supervise --kill            # Stop the running supervisor
+neo supervise --message "..."   # Send a message to the supervisor inbox
+neo supervise --name mysupervisor  # Use a named supervisor instance
+```
+
+### neo memory
+
+Inspect and search supervisor memory:
+
+```bash
+neo memory list                 # List memory entries
+neo memory search "query"       # Search memory and knowledge
+neo memory show <id>            # Show a specific memory entry
+```
+
+### neo log
+
+Log structured progress reports from agents to the supervisor:
+
+```bash
+neo log progress "3/5 endpoints done"
+neo log action "Pushed to branch"
+neo log decision "Chose JWT over sessions"
+neo log blocker "Tests failing, missing dependency"
+neo log milestone "All tests passing, PR opened"
+neo log discovery "Repo uses Prisma + PostgreSQL"
+
+# Routing overrides
+neo log discovery "Uses Redis" --knowledge  # Route to knowledge base
+neo log milestone "Feature complete" --memory  # Route to working memory
 ```
 
 ---
 
 ## Agents
 
-8 built-in agents, each with a specific role, model, and sandbox:
+5 built-in agents, each with a specific role, model, and sandbox:
 
 | Agent | Role | Model | Sandbox |
 |-------|------|-------|---------|
-| `architect` | Plans architecture, decomposes features into tasks. Never writes code. | opus | readonly |
-| `developer` | Implements features and fixes in isolated clones. | opus | writable |
-| `fixer` | Fixes issues found by reviewers. Targets root causes. | opus | writable |
-| `refiner` | Evaluates tickets and splits vague requirements into precise specs. | opus | readonly |
-| `reviewer-quality` | Catches real bugs and DRY violations. Approves by default. | sonnet | readonly |
-| `reviewer-security` | Flags exploitable vulnerabilities. Approves by default. | opus | readonly |
-| `reviewer-perf` | Flags N+1 queries and O(n²) on unbounded data. Approves by default. | sonnet | readonly |
-| `reviewer-coverage` | Recommends missing tests for critical paths. Never blocks. | sonnet | readonly |
+| `architect` | Strategic planner and decomposer. Analyzes features, designs architecture, creates roadmaps, decomposes work into atomic tasks. Never writes code. | opus | readonly |
+| `developer` | Implementation worker. Executes atomic tasks from specs in isolated clones. Follows strict scope discipline. | opus | writable |
+| `fixer` | Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms. | opus | writable |
+| `refiner` | Ticket quality evaluator and decomposer. Reads the target codebase to assess ticket clarity and split vague tickets into precise specs. | opus | readonly |
+| `reviewer` | Single-pass code reviewer. Covers quality, security, performance, and test coverage in one lightweight sweep. | sonnet | readonly |
 
 ### Custom Agents
 
@@ -293,14 +354,12 @@ Agents support:
 
 ## Configuration
 
-Configuration is stored in `.neo/config.yml`, created by `neo init`:
+Configuration is stored in `~/.neo/config.yml`, created automatically on first use:
 
 ```yaml
 repos:
-  - path: "."
-    defaultBranch: main      # Auto-detected from git
-    branchPrefix: feat        # Prefix for session branches
-    autoCreatePr: false       # Auto PR creation (coming soon)
+  - path: "/path/to/your/repo"
+    defaultBranch: main
 
 concurrency:
   maxSessions: 5              # Total concurrent agent sessions
@@ -338,17 +397,11 @@ sessions:
 neo is a framework, not just a CLI. Use `@neotx/core` directly:
 
 ```typescript
-import { AgentRegistry, loadConfig, Orchestrator } from "@neotx/core";
+import { AgentRegistry, loadGlobalConfig, Orchestrator } from "@neotx/core";
 
-const config = await loadConfig(".neo/config.yml");
+const config = await loadGlobalConfig();
 
-const orchestrator = new Orchestrator(config, {
-  journalDir: ".neo/journals",
-  middleware: [
-    Orchestrator.middleware.budgetGuard(),
-    Orchestrator.middleware.loopDetection({ threshold: 5, scope: "session" }),
-  ],
-});
+const orchestrator = new Orchestrator(config);
 
 // Load and register agents
 const registry = new AgentRegistry("path/to/agents");
@@ -362,7 +415,7 @@ orchestrator.registerWorkflow({
   name: "implement",
   steps: {
     code: { agent: "developer" },
-    review: { agent: "reviewer-quality", dependsOn: ["code"], sandbox: "readonly" },
+    review: { agent: "reviewer", dependsOn: ["code"], sandbox: "readonly" },
   },
 });
 
@@ -400,28 +453,6 @@ orchestrator.on("budget:alert", (e) => { /* threshold crossed */ });
 orchestrator.on("*", (e) => { /* all events */ });
 ```
 
-### Middleware
-
-Extend behavior with middleware hooks:
-
-```typescript
-import { Orchestrator } from "@neotx/core";
-
-const orchestrator = new Orchestrator(config, {
-  middleware: [
-    Orchestrator.middleware.budgetGuard(),           // Block when over budget
-    Orchestrator.middleware.loopDetection({          // Detect tool loops
-      threshold: 5,
-      scope: "session",
-    }),
-    Orchestrator.middleware.auditLog({               // JSONL audit trail
-      dir: ".neo/audit",
-      includeInput: true,
-    }),
-  ],
-});
-```
-
 ---
 
 ## Supervisor Patterns
@@ -446,10 +477,10 @@ neo runs <runId> --output json    # Get full result
 neo run developer --prompt "Implement the auth system based on this plan: ..."
 
 # Dispatch a review
-neo run reviewer-security --prompt "Review the auth changes on branch feat/run-..."
+neo run reviewer --prompt "Review the auth changes on branch feat/run-..."
 
 # If issues found, dispatch a fix
-neo run fixer --prompt "Fix the issues found in the security review: ..."
+neo run fixer --prompt "Fix the issues found in the review: ..."
 ```
 
 ### OpenClaw Agent as Supervisor
@@ -457,7 +488,7 @@ neo run fixer --prompt "Fix the issues found in the security review: ..."
 An OpenClaw agent with Linear, Notion, and Slack tools that manages the full cycle:
 
 ```typescript
-import { Orchestrator, loadConfig, AgentRegistry } from "@neotx/core";
+import { Orchestrator, loadGlobalConfig, AgentRegistry } from "@neotx/core";
 
 // The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
 // updates ticket status, and posts results to Slack
@@ -514,19 +545,19 @@ neotx              Thin CLI wrapper (citty)
 
 ### Design Principles
 
-- **Framework, not product** — No UI, no database, no opinions on trackers
-- **SDK-first** — Wraps the Claude Agent SDK; SDK updates flow through naturally
-- **YAML for definitions, TypeScript for dispatch** — Agents are YAML, orchestration is code
-- **Zero infrastructure** — JSONL journals, git clone isolation, in-memory semaphore
-- **Events are the integration primitive** — Everything emits typed events
+- **Framework, not product** - No UI, no database, no opinions on trackers
+- **SDK-first** - Wraps the Claude Agent SDK; SDK updates flow through naturally
+- **YAML for definitions, TypeScript for dispatch** - Agents are YAML, orchestration is code
+- **Zero infrastructure** - JSONL journals, git clone isolation, in-memory semaphore
+- **Events are the integration primitive** - Everything emits typed events
 
 ### Recovery
 
 Sessions use 3-level recovery escalation:
 
-1. **Normal retry** — Same session, same context
-2. **Resume session** — New session, previous session ID for context continuity
-3. **Fresh session** — Clean slate, no previous context
+1. **Normal retry** - Same session, same context
+2. **Resume session** - New session, previous session ID for context continuity
+3. **Fresh session** - Clean slate, no previous context
 
 Each level uses exponential backoff. Non-retryable errors (auth failures, invalid config) skip retries entirely.
 
