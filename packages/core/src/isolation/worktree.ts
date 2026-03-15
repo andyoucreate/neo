@@ -1,3 +1,4 @@
+// Worktree isolation utilities for neo
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readdir, rm } from "node:fs/promises";
