@@ -329,7 +329,7 @@ function ActivityRow({
       <Text color={color} dimColor={isOld} bold>
         {label}
       </Text>
-      <Text dimColor={isOld} bold={isLatest} wrap="truncate">
+      <Text dimColor={isOld} bold={isLatest} wrap={isLatest ? "wrap" : "truncate"}>
         {entry.summary}
       </Text>
     </Box>
@@ -348,8 +348,7 @@ function ThinkingPanel({ entries }: { entries: ActivityEntry[] }) {
   const color = TYPE_COLORS[latest.type] ?? "#9ca3af";
   const label = (latest.type as string) === "thinking" ? "THINKING" : "PLANNING";
 
-  // Show more context in planning section
-  const text = latest.summary.length > 600 ? `${latest.summary.slice(0, 600)}...` : latest.summary;
+  const text = latest.summary;
 
   return (
     <Box flexDirection="column">
@@ -362,7 +361,7 @@ function ThinkingPanel({ entries }: { entries: ActivityEntry[] }) {
       </Box>
       <Box paddingX={2}>
         <Text dimColor>│ </Text>
-        <Text color={color} wrap="truncate-end">
+        <Text color={color} wrap="wrap">
           {text}
         </Text>
       </Box>

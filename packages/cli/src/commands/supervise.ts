@@ -254,16 +254,14 @@ export default defineCommand({
       return;
     }
 
-    // Default: start daemon + open TUI
+    // Default: start daemon (detached)
     const alreadyRunning = await isDaemonRunning(name);
-    if (!alreadyRunning) {
-      await startDaemon(name);
-      // Give daemon a moment to initialize
-      await new Promise((r) => setTimeout(r, 1_000));
+    if (alreadyRunning) {
+      printSuccess(
+        `Supervisor "${name}" already running (PID ${alreadyRunning.pid}). Use --attach for TUI.`,
+      );
+      return;
     }
-
-    // Open TUI
-    const { renderSupervisorTui } = await import("../tui/index.js");
-    await renderSupervisorTui(name);
+    await startDaemon(name);
   },
 });

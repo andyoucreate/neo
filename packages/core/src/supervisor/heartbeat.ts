@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { GlobalConfig } from "@/config";
 import { getDataDir } from "@/paths";
 import type { ActivityLog } from "./activity-log.js";
@@ -199,27 +198,12 @@ export class HeartbeatLoop {
       const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
       // Build allowed tools list — include MCP tool patterns for configured servers
-      const allowedTools: string[] = ["Bash", "Read", "mcp__neo__*"];
+      const allowedTools: string[] = ["Bash", "Read"];
       if (this.config.mcpServers) {
         for (const name of Object.keys(this.config.mcpServers)) {
           allowedTools.push(`mcp__${name}__*`);
         }
       }
-
-      // Auto-configure internal MCP server for structured reporting
-      const mcpInternalPath = path.join(
-        path.dirname(fileURLToPath(import.meta.url)),
-        "mcp-internal.js",
-      );
-      const mcpServers: Record<string, unknown> = {
-        neo: {
-          type: "stdio",
-          command: "node",
-          args: [mcpInternalPath],
-          env: { NEO_ACTIVITY_PATH: this.activityLog.filePath },
-        },
-        ...(this.config.mcpServers ?? {}),
-      };
 
       const queryOptions: Record<string, unknown> = {
         cwd: homedir(),
@@ -227,7 +211,7 @@ export class HeartbeatLoop {
         allowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
-        mcpServers,
+        mcpServers: this.config.mcpServers ?? {},
       };
 
       const stream = sdk.query({ prompt, options: queryOptions as never });

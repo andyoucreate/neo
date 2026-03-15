@@ -11,6 +11,7 @@ const main = defineCommand({
     init: () => import("./commands/init.js").then((m) => m.default),
     run: () => import("./commands/run.js").then((m) => m.default),
     runs: () => import("./commands/runs.js").then((m) => m.default),
+    log: () => import("./commands/log.js").then((m) => m.default),
     logs: () => import("./commands/logs.js").then((m) => m.default),
     cost: () => import("./commands/cost.js").then((m) => m.default),
     repos: () => import("./commands/repos.js").then((m) => m.default),

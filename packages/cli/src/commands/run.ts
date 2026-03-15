@@ -168,6 +168,12 @@ export default defineCommand({
       type: "boolean",
       alias: "d",
       description: "Run in background and return immediately with the run ID",
+      default: true,
+    },
+    sync: {
+      type: "boolean",
+      alias: "s",
+      description: "Run in foreground (blocking) instead of detached",
       default: false,
     },
   },
@@ -199,7 +205,7 @@ export default defineCommand({
       return;
     }
 
-    if (args.detach) {
+    if (args.detach && !args.sync) {
       await runDetached({
         agentName: args.agent,
         repo,
