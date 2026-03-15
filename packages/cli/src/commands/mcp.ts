@@ -14,6 +14,7 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
       type: "stdio",
       command: "npx",
       args: ["-y", "@anthropic/linear-mcp-server"],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Template placeholder interpolated at runtime by Claude Code
       env: { LINEAR_API_KEY: "${LINEAR_API_KEY}" },
     },
     envVars: ["LINEAR_API_KEY"],
@@ -23,6 +24,7 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
       type: "stdio",
       command: "npx",
       args: ["-y", "@notionhq/notion-mcp-server"],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Template placeholder interpolated at runtime by Claude Code
       env: { NOTION_TOKEN: "${NOTION_TOKEN}" },
     },
     envVars: ["NOTION_TOKEN"],
@@ -32,6 +34,7 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
       type: "stdio",
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-github"],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Template placeholder interpolated at runtime by Claude Code
       env: { GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}" },
     },
     envVars: ["GITHUB_TOKEN"],
@@ -41,6 +44,7 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
       type: "stdio",
       command: "npx",
       args: ["-y", "@anthropic/jira-mcp-server"],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Template placeholders interpolated at runtime by Claude Code
       env: { JIRA_API_TOKEN: "${JIRA_API_TOKEN}", JIRA_URL: "${JIRA_URL}" },
     },
     envVars: ["JIRA_API_TOKEN", "JIRA_URL"],
@@ -50,6 +54,7 @@ const MCP_PRESETS: Record<string, { config: McpServerConfig; envVars: string[] }
       type: "stdio",
       command: "npx",
       args: ["-y", "@modelcontextprotocol/server-slack"],
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: Template placeholder interpolated at runtime by Claude Code
       env: { SLACK_BOT_TOKEN: "${SLACK_BOT_TOKEN}" },
     },
     envVars: ["SLACK_BOT_TOKEN"],
