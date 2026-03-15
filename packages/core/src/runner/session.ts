@@ -102,6 +102,10 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
       cwd: worktreePath ?? options.repoPath,
       maxTurns: agent.maxTurns,
       allowedTools: sandboxConfig.allowedTools,
+      // Workers run detached without a TTY — bypass interactive permission prompts.
+      // Required pair: permissionMode alone is not enough, SDK also needs the flag.
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
     };
 
     if (options.resumeSessionId) {
