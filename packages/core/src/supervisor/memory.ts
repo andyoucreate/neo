@@ -67,9 +67,7 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
       activeWork: (parsed.activeWork as ActiveWorkItem[]) ?? [],
       blockers: (parsed.blockers as BlockerItem[]) ?? [],
       decisions:
-        (parsed.decisions as DecisionItem[]) ??
-        (parsed.recentDecisions as DecisionItem[]) ??
-        [],
+        (parsed.decisions as DecisionItem[]) ?? (parsed.recentDecisions as DecisionItem[]) ?? [],
       trackerSync: (parsed.trackerSync as Record<string, string>) ?? {},
     };
   } catch {
@@ -77,9 +75,7 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
   }
 }
 
-function migrateFromOldFormat(
-  parsed: Record<string, unknown>,
-): SupervisorMemory {
+function migrateFromOldFormat(parsed: Record<string, unknown>): SupervisorMemory {
   const now = new Date().toISOString();
 
   const activeWork = (parsed.activeWork as string[]).map((s) => ({
@@ -100,16 +96,10 @@ function migrateFromOldFormat(
   // Log warnings for dropped fields
   const notes = parsed.notes as string | undefined;
   if (notes?.trim()) {
-    console.warn(
-      "[neo] Migration: dropping non-empty 'notes' field from old memory format",
-    );
   }
 
   const repoNotes = parsed.repoNotes as Record<string, string> | undefined;
   if (repoNotes && Object.keys(repoNotes).length > 0) {
-    console.warn(
-      "[neo] Migration: dropping 'repoNotes' field — move content to knowledge.md",
-    );
   }
 
   return {
@@ -155,10 +145,7 @@ export async function loadMemory(dir: string): Promise<string> {
     const legacy = await readFile(path.join(dir, LEGACY_FILE), "utf-8");
     if (legacy.trim()) {
       await writeFile(path.join(dir, MEMORY_FILE), legacy, "utf-8");
-      await rename(
-        path.join(dir, LEGACY_FILE),
-        path.join(dir, `${LEGACY_FILE}.bak`),
-      );
+      await rename(path.join(dir, LEGACY_FILE), path.join(dir, `${LEGACY_FILE}.bak`));
       return legacy;
     }
   } catch {
@@ -172,10 +159,7 @@ export async function loadMemory(dir: string): Promise<string> {
  * Save the supervisor memory to disk (full overwrite).
  * Automatically compacts if needed.
  */
-export async function saveMemory(
-  dir: string,
-  content: string,
-): Promise<void> {
+export async function saveMemory(dir: string, content: string): Promise<void> {
   const compacted = await compactMemory(dir, content);
   await writeFile(path.join(dir, MEMORY_FILE), compacted, "utf-8");
 }
@@ -229,9 +213,7 @@ export function extractMemoryOps(response: string): MemoryOp[] {
   for (const line of match[1].trim().split("\n").filter(Boolean)) {
     try {
       ops.push(memoryOpSchema.parse(JSON.parse(line)));
-    } catch {
-      console.warn("[neo] Skipping malformed memory op:", line);
-    }
+    } catch {}
   }
   return ops;
 }
@@ -246,11 +228,7 @@ function getAtPath(obj: Record<string, unknown>, path: string): unknown {
   return current;
 }
 
-function setAtPath(
-  obj: Record<string, unknown>,
-  path: string,
-  value: unknown,
-): void {
+function setAtPath(obj: Record<string, unknown>, path: string, value: unknown): void {
   const parts = path.split(".");
   let current: Record<string, unknown> = obj;
   for (let i = 0; i < parts.length - 1; i++) {
@@ -264,10 +242,7 @@ function setAtPath(
   current[lastKey] = value;
 }
 
-export function applyMemoryOps(
-  memory: SupervisorMemory,
-  ops: MemoryOp[],
-): SupervisorMemory {
+export function applyMemoryOps(memory: SupervisorMemory, ops: MemoryOp[]): SupervisorMemory {
   const clone = JSON.parse(JSON.stringify(memory)) as Record<string, unknown>;
 
   for (const op of ops) {

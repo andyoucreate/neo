@@ -5,6 +5,7 @@ import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  getSupervisorActivityPath,
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorLockPath,
@@ -188,15 +189,16 @@ async function handleMessage(name: string, text: string): Promise<void> {
     return;
   }
 
-  const inboxPath = getSupervisorInboxPath(name);
-  const message = {
-    id: randomUUID(),
-    from: "api" as const,
-    text,
-    timestamp: new Date().toISOString(),
-  };
+  const id = randomUUID();
+  const timestamp = new Date().toISOString();
 
-  await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+  const message = { id, from: "api" as const, text, timestamp };
+  await appendFile(getSupervisorInboxPath(name), `${JSON.stringify(message)}\n`, "utf-8");
+
+  // Write to activity.jsonl so the message appears in the TUI conversation
+  const activityEntry = { id, type: "message", summary: text, timestamp };
+  await appendFile(getSupervisorActivityPath(name), `${JSON.stringify(activityEntry)}\n`, "utf-8");
+
   printSuccess(`Message sent to supervisor "${name}".`);
 }
 

@@ -16,9 +16,9 @@ import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
-import { loadKnowledge, selectKnowledgeForRepos } from "@/supervisor/knowledge";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
+import { loadKnowledge, selectKnowledgeForRepos } from "@/supervisor/knowledge";
 import type {
   ActiveSession,
   CostEntry,
@@ -750,7 +750,12 @@ export class Orchestrator extends NeoEventEmitter {
       const jsonFiles = files.filter((f) => f.endsWith(".json") && !f.endsWith(".dispatch.json"));
 
       // Read all run files and filter to recent failures
-      const failedRuns: Array<{ runId: string; agent: string; error: string; completedAt: string }> = [];
+      const failedRuns: Array<{
+        runId: string;
+        agent: string;
+        error: string;
+        completedAt: string;
+      }> = [];
       for (const file of jsonFiles) {
         try {
           const raw = await readFile(path.join(repoRunsDir, file), "utf-8");

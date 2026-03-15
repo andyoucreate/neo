@@ -129,7 +129,13 @@ describe("applyKnowledgeOps", () => {
 
   it("appends a fact to existing section", () => {
     const result = applyKnowledgeOps(baseMd, [
-      { op: "append", section: "/repos/myapp", fact: "Uses Redis", source: "developer", date: "2026-03-15" },
+      {
+        op: "append",
+        section: "/repos/myapp",
+        fact: "Uses Redis",
+        source: "developer",
+        date: "2026-03-15",
+      },
     ]);
     expect(result).toContain("- Uses Redis [developer, 2026-03-15]");
     expect(parseKnowledge(result).get("/repos/myapp")).toHaveLength(3);
@@ -144,18 +150,14 @@ describe("applyKnowledgeOps", () => {
   });
 
   it("removes a fact by index", () => {
-    const result = applyKnowledgeOps(baseMd, [
-      { op: "remove", section: "/repos/myapp", index: 0 },
-    ]);
+    const result = applyKnowledgeOps(baseMd, [{ op: "remove", section: "/repos/myapp", index: 0 }]);
     const sections = parseKnowledge(result);
     expect(sections.get("/repos/myapp")).toHaveLength(1);
     expect(sections.get("/repos/myapp")?.[0]).toContain("CI takes");
   });
 
   it("removes last fact deletes section", () => {
-    const result = applyKnowledgeOps(baseMd, [
-      { op: "remove", section: "Global", index: 0 },
-    ]);
+    const result = applyKnowledgeOps(baseMd, [{ op: "remove", section: "Global", index: 0 }]);
     expect(parseKnowledge(result).has("Global")).toBe(false);
   });
 
@@ -163,16 +165,12 @@ describe("applyKnowledgeOps", () => {
     const simple = `## Only
 - Single fact
 `;
-    const result = applyKnowledgeOps(simple, [
-      { op: "remove", section: "Only", index: 0 },
-    ]);
+    const result = applyKnowledgeOps(simple, [{ op: "remove", section: "Only", index: 0 }]);
     expect(result).toBe("");
   });
 
   it("ignores remove with invalid index", () => {
-    const result = applyKnowledgeOps(baseMd, [
-      { op: "remove", section: "Global", index: 99 },
-    ]);
+    const result = applyKnowledgeOps(baseMd, [{ op: "remove", section: "Global", index: 99 }]);
     expect(parseKnowledge(result).get("Global")).toHaveLength(1);
   });
 });
@@ -224,7 +222,7 @@ describe("loadKnowledge / saveKnowledge", () => {
   it("migrates from knowledge.json (JSON object)", async () => {
     await writeFile(
       path.join(TMP_DIR, "knowledge.json"),
-      JSON.stringify({ "db": "postgres", "cache": "redis" }),
+      JSON.stringify({ db: "postgres", cache: "redis" }),
       "utf-8",
     );
     const result = await loadKnowledge(TMP_DIR);
@@ -237,11 +235,7 @@ describe("loadKnowledge / saveKnowledge", () => {
   });
 
   it("migrates from knowledge.json (plain text)", async () => {
-    await writeFile(
-      path.join(TMP_DIR, "knowledge.json"),
-      "Uses postgres\nUses redis\n",
-      "utf-8",
-    );
+    await writeFile(path.join(TMP_DIR, "knowledge.json"), "Uses postgres\nUses redis\n", "utf-8");
     const result = await loadKnowledge(TMP_DIR);
     expect(result).toContain("## Legacy");
     expect(result).toContain("Uses postgres");

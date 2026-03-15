@@ -71,7 +71,7 @@ describe("session clone lifecycle", () => {
     const list = await listSessionClones(sessionsBase);
     const found = list.find((c) => c.branch === "feat/test-branch");
     expect(found).toBeDefined();
-    expect(found!.repoPath).toBe(path.resolve(repoDir));
+    expect(found?.repoPath).toBe(path.resolve(repoDir));
 
     // Remove
     await removeSessionClone(sessionDir);

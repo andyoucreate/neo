@@ -169,20 +169,11 @@ describe("buildCompactionPrompt", () => {
 const AGENTS_DIR = path.resolve(import.meta.dirname, "../../..", "agents");
 
 describe("agent prompts contain neo log instructions", () => {
-  const promptFiles = [
-    "developer.md",
-    "reviewer.md",
-    "fixer.md",
-    "architect.md",
-    "refiner.md",
-  ];
+  const promptFiles = ["developer.md", "reviewer.md", "fixer.md", "architect.md", "refiner.md"];
 
   for (const file of promptFiles) {
     it(`${file} contains neo log section`, async () => {
-      const content = await readFile(
-        path.join(AGENTS_DIR, "prompts", file),
-        "utf-8",
-      );
+      const content = await readFile(path.join(AGENTS_DIR, "prompts", file), "utf-8");
       expect(content).toContain("## Reporting with neo log");
       expect(content).toContain("neo log");
       expect(content).toContain("progress");
@@ -193,10 +184,7 @@ describe("agent prompts contain neo log instructions", () => {
   }
 
   it("SUPERVISOR.md contains discovery logging instructions", async () => {
-    const content = await readFile(
-      path.join(AGENTS_DIR, "SUPERVISOR.md"),
-      "utf-8",
-    );
+    const content = await readFile(path.join(AGENTS_DIR, "SUPERVISOR.md"), "utf-8");
     expect(content).toContain("Using neo log for your discoveries");
     expect(content).toContain("neo log discovery --knowledge");
   });

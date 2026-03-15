@@ -1,6 +1,84 @@
 import { getSupervisorDir, loadKnowledge, loadMemory } from "@neotx/core";
 import { defineCommand } from "citty";
-import { printError } from "../output.js";
+
+// ─── Types ───────────────────────────────────────────────
+
+interface MemoryMatch {
+  line: string;
+  index: number;
+}
+
+interface KnowledgeMatch {
+  line: string;
+  section: string;
+}
+
+// ─── Helper Functions ────────────────────────────────────
+
+function findMemoryMatches(lines: string[], query: string): MemoryMatch[] {
+  return lines
+    .map((line, index) => ({ line, index }))
+    .filter(({ line }) => line.toLowerCase().includes(query));
+}
+
+function printMemoryMatchesShort(matches: MemoryMatch[]): void {
+  console.log(`memory: ${matches.length} matches`);
+  for (const { line } of matches) {
+    console.log(`  ${line.trim()}`);
+  }
+}
+
+function printMemoryMatchesFull(matches: MemoryMatch[], lines: string[]): void {
+  console.log("## Memory matches\n");
+  for (const { line, index } of matches) {
+    if (index > 0) console.log(`  ${lines[index - 1]?.trim()}`);
+    console.log(`> ${line.trim()}`);
+    if (index < lines.length - 1) console.log(`  ${lines[index + 1]?.trim()}`);
+    console.log();
+  }
+}
+
+function findKnowledgeMatches(
+  content: string,
+  query: string,
+  repoFilter: string | undefined,
+): KnowledgeMatch[] {
+  const lines = content.split("\n");
+  const matches: KnowledgeMatch[] = [];
+  let currentSection = "Global";
+
+  for (const line of lines) {
+    const headerMatch = /^##\s+(.+)$/.exec(line);
+    if (headerMatch?.[1]) {
+      currentSection = headerMatch[1].trim();
+      continue;
+    }
+
+    if (repoFilter && !currentSection.includes(repoFilter)) continue;
+
+    if (line.toLowerCase().includes(query)) {
+      matches.push({ line: line.trim(), section: currentSection });
+    }
+  }
+
+  return matches;
+}
+
+function printKnowledgeMatchesShort(matches: KnowledgeMatch[]): void {
+  console.log(`knowledge: ${matches.length} matches`);
+  for (const { line, section } of matches) {
+    console.log(`  [${section}] ${line}`);
+  }
+}
+
+function printKnowledgeMatchesFull(matches: KnowledgeMatch[]): void {
+  console.log("## Knowledge matches\n");
+  for (const { line, section } of matches) {
+    console.log(`[${section}] ${line}`);
+  }
+}
+
+// ─── Command ─────────────────────────────────────────────
 
 export default defineCommand({
   meta: {
@@ -31,6 +109,7 @@ export default defineCommand({
   async run({ args }) {
     const dir = getSupervisorDir(args.name);
     const query = (args.query as string).toLowerCase();
+    const isShort = Boolean(args.short);
 
     let hasResults = false;
 
@@ -39,26 +118,14 @@ export default defineCommand({
       const raw = await loadMemory(dir);
       if (raw.trim()) {
         const lines = JSON.stringify(JSON.parse(raw), null, 2).split("\n");
-        const matches = lines
-          .map((line, i) => ({ line, index: i }))
-          .filter(({ line }) => line.toLowerCase().includes(query));
+        const matches = findMemoryMatches(lines, query);
 
         if (matches.length > 0) {
           hasResults = true;
-          if (args.short) {
-            console.log(`memory: ${matches.length} matches`);
-            for (const { line } of matches) {
-              console.log(`  ${line.trim()}`);
-            }
+          if (isShort) {
+            printMemoryMatchesShort(matches);
           } else {
-            console.log("## Memory matches\n");
-            for (const { line, index } of matches) {
-              // Show context: 1 line before, match, 1 line after
-              if (index > 0) console.log(`  ${lines[index - 1]?.trim()}`);
-              console.log(`> ${line.trim()}`);
-              if (index < lines.length - 1) console.log(`  ${lines[index + 1]?.trim()}`);
-              console.log();
-            }
+            printMemoryMatchesFull(matches, lines);
           }
         }
       }
@@ -70,37 +137,14 @@ export default defineCommand({
     try {
       const knowledge = await loadKnowledge(dir);
       if (knowledge.trim()) {
-        const lines = knowledge.split("\n");
-        const matches: Array<{ line: string; section: string }> = [];
-        let currentSection = "Global";
-
-        for (const line of lines) {
-          const headerMatch = /^##\s+(.+)$/.exec(line);
-          if (headerMatch?.[1]) {
-            currentSection = headerMatch[1].trim();
-            continue;
-          }
-
-          // Filter by repo if specified
-          if (args.repo && !currentSection.includes(args.repo as string)) continue;
-
-          if (line.toLowerCase().includes(query)) {
-            matches.push({ line: line.trim(), section: currentSection });
-          }
-        }
+        const matches = findKnowledgeMatches(knowledge, query, args.repo as string | undefined);
 
         if (matches.length > 0) {
           hasResults = true;
-          if (args.short) {
-            console.log(`knowledge: ${matches.length} matches`);
-            for (const { line, section } of matches) {
-              console.log(`  [${section}] ${line}`);
-            }
+          if (isShort) {
+            printKnowledgeMatchesShort(matches);
           } else {
-            console.log("## Knowledge matches\n");
-            for (const { line, section } of matches) {
-              console.log(`[${section}] ${line}`);
-            }
+            printKnowledgeMatchesFull(matches);
           }
         }
       }

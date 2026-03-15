@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -124,12 +124,8 @@ describe("applyMemoryOps", () => {
     return parseStructuredMemory(
       JSON.stringify({
         agenda: "Initial focus",
-        activeWork: [
-          { description: "Task A", status: "running", since: "2026-03-15T00:00:00Z" },
-        ],
-        blockers: [
-          { description: "Blocked on X", since: "2026-03-15T00:00:00Z" },
-        ],
+        activeWork: [{ description: "Task A", status: "running", since: "2026-03-15T00:00:00Z" }],
+        blockers: [{ description: "Blocked on X", since: "2026-03-15T00:00:00Z" }],
         decisions: [],
         trackerSync: { "T-1": "done" },
       }),
@@ -138,9 +134,7 @@ describe("applyMemoryOps", () => {
 
   it("applies set operation", () => {
     const mem = makeMemory();
-    const result = applyMemoryOps(mem, [
-      { op: "set", path: "agenda", value: "New agenda" },
-    ]);
+    const result = applyMemoryOps(mem, [{ op: "set", path: "agenda", value: "New agenda" }]);
     expect(result.agenda).toBe("New agenda");
     // Original untouched (immutable)
     expect(mem.agenda).toBe("Initial focus");
@@ -149,18 +143,14 @@ describe("applyMemoryOps", () => {
   it("applies append operation", () => {
     const mem = makeMemory();
     const newItem = { description: "Task B", status: "running", since: "2026-03-15T01:00:00Z" };
-    const result = applyMemoryOps(mem, [
-      { op: "append", path: "activeWork", value: newItem },
-    ]);
+    const result = applyMemoryOps(mem, [{ op: "append", path: "activeWork", value: newItem }]);
     expect(result.activeWork).toHaveLength(2);
     expect(result.activeWork[1]?.description).toBe("Task B");
   });
 
   it("applies remove operation", () => {
     const mem = makeMemory();
-    const result = applyMemoryOps(mem, [
-      { op: "remove", path: "blockers", index: 0 },
-    ]);
+    const result = applyMemoryOps(mem, [{ op: "remove", path: "blockers", index: 0 }]);
     expect(result.blockers).toHaveLength(0);
   });
 
@@ -183,9 +173,7 @@ describe("applyMemoryOps", () => {
 
   it("ignores remove with out-of-bounds index", () => {
     const mem = makeMemory();
-    const result = applyMemoryOps(mem, [
-      { op: "remove", path: "activeWork", index: 99 },
-    ]);
+    const result = applyMemoryOps(mem, [{ op: "remove", path: "activeWork", index: 99 }]);
     expect(result.activeWork).toHaveLength(1);
   });
 
@@ -193,7 +181,11 @@ describe("applyMemoryOps", () => {
     const mem = makeMemory();
     const ops: MemoryOp[] = [
       { op: "set", path: "agenda", value: "Updated" },
-      { op: "append", path: "activeWork", value: { description: "Task B", status: "waiting", since: "2026-03-15T01:00:00Z" } },
+      {
+        op: "append",
+        path: "activeWork",
+        value: { description: "Task B", status: "waiting", since: "2026-03-15T01:00:00Z" },
+      },
       { op: "remove", path: "blockers", index: 0 },
     ];
     const result = applyMemoryOps(mem, ops);
@@ -205,9 +197,7 @@ describe("applyMemoryOps", () => {
 
 describe("auditMemoryOps", () => {
   it("appends ops to memory-archive.jsonl", async () => {
-    const ops: MemoryOp[] = [
-      { op: "set", path: "agenda", value: "test" },
-    ];
+    const ops: MemoryOp[] = [{ op: "set", path: "agenda", value: "test" }];
     await auditMemoryOps(TMP_DIR, 5, ops);
     const content = await readFile(path.join(TMP_DIR, "memory-archive.jsonl"), "utf-8");
     const entry = JSON.parse(content.trim());
@@ -218,9 +208,7 @@ describe("auditMemoryOps", () => {
 
   it("does nothing for empty ops array", async () => {
     await auditMemoryOps(TMP_DIR, 5, []);
-    await expect(
-      readFile(path.join(TMP_DIR, "memory-archive.jsonl"), "utf-8"),
-    ).rejects.toThrow();
+    await expect(readFile(path.join(TMP_DIR, "memory-archive.jsonl"), "utf-8")).rejects.toThrow();
   });
 });
 

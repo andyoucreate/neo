@@ -465,14 +465,17 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
 }
 
 async function sendMessage(name: string, text: string): Promise<void> {
-  const message = {
-    id: randomUUID(),
-    from: "tui" as const,
-    text,
-    timestamp: new Date().toISOString(),
-  };
+  const id = randomUUID();
+  const timestamp = new Date().toISOString();
+
+  const message = { id, from: "tui" as const, text, timestamp };
   const inboxPath = getSupervisorInboxPath(name);
   await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+
+  // Write to activity.jsonl so the message appears in the TUI conversation
+  const activityEntry = { id, type: "message", summary: text, timestamp };
+  const activityPath = getSupervisorActivityPath(name);
+  await appendFile(activityPath, `${JSON.stringify(activityEntry)}\n`, "utf-8");
 }
 
 // ─── Main Component ──────────────────────────────────────

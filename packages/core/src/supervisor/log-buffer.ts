@@ -141,15 +141,9 @@ export async function compactLogBuffer(dir: string): Promise<void> {
   await writeFile(filePath, result, "utf-8");
 }
 
-/**
- * Build a human-readable digest from log buffer entries.
- * Groups by runId, sorts chronologically, adds type markers,
- * deduplicates adjacent identical messages, truncates output.
- */
-export function buildAgentDigest(entries: LogBufferEntry[]): string {
-  if (entries.length === 0) return "";
+// ─── Digest helpers ──────────────────────────────────────
 
-  // Group by runId (or "unassigned")
+function groupEntriesByRunId(entries: LogBufferEntry[]): Map<string, LogBufferEntry[]> {
   const groups = new Map<string, LogBufferEntry[]>();
   for (const entry of entries) {
     const key = entry.runId ?? "unassigned";
@@ -160,23 +154,35 @@ export function buildAgentDigest(entries: LogBufferEntry[]): string {
       groups.set(key, [entry]);
     }
   }
+  return groups;
+}
 
+function dedupeAdjacentEntries(entries: LogBufferEntry[]): LogBufferEntry[] {
+  const deduped: LogBufferEntry[] = [];
+  for (const entry of entries) {
+    const last = deduped[deduped.length - 1];
+    if (last && last.message === entry.message) continue;
+    deduped.push(entry);
+  }
+  return deduped;
+}
+
+/**
+ * Build a human-readable digest from log buffer entries.
+ * Groups by runId, sorts chronologically, adds type markers,
+ * deduplicates adjacent identical messages, truncates output.
+ */
+export function buildAgentDigest(entries: LogBufferEntry[]): string {
+  if (entries.length === 0) return "";
+
+  const groups = groupEntriesByRunId(entries);
   const lines: string[] = [];
   let totalCount = 0;
 
   for (const [runId, group] of groups) {
-    // Sort chronologically
     group.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 
-    // Dedup adjacent identical messages
-    const deduped: LogBufferEntry[] = [];
-    for (const entry of group) {
-      const last = deduped[deduped.length - 1];
-      if (last && last.message === entry.message) continue;
-      deduped.push(entry);
-    }
-
-    // Truncate per run
+    const deduped = dedupeAdjacentEntries(group);
     const limited = deduped.slice(0, MAX_ENTRIES_PER_RUN);
 
     const agentLabel = limited[0]?.agent ?? "unknown";
@@ -205,12 +211,8 @@ export function computeHotState(
   memory: SupervisorMemory,
   pendingEntries: LogBufferEntry[],
 ): { activeWork: string[]; blockers: string[] } {
-  const activeWork = new Set(
-    memory.activeWork.map((item) => item.description),
-  );
-  const blockers = new Set(
-    memory.blockers.map((item) => item.description),
-  );
+  const activeWork = new Set(memory.activeWork.map((item) => item.description));
+  const blockers = new Set(memory.blockers.map((item) => item.description));
 
   for (const entry of pendingEntries) {
     if (entry.type === "blocker") {

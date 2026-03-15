@@ -1,11 +1,11 @@
-import type { GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import {
@@ -23,13 +23,16 @@ import {
 import {
   applyMemoryOps,
   auditMemoryOps,
-  extractMemoryFromResponse,
   extractMemoryOps,
   loadMemory,
   parseStructuredMemory,
   saveMemory,
 } from "./memory.js";
-import { buildCompactionPrompt, buildConsolidationPrompt, buildStandardPrompt } from "./prompt-builder.js";
+import {
+  buildCompactionPrompt,
+  buildConsolidationPrompt,
+  buildStandardPrompt,
+} from "./prompt-builder.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
 
 // ─── SDK message shapes (same as runner/session.ts) ──────
@@ -264,12 +267,6 @@ export class HeartbeatLoop {
         earlyMemory,
         knowledgeMd,
       );
-    } else {
-      // Standard mode: legacy fallback for <memory> block (transitional)
-      const newMemory = extractMemoryFromResponse(output);
-      if (newMemory) {
-        await saveMemory(this.supervisorDir, newMemory);
-      }
     }
 
     // Update state

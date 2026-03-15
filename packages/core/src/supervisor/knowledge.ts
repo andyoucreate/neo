@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { knowledgeOpSchema } from "./schemas.js";
 import type { KnowledgeOp } from "./schemas.js";
+import { knowledgeOpSchema } from "./schemas.js";
 
 const KNOWLEDGE_MD = "knowledge.md";
 const KNOWLEDGE_JSON = "knowledge.json";
@@ -92,7 +92,7 @@ export function renderKnowledge(sections: Map<string, string[]>): string {
     parts.push("");
   }
 
-  return parts.join("\n").trim() + "\n";
+  return `${parts.join("\n").trim()}\n`;
 }
 
 /**
@@ -105,9 +105,7 @@ export function extractKnowledgeOps(response: string): KnowledgeOp[] {
   for (const line of match[1].trim().split("\n").filter(Boolean)) {
     try {
       ops.push(knowledgeOpSchema.parse(JSON.parse(line)));
-    } catch {
-      console.warn("[neo] Skipping malformed knowledge op:", line);
-    }
+    } catch {}
   }
   return ops;
 }
@@ -197,19 +195,22 @@ export function markStaleFacts(md: string, staleDays = 30): string {
   const now = Date.now();
   const thresholdMs = staleDays * 24 * 60 * 60 * 1000;
 
-  return md.replace(/^- (.+?)( \[([^\]]+)\])$/gm, (_match, fact: string, attr: string, attrContent: string) => {
-    // Extract date from attribution like [source, 2026-03-01]
-    const dateMatch = /\d{4}-\d{2}-\d{2}/.exec(attrContent);
-    if (!dateMatch) return `- ${fact}${attr}`;
+  return md.replace(
+    /^- (.+?)( \[([^\]]+)\])$/gm,
+    (_match, fact: string, attr: string, attrContent: string) => {
+      // Extract date from attribution like [source, 2026-03-01]
+      const dateMatch = /\d{4}-\d{2}-\d{2}/.exec(attrContent);
+      if (!dateMatch) return `- ${fact}${attr}`;
 
-    const factDate = new Date(dateMatch[0]).getTime();
-    if (Number.isNaN(factDate)) return `- ${fact}${attr}`;
+      const factDate = new Date(dateMatch[0]).getTime();
+      if (Number.isNaN(factDate)) return `- ${fact}${attr}`;
 
-    if (now - factDate > thresholdMs && !fact.includes("(stale?)")) {
-      return `- ${fact} (stale?)${attr}`;
-    }
-    return `- ${fact}${attr}`;
-  });
+      if (now - factDate > thresholdMs && !fact.includes("(stale?)")) {
+        return `- ${fact} (stale?)${attr}`;
+      }
+      return `- ${fact}${attr}`;
+    },
+  );
 }
 
 /**

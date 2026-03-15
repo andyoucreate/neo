@@ -99,10 +99,14 @@ export async function listSessionClones(sessionsBaseDir: string): Promise<Sessio
     const clonePath = resolve(absBase, entry.name);
 
     try {
-      const { stdout: branchOut } = await execFileAsync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
-        cwd: clonePath,
-        timeout: GIT_TIMEOUT,
-      });
+      const { stdout: branchOut } = await execFileAsync(
+        "git",
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        {
+          cwd: clonePath,
+          timeout: GIT_TIMEOUT,
+        },
+      );
       let repoPath = clonePath;
       try {
         const { stdout: originUrl } = await execFileAsync(

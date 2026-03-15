@@ -32,7 +32,7 @@ async function runLogCommand(args: Record<string, unknown>): Promise<void> {
   // Re-import to pick up mocks
   const mod = await import("../commands/log.js");
   const command = mod.default;
-  await command.run!({ args: args as never } as never);
+  await command.run?.({ args: args as never } as never);
 }
 
 beforeEach(async () => {
@@ -153,7 +153,12 @@ describe("neo log", () => {
     });
 
     it("--knowledge overrides target to knowledge", async () => {
-      await runLogCommand({ type: "progress", message: "test", name: "supervisor", knowledge: true });
+      await runLogCommand({
+        type: "progress",
+        message: "test",
+        name: "supervisor",
+        knowledge: true,
+      });
       const buffer = await readJsonl("log-buffer.jsonl");
       expect((buffer[0] as Record<string, unknown>).target).toBe("knowledge");
     });
@@ -186,7 +191,12 @@ describe("neo log", () => {
 
     it("--repo flag takes precedence over env var", async () => {
       process.env.NEO_REPOSITORY = "/env/repo";
-      await runLogCommand({ type: "progress", message: "test", name: "supervisor", repo: "/flag/repo" });
+      await runLogCommand({
+        type: "progress",
+        message: "test",
+        name: "supervisor",
+        repo: "/flag/repo",
+      });
 
       const buffer = await readJsonl("log-buffer.jsonl");
       expect((buffer[0] as Record<string, unknown>).repo).toBe("/flag/repo");

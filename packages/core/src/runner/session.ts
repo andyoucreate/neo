@@ -77,10 +77,42 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
   return new SessionError(message, isTimeout ? "timeout" : "unknown", sessionId);
 }
 
+// ─── Query Options Builder ──────────────────────────────
+
+function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
+  const { sessionPath, sandboxConfig } = options;
+
+  const queryOptions: Record<string, unknown> = {
+    // Always pass cwd: session clone for writable agents, repo root for readonly.
+    // Without this, readonly agents default to process.cwd() and may write to main tree.
+    cwd: sessionPath ?? options.repoPath,
+    // maxTurns: agent.maxTurns,
+    allowedTools: sandboxConfig.allowedTools,
+    // Workers run detached without a TTY — bypass interactive permission prompts.
+    // Required pair: permissionMode alone is not enough, SDK also needs the flag.
+    permissionMode: "bypassPermissions",
+    allowDangerouslySkipPermissions: true,
+  };
+
+  if (options.resumeSessionId) {
+    queryOptions.resume = options.resumeSessionId;
+  }
+
+  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
+    queryOptions.mcpServers = options.mcpServers;
+  }
+
+  if (options.env && Object.keys(options.env).length > 0) {
+    queryOptions.env = options.env;
+  }
+
+  return queryOptions;
+}
+
 // ─── Session Runner ─────────────────────────────────────
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
-  const { prompt, sessionPath, sandboxConfig, initTimeoutMs, maxDurationMs, onEvent } = options;
+  const { prompt, initTimeoutMs, maxDurationMs, onEvent } = options;
 
   const startTime = Date.now();
   let sessionId = "";
@@ -95,30 +127,7 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
 
   try {
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
-
-    const queryOptions: Record<string, unknown> = {
-      // Always pass cwd: session clone for writable agents, repo root for readonly.
-      // Without this, readonly agents default to process.cwd() and may write to main tree.
-      cwd: sessionPath ?? options.repoPath,
-      // maxTurns: agent.maxTurns,
-      allowedTools: sandboxConfig.allowedTools,
-      // Workers run detached without a TTY — bypass interactive permission prompts.
-      // Required pair: permissionMode alone is not enough, SDK also needs the flag.
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-    };
-
-    if (options.resumeSessionId) {
-      queryOptions.resume = options.resumeSessionId;
-    }
-
-    if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-      queryOptions.mcpServers = options.mcpServers;
-    }
-
-    if (options.env && Object.keys(options.env).length > 0) {
-      queryOptions.env = options.env;
-    }
+    const queryOptions = buildQueryOptions(options);
 
     let output = "";
     let costUsd = 0;

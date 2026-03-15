@@ -1,7 +1,7 @@
-import { getSupervisorDir } from "@neotx/core";
-import { defineCommand } from "citty";
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
+import { getSupervisorDir } from "@neotx/core";
+import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
 
 const VALID_TYPES = [

@@ -90,13 +90,13 @@ describe("ShutdownManager", () => {
 
   it("tracks pending writes and auto-removes on settlement", async () => {
     const manager = new ShutdownManager();
-    let resolveWrite: () => void;
+    let resolveWrite: (() => void) | undefined;
     const writePromise = new Promise<void>((resolve) => {
       resolveWrite = resolve;
     });
 
     manager.trackWrite(writePromise);
-    resolveWrite!();
+    resolveWrite?.();
     await writePromise;
     // Promise should be auto-removed
   });
@@ -193,7 +193,7 @@ describe("ShutdownManager", () => {
   it("flushes pending writes during shutdown", async () => {
     const manager = new ShutdownManager({ timeoutMs: 100 });
     let resolved = false;
-    let resolveWrite: () => void;
+    let resolveWrite: (() => void) | undefined;
     const writePromise = new Promise<void>((resolve) => {
       resolveWrite = resolve;
     }).then(() => {
@@ -204,7 +204,7 @@ describe("ShutdownManager", () => {
 
     // Start shutdown, then resolve the write
     const shutdownPromise = manager.shutdown();
-    resolveWrite!();
+    resolveWrite?.();
 
     await shutdownPromise;
 
@@ -407,7 +407,7 @@ describe("terminateGracefully", () => {
 
   it("sends SIGTERM and returns true on graceful exit", async () => {
     const child = new MockChildProcess();
-    const killSpy = vi.spyOn(child, "kill");
+    const _killSpy = vi.spyOn(child, "kill");
 
     // Simulate graceful exit after SIGTERM
     child.kill = vi.fn((signal?: string) => {

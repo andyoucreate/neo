@@ -1,4 +1,4 @@
-import { appendFile, readFile, rm } from "node:fs/promises";
+import { appendFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
@@ -10,8 +10,8 @@ import {
   readLogBufferSince,
   readUnconsolidated,
 } from "@/supervisor/log-buffer";
-import type { LogBufferEntry } from "@/supervisor/schemas";
 import type { SupervisorMemory } from "@/supervisor/memory";
+import type { LogBufferEntry } from "@/supervisor/schemas";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_log_buffer_test__");
 
@@ -38,7 +38,7 @@ function emptyMemory(): SupervisorMemory {
 
 async function writeEntries(dir: string, entries: LogBufferEntry[]): Promise<void> {
   const filePath = path.join(dir, "log-buffer.jsonl");
-  const content = entries.map((e) => JSON.stringify(e)).join("\n") + "\n";
+  const content = `${entries.map((e) => JSON.stringify(e)).join("\n")}\n`;
   await appendFile(filePath, content, "utf-8");
 }
 
@@ -64,8 +64,8 @@ describe("readLogBuffer", () => {
 
     const result = await readLogBuffer(TMP_DIR);
     expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe("a");
-    expect(result[1]!.id).toBe("b");
+    expect(result[0]?.id).toBe("a");
+    expect(result[1]?.id).toBe("b");
   });
 
   it("skips malformed lines", async () => {
@@ -78,8 +78,8 @@ describe("readLogBuffer", () => {
 
     const result = await readLogBuffer(TMP_DIR);
     expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe("good");
-    expect(result[1]!.id).toBe("also-good");
+    expect(result[0]?.id).toBe("good");
+    expect(result[1]?.id).toBe("also-good");
   });
 });
 
@@ -93,7 +93,7 @@ describe("readLogBufferSince", () => {
 
     const result = await readLogBufferSince(TMP_DIR, "2026-03-10T00:00:00.000Z");
     expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("new");
+    expect(result[0]?.id).toBe("new");
   });
 });
 
@@ -107,7 +107,7 @@ describe("readUnconsolidated", () => {
 
     const result = await readUnconsolidated(TMP_DIR);
     expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe("pending");
+    expect(result[0]?.id).toBe("pending");
   });
 });
 
@@ -119,9 +119,9 @@ describe("markConsolidated", () => {
     await markConsolidated(TMP_DIR, ["a", "c"]);
 
     const result = await readLogBuffer(TMP_DIR);
-    expect(result[0]!.consolidatedAt).toBeTruthy();
-    expect(result[1]!.consolidatedAt).toBeUndefined();
-    expect(result[2]!.consolidatedAt).toBeTruthy();
+    expect(result[0]?.consolidatedAt).toBeTruthy();
+    expect(result[1]?.consolidatedAt).toBeUndefined();
+    expect(result[2]?.consolidatedAt).toBeTruthy();
   });
 
   it("does not double-mark already consolidated entries", async () => {
@@ -132,7 +132,7 @@ describe("markConsolidated", () => {
     await markConsolidated(TMP_DIR, ["a"]);
 
     const result = await readLogBuffer(TMP_DIR);
-    expect(result[0]!.consolidatedAt).toBe(existingDate);
+    expect(result[0]?.consolidatedAt).toBe(existingDate);
   });
 
   it("handles missing file gracefully", async () => {
@@ -185,9 +185,24 @@ describe("buildAgentDigest", () => {
 
   it("deduplicates adjacent identical messages", () => {
     const entries = [
-      makeEntry({ runId: "run-1", agent: "dev", message: "compiling", timestamp: "2026-03-15T00:00:00Z" }),
-      makeEntry({ runId: "run-1", agent: "dev", message: "compiling", timestamp: "2026-03-15T00:01:00Z" }),
-      makeEntry({ runId: "run-1", agent: "dev", message: "done", timestamp: "2026-03-15T00:02:00Z" }),
+      makeEntry({
+        runId: "run-1",
+        agent: "dev",
+        message: "compiling",
+        timestamp: "2026-03-15T00:00:00Z",
+      }),
+      makeEntry({
+        runId: "run-1",
+        agent: "dev",
+        message: "compiling",
+        timestamp: "2026-03-15T00:01:00Z",
+      }),
+      makeEntry({
+        runId: "run-1",
+        agent: "dev",
+        message: "done",
+        timestamp: "2026-03-15T00:02:00Z",
+      }),
     ];
 
     const digest = buildAgentDigest(entries);
@@ -222,11 +237,11 @@ describe("computeHotState", () => {
   it("merges memory activeWork with buffer entries", () => {
     const memory: SupervisorMemory = {
       ...emptyMemory(),
-      activeWork: [{ description: "existing task", status: "running" as const, since: "2026-03-15T00:00:00Z" }],
+      activeWork: [
+        { description: "existing task", status: "running" as const, since: "2026-03-15T00:00:00Z" },
+      ],
     };
-    const entries = [
-      makeEntry({ type: "progress", message: "new work", agent: "dev" }),
-    ];
+    const entries = [makeEntry({ type: "progress", message: "new work", agent: "dev" })];
 
     const state = computeHotState(memory, entries);
     expect(state.activeWork).toContain("existing task");

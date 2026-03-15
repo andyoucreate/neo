@@ -1,4 +1,10 @@
-import { getSupervisorDir, loadKnowledge, loadMemory, parseKnowledge, parseStructuredMemory } from "@neotx/core";
+import {
+  getSupervisorDir,
+  loadKnowledge,
+  loadMemory,
+  parseKnowledge,
+  parseStructuredMemory,
+} from "@neotx/core";
 import { defineCommand } from "citty";
 
 export default defineCommand({

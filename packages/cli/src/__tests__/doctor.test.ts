@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_doctor_test__");
 
 beforeEach(async () => {
