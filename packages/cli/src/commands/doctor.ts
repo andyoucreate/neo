@@ -87,32 +87,6 @@ async function checkRepoRegistered(): Promise<CheckResult> {
   };
 }
 
-async function checkLegacyConfig(): Promise<CheckResult | null> {
-  const legacyPath = path.resolve(".neo/config.yml");
-  if (existsSync(legacyPath)) {
-    return {
-      name: "Legacy config",
-      status: "info",
-      message:
-        ".neo/config.yml detected — this file is no longer needed. Config is now in ~/.neo/config.yml.",
-    };
-  }
-  return null;
-}
-
-async function checkTmux(): Promise<CheckResult> {
-  try {
-    const { stdout } = await execFileAsync("tmux", ["-V"]);
-    return { name: "tmux", status: "pass", message: stdout.trim() };
-  } catch {
-    return {
-      name: "tmux",
-      status: "info",
-      message: "not installed (required for neo supervise)",
-    };
-  }
-}
-
 async function checkClaudeCli(): Promise<CheckResult> {
   try {
     const { stdout } = await execFileAsync("claude", ["--version"]);
@@ -178,8 +152,6 @@ export default defineCommand({
         checkGit(),
         checkGlobalConfig(),
         checkRepoRegistered(),
-        checkLegacyConfig(),
-        checkTmux(),
         checkClaudeCli(),
         checkAgents(),
         checkJournalDirs(),

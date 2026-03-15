@@ -98,7 +98,6 @@ export class SupervisorDaemon {
     // Write initial state
     await this.writeState({
       pid: process.pid,
-      tmuxSession: `neo-${this.name}`,
       sessionId: this.sessionId,
       port: this.config.supervisor.port,
       cwd: homedir(),

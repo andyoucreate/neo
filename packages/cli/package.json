@@ -1,6 +1,6 @@
 {
   "name": "@neotx/cli",
-  "version": "0.1.0-alpha.1",
+  "version": "0.1.0-alpha.2",
   "description": "CLI for the Neo orchestration framework",
   "type": "module",
   "license": "MIT",
@@ -36,8 +36,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@neotx/agents": "workspace:*",
-    "@neotx/core": "workspace:*",
+    "@neotx/agents": "0.1.0-alpha.2",
+    "@neotx/core": "0.1.0-alpha.2",
     "citty": "^0.2.1",
     "ink": "^6.8.0",
     "ink-text-input": "^6.0.0",

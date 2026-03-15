@@ -4,7 +4,6 @@ import { z } from "zod";
 
 export const supervisorDaemonStateSchema = z.object({
   pid: z.number(),
-  tmuxSession: z.string(),
   sessionId: z.string(),
   port: z.number(),
   cwd: z.string(),

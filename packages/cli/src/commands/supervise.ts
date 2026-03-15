@@ -15,7 +15,6 @@ import {
 } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
-import { isTmuxInstalled, tmuxKill, tmuxNewSession, tmuxSessionExists } from "../tmux.js";
 
 const DEFAULT_NAME = "supervisor";
 
@@ -122,16 +121,9 @@ async function handleKill(name: string): Promise<void> {
   // Clean up lock
   const lockPath = getSupervisorLockPath(name);
   await rm(lockPath, { force: true });
-
-  // Also kill tmux session if it exists
-  const tmuxName = `neo-${name}`;
-  const tmuxExists = await tmuxSessionExists(tmuxName);
-  if (tmuxExists) {
-    await tmuxKill(tmuxName);
-  }
 }
 
-async function startDaemon(name: string, useTmux: boolean): Promise<void> {
+async function startDaemon(name: string): Promise<void> {
   const running = await isDaemonRunning(name);
   if (running) {
     printError(`Supervisor "${name}" is already running (PID ${running.pid}).`);
@@ -151,55 +143,28 @@ async function startDaemon(name: string, useTmux: boolean): Promise<void> {
   const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
   const packageRoot = path.resolve(__dirname, "..");
 
-  if (useTmux) {
-    const tmuxAvailable = await isTmuxInstalled();
-    if (!tmuxAvailable) {
-      printError("tmux not found. Install: brew install tmux");
-      printError("Or use --daemon to run without tmux.");
-      process.exitCode = 1;
-      return;
-    }
+  // Spawn as detached child process with stdio to log file
+  const logDir = getSupervisorDir(name);
+  await mkdir(logDir, { recursive: true });
+  const logFd = openSync(path.join(logDir, "daemon.log"), "a");
+  const child = spawn(process.execPath, [workerPath, name], {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    cwd: packageRoot,
+    env: process.env,
+  });
+  child.unref();
+  closeSync(logFd);
 
-    const tmuxName = `neo-${name}`;
-    const exists = await tmuxSessionExists(tmuxName);
-    if (exists) {
-      await tmuxKill(tmuxName);
-    }
-
-    // Launch via tmux so it persists after terminal closes
-    await tmuxNewSession(tmuxName, "node", [workerPath, name], packageRoot);
-
-    const config = await loadGlobalConfig();
-    printSuccess(`Supervisor "${name}" started in tmux session neo-${name}`);
-    console.log(`  Port:     ${config.supervisor.port}`);
-    console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
-    console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);
-    console.log(`  Logs:     ${getSupervisorDir(name)}/daemon.log`);
-    console.log(`  Attach:   neo supervise --attach`);
-    console.log(`  Status:   neo supervise --status`);
-    console.log(`  Stop:     neo supervise --kill`);
-  } else {
-    // Spawn as detached child process with stdio to log file
-    const logDir = getSupervisorDir(name);
-    await mkdir(logDir, { recursive: true });
-    const logFd = openSync(path.join(logDir, "daemon.log"), "a");
-    const child = spawn(process.execPath, [workerPath, name], {
-      detached: true,
-      stdio: ["ignore", logFd, logFd],
-      cwd: packageRoot,
-    });
-    child.unref();
-    closeSync(logFd);
-
-    const config = await loadGlobalConfig();
-    printSuccess(`Supervisor "${name}" started (PID ${child.pid})`);
-    console.log(`  Port:     ${config.supervisor.port}`);
-    console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
-    console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);
-    console.log(`  Logs:     ${getSupervisorDir(name)}/daemon.log`);
-    console.log(`  Status:   neo supervise --status`);
-    console.log(`  Stop:     neo supervise --kill`);
-  }
+  const config = await loadGlobalConfig();
+  printSuccess(`Supervisor "${name}" started (PID ${child.pid})`);
+  console.log(`  Port:     ${config.supervisor.port}`);
+  console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
+  console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);
+  console.log(`  Logs:     ${getSupervisorDir(name)}/daemon.log`);
+  console.log(`  Attach:   neo supervise --attach`);
+  console.log(`  Status:   neo supervise --status`);
+  console.log(`  Stop:     neo supervise --kill`);
 }
 
 async function handleAttach(name: string): Promise<void> {
@@ -256,11 +221,6 @@ export default defineCommand({
       description: "Stop the running supervisor",
       default: false,
     },
-    daemon: {
-      type: "boolean",
-      description: "Start daemon without tmux (detached process)",
-      default: false,
-    },
     attach: {
       type: "boolean",
       description: "Open the TUI for a running supervisor",
@@ -297,15 +257,13 @@ export default defineCommand({
     // Default: start daemon + open TUI
     const alreadyRunning = await isDaemonRunning(name);
     if (!alreadyRunning) {
-      await startDaemon(name, !args.daemon);
+      await startDaemon(name);
       // Give daemon a moment to initialize
       await new Promise((r) => setTimeout(r, 1_000));
     }
 
-    // Open TUI unless --daemon (headless mode)
-    if (!args.daemon) {
-      const { renderSupervisorTui } = await import("../tui/index.js");
-      await renderSupervisorTui(name);
-    }
+    // Open TUI
+    const { renderSupervisorTui } = await import("../tui/index.js");
+    await renderSupervisorTui(name);
   },
 });
