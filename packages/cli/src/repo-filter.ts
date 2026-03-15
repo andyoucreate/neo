@@ -1,8 +1,8 @@
-import type { PersistedRun } from "@neotx/core";
-import { getRunsDir, listReposFromGlobalConfig, toRepoSlug } from "@neotx/core";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import type { PersistedRun } from "@neotx/core";
+import { getRunsDir, listReposFromGlobalConfig, toRepoSlug } from "@neotx/core";
 
 export interface RepoFilter {
   mode: "cwd" | "all" | "named";

@@ -1,11 +1,11 @@
-import type { GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import {
@@ -145,9 +145,14 @@ export class HeartbeatLoop {
     // - Memory has activeWork (pending CI, deferred dispatches, etc.)
     // - We've reached the max idle skip count (periodic check-in)
     const earlyMemory = await loadMemory(this.supervisorDir);
-    const memoryHasWork = earlyMemory.includes('"activeWork"') && !earlyMemory.includes('"activeWork": []');
+    const memoryHasWork =
+      earlyMemory.includes('"activeWork"') && !earlyMemory.includes('"activeWork": []');
     const idleSkipCount = state?.idleSkipCount ?? 0;
-    if (totalEventCount === 0 && !memoryHasWork && idleSkipCount < this.config.supervisor.idleSkipMax) {
+    if (
+      totalEventCount === 0 &&
+      !memoryHasWork &&
+      idleSkipCount < this.config.supervisor.idleSkipMax
+    ) {
       await this.updateState({ idleSkipCount: idleSkipCount + 1 });
       await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
       return;

@@ -1,3 +1,9 @@
+import { fork } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { NeoEvent, PersistedRun } from "@neotx/core";
 import {
   AgentRegistry,
@@ -8,12 +14,6 @@ import {
   toRepoSlug,
 } from "@neotx/core";
 import { defineCommand } from "citty";
-import { fork } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
 
