@@ -329,7 +329,10 @@ export class Orchestrator extends NeoEventEmitter {
     await this.recoverOrphanedRuns();
 
     await mkdir(this.config.sessions.dir, { recursive: true });
-    await cleanupOrphanedSessions(this.config.sessions.dir).catch(() => {});
+    const activePaths = new Set(
+      [...this._activeSessions.values()].map((s) => s.sessionPath).filter(Boolean) as string[],
+    );
+    await cleanupOrphanedSessions(this.config.sessions.dir, activePaths).catch(() => {});
   }
 
   async shutdown(): Promise<void> {

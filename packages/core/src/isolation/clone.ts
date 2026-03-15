@@ -149,8 +149,12 @@ export async function listSessionClones(sessionsBaseDir: string): Promise<Sessio
 /**
  * Clean up session clone directories under sessionsBaseDir.
  * Removes any subdirectory found (best-effort orphan cleanup).
+ * Skips directories that are in the activeSessionPaths set.
  */
-export async function cleanupOrphanedSessions(sessionsBaseDir: string): Promise<void> {
+export async function cleanupOrphanedSessions(
+  sessionsBaseDir: string,
+  activeSessionPaths?: Set<string>,
+): Promise<void> {
   const absBase = resolve(sessionsBaseDir);
 
   if (!existsSync(absBase)) {
@@ -162,6 +166,7 @@ export async function cleanupOrphanedSessions(sessionsBaseDir: string): Promise<
   for (const entry of entries) {
     if (!entry.isDirectory()) continue;
     const sessionPath = resolve(absBase, entry.name);
+    if (activeSessionPaths?.has(sessionPath)) continue;
     await removeSessionClone(sessionPath);
   }
 }
