@@ -11,8 +11,8 @@ export interface RepoFilter {
 }
 
 /**
- * Resolve which repos to query based on --all / --repo flags.
- * Default: CWD-based (finds the matching registered repo slug, or uses basename).
+ * Resolve which repos to query based on --repo flag.
+ * Default: show all repos (global view).
  */
 export async function resolveRepoFilter(args: {
   all?: boolean | undefined;
@@ -34,17 +34,9 @@ export async function resolveRepoFilter(args: {
     return { mode: "named", repoSlug: toRepoSlug({ path: repo }), repoPath: repo };
   }
 
-  // Default: CWD — match if cwd is the repo root OR inside it
-  // If no registered repo matches, fall back to showing all runs
-  const cwd = process.cwd();
-  const repos = await listReposFromGlobalConfig();
-  const match = repos.find((r) => {
-    const resolved = path.resolve(r.path);
-    return cwd === resolved || cwd.startsWith(`${resolved}/`);
-  });
-  if (!match) return { mode: "all" };
-  const slug = toRepoSlug(match);
-  return { mode: "cwd", repoSlug: slug, repoPath: match.path };
+  // Default: show all runs globally
+  // Users can filter by repo explicitly with --repo
+  return { mode: "all" };
 }
 
 /**
