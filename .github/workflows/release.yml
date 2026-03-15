@@ -71,15 +71,9 @@ jobs:
 
       - name: Publish @neotx/core
         run: pnpm --filter @neotx/core publish --no-git-checks --tag ${{ steps.npm-tag.outputs.tag }} --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @neotx/agents
         run: pnpm --filter @neotx/agents publish --no-git-checks --tag ${{ steps.npm-tag.outputs.tag }} --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Publish @neotx/cli
         run: pnpm --filter @neotx/cli publish --no-git-checks --tag ${{ steps.npm-tag.outputs.tag }} --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
