@@ -1,5 +1,6 @@
-import { appendFile, mkdir } from "node:fs/promises";
-import path from "node:path";
+import { appendFile } from "node:fs/promises";
+import { fileForDate } from "@/shared/date";
+import { ensureDir } from "@/shared/fs";
 import type { NeoEvent } from "@/types";
 
 /**
@@ -9,27 +10,15 @@ import type { NeoEvent } from "@/types";
  */
 export class EventJournal {
   private readonly dir: string;
-  private dirCreated = false;
+  private readonly dirCache = new Set<string>();
 
   constructor(options: { dir: string }) {
     this.dir = options.dir;
   }
 
   async append(event: NeoEvent): Promise<void> {
-    await this.ensureDir();
-    const file = this.fileForDate(new Date(event.timestamp));
+    await ensureDir(this.dir, this.dirCache);
+    const file = fileForDate(new Date(event.timestamp), "events", this.dir);
     await appendFile(file, `${JSON.stringify(event)}\n`, "utf-8");
-  }
-
-  private fileForDate(date: Date): string {
-    const yyyy = date.getUTCFullYear();
-    const mm = String(date.getUTCMonth() + 1).padStart(2, "0");
-    return path.join(this.dir, `events-${yyyy}-${mm}.jsonl`);
-  }
-
-  private async ensureDir(): Promise<void> {
-    if (this.dirCreated) return;
-    await mkdir(this.dir, { recursive: true });
-    this.dirCreated = true;
   }
 }
