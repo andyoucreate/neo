@@ -50,48 +50,52 @@ CRITICAL RULES:
 
 ### Dispatching agents
 \`\`\`bash
-neo run <agent> --prompt "..." --repo <path> [--priority critical|high|medium|low] [--meta '<json>']
+neo run <agent> --prompt "..." --repo <path> [--branch <name>] [--priority critical|high|medium|low] [--meta '<json>']
 \`\`\`
 
-The \`--meta\` flag accepts a JSON object attached to the run and all its events. It serves two purposes:
-1. **Traceability**: links every run to its source (ticket, PR, branch) for cost tracking and audit.
-2. **Idempotency**: neo deduplicates dispatches by metadata — same \`--meta\` twice is rejected.
+**Flags:**
+| Flag | Required | Description |
+|------|----------|-------------|
+| \`--prompt\` | always | Task description for the agent |
+| \`--repo\` | always | Target repository path |
+| \`--branch\` | writable agents | Branch name for the isolated worktree (see below) |
+| \`--priority\` | no | \`critical\`, \`high\`, \`medium\`, \`low\` |
+| \`--meta\` | recommended | JSON metadata for traceability and deduplication |
 
-Always pass \`--meta\` when dispatching. Include at minimum the source identifier and pipeline stage. See your custom instructions for the exact fields required by your workflow.
+**Worktree isolation & \`--branch\`:**
+neo runs each agent in an isolated git worktree. The \`--branch\` flag controls this:
+- **Writable agents** (developer, fixer): \`--branch\` is **required**. neo creates a worktree at \`.neo/worktrees/<runId>/\` with \`git worktree add -b <branch>\`. The agent works on this branch. Omitting \`--branch\` causes a validation error.
+- **Read-only agents** (architect, reviewer, refiner): \`--branch\` is **not needed**. neo creates a read-only worktree from the repo's default branch. If passed, it is ignored.
 
-**Standard metadata fields:**
+You choose the branch name. Convention: \`feat/<ticket>-<slug>\` or \`fix/<ticket>-<slug>\`.
 
-| Field | When | Description |
-|-------|------|-------------|
-| \`ticketId\` | always | Source ticket identifier for traceability |
-| \`stage\` | always | Pipeline stage: \`refine\`, \`develop\`, \`review\`, \`fix\` |
-| \`branch\` | if exists | Git branch the agent should work on |
-| \`prNumber\` | if exists | GitHub PR number |
-| \`cycle\` | fix stage | Fixer→review cycle count (for anti-loop guards) |
-
-**Branch & PR rules:**
-- First dispatch (develop): no branch/PR yet — instruct the agent in \`--prompt\` to create a feature branch and open a PR. Omit \`branch\` and \`prNumber\` from \`--meta\`.
-- Subsequent dispatches (review/fix): branch and PR exist — pass \`branch\` and \`prNumber\` in \`--meta\` and reference them in \`--prompt\`.
+**\`--meta\` for traceability:**
+The \`--meta\` flag accepts a JSON object attached to the run and all its events.
+- **Traceability**: links every run to its source (ticket, PR, branch) for cost tracking and audit.
+- **Idempotency**: neo deduplicates dispatches by metadata — same \`--meta\` twice is rejected.
+Always pass \`--meta\` with at minimum a source identifier and pipeline stage.
 
 Examples:
 \`\`\`bash
-# First dispatch — instruct agent to create branch + PR
-neo run developer --prompt "Implement feature X. Criteria: ... Create branch feat/PROJ-42-feature-x and open a PR when done." \\
+# Writable: developer creates a new branch + opens PR
+neo run developer --prompt "Implement feature X. Criteria: ... Open a PR when done." \\
   --repo /path/to/repo \\
+  --branch feat/PROJ-42-feature-x \\
   --meta '{"ticketId":"PROJ-42","stage":"develop"}'
 
-# Review — reference existing branch and PR
+# Writable: fixer pushes to existing branch
+neo run fixer --prompt "Fix review issues on PR #73: ..." \\
+  --repo /path/to/repo \\
+  --branch feat/PROJ-42-feature-x \\
+  --meta '{"ticketId":"PROJ-42","stage":"fix","prNumber":73,"cycle":2}'
+
+# Read-only: reviewer checks a PR (no --branch needed)
 neo run reviewer --prompt "Review PR #73 on branch feat/PROJ-42-feature-x." \\
   --repo /path/to/repo \\
-  --meta '{"ticketId":"PROJ-42","stage":"review","branch":"feat/PROJ-42-feature-x","prNumber":73}'
+  --meta '{"ticketId":"PROJ-42","stage":"review","prNumber":73}'
 
-# Fix — instruct to push to existing branch
-neo run fixer --prompt "Fix issues from review on PR #73 (branch feat/PROJ-42-feature-x): ... Push fixes to the existing branch." \\
-  --repo /path/to/repo \\
-  --meta '{"ticketId":"PROJ-42","stage":"fix","branch":"feat/PROJ-42-feature-x","prNumber":73,"cycle":2}'
-
-# Architect — read-only, no branch needed
-neo run architect --prompt "Design decomposition for feature Y" \\
+# Read-only: architect designs (no --branch needed)
+neo run architect --prompt "Design decomposition for feature Y." \\
   --repo /path/to/repo \\
   --meta '{"ticketId":"PROJ-99","stage":"refine"}'
 \`\`\`
