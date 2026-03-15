@@ -1,9 +1,11 @@
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
-import { getDataDir } from "@/paths";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import {
@@ -35,6 +37,8 @@ export interface HeartbeatLoopOptions {
   sessionId: string;
   eventQueue: EventQueue;
   activityLog: ActivityLog;
+  /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
+  defaultInstructionsPath?: string | undefined;
 }
 
 /**
@@ -58,6 +62,7 @@ export class HeartbeatLoop {
   private readonly activityLog: ActivityLog;
 
   private customInstructions: string | undefined;
+  private readonly defaultInstructionsPath: string | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -66,6 +71,7 @@ export class HeartbeatLoop {
     this.sessionId = options.sessionId;
     this.eventQueue = options.eventQueue;
     this.activityLog = options.activityLog;
+    this.defaultInstructionsPath = options.defaultInstructionsPath;
   }
 
   async start(): Promise<void> {
@@ -135,9 +141,13 @@ export class HeartbeatLoop {
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
 
-    // Skip idle heartbeats (no events) unless forced every N skips
+    // Skip idle heartbeats (no events) unless:
+    // - Memory has activeWork (pending CI, deferred dispatches, etc.)
+    // - We've reached the max idle skip count (periodic check-in)
+    const earlyMemory = await loadMemory(this.supervisorDir);
+    const memoryHasWork = earlyMemory.includes('"activeWork"') && !earlyMemory.includes('"activeWork": []');
     const idleSkipCount = state?.idleSkipCount ?? 0;
-    if (totalEventCount === 0 && idleSkipCount < this.config.supervisor.idleSkipMax) {
+    if (totalEventCount === 0 && !memoryHasWork && idleSkipCount < this.config.supervisor.idleSkipMax) {
       await this.updateState({ idleSkipCount: idleSkipCount + 1 });
       await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
       return;
@@ -169,7 +179,7 @@ export class HeartbeatLoop {
           ((this.config.supervisor.dailyCapUsd - todayCost) / this.config.supervisor.dailyCapUsd) *
           100,
       },
-      activeRuns: [], // TODO: read from persisted runs
+      activeRuns: await this.getActiveRuns(),
       heartbeatCount: state?.heartbeatCount ?? 0,
       mcpServerNames,
       customInstructions: this.customInstructions,
@@ -207,7 +217,7 @@ export class HeartbeatLoop {
 
       const queryOptions: Record<string, unknown> = {
         cwd: homedir(),
-        maxTurns: 50,
+        maxTurns: 15,
         allowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
@@ -294,11 +304,48 @@ export class HeartbeatLoop {
     }
   }
 
+  /** Read persisted run files and return summaries of active (running/paused) runs. */
+  private async getActiveRuns(): Promise<string[]> {
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return [];
+
+    try {
+      const entries = await readdir(runsDir, { withFileTypes: true });
+      const active: string[] = [];
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subDir = path.join(runsDir, entry.name);
+        const files = await readdir(subDir);
+
+        for (const f of files) {
+          if (!f.endsWith(".json")) continue;
+          try {
+            const raw = await readFile(path.join(subDir, f), "utf-8");
+            const run = JSON.parse(raw) as PersistedRun;
+            if (run.status === "running" || run.status === "paused") {
+              active.push(
+                `${run.runId} [${run.status}] ${run.workflow} on ${path.basename(run.repo)}`,
+              );
+            }
+          } catch {
+            // Corrupted or partial file — skip
+          }
+        }
+      }
+
+      return active;
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Load custom instructions from SUPERVISOR.md.
    * Resolution order:
    * 1. Explicit path via `supervisor.instructions` in config
-   * 2. Default: ~/.neo/SUPERVISOR.md
+   * 2. User default: ~/.neo/SUPERVISOR.md
+   * 3. Bundled default from @neotx/agents (if path provided)
    */
   private async loadInstructions(): Promise<string | undefined> {
     const candidates: string[] = [];
@@ -309,10 +356,14 @@ export class HeartbeatLoop {
 
     candidates.push(path.join(getDataDir(), "SUPERVISOR.md"));
 
+    if (this.defaultInstructionsPath) {
+      candidates.push(this.defaultInstructionsPath);
+    }
+
     for (const filePath of candidates) {
       try {
         const content = await readFile(filePath, "utf-8");
-        await this.activityLog.log("event", `Loaded custom instructions from ${filePath}`);
+        await this.activityLog.log("event", `Loaded instructions from ${filePath}`);
         return content;
       } catch {
         // File not found — try next candidate

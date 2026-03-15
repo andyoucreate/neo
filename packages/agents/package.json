@@ -12,7 +12,8 @@
   "files": [
     "agents",
     "prompts",
-    "workflows"
+    "workflows",
+    "SUPERVISOR.md"
   ],
   "keywords": [
     "ai-agents",

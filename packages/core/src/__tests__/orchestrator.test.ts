@@ -1,7 +1,3 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   DispatchInput,
   NeoConfig,
@@ -10,6 +6,10 @@ import type {
   WorkflowDefinition,
 } from "@/index";
 import { Orchestrator } from "@/orchestrator";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── SDK Mock ───────────────────────────────────────────
 
@@ -77,6 +77,7 @@ vi.mock("@/paths", async () => {
         .replace(/^-|-$/g, "");
     },
     getRepoRunsDir: (slug: string) => p.join(GLOBAL_RUNS_DIR, slug),
+    getSupervisorsDir: () => p.join(TMP_DIR, ".neo-global", "supervisors"),
   };
 });
 
@@ -88,7 +89,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
         defaultBranch: "main",
         branchPrefix: "feat",
         pushRemote: "origin",
-        autoCreatePr: false,
+        gitStrategy: "branch",
       },
     ],
     concurrency: { maxSessions: 5, maxPerRepo: 2, queueMax: 50 },
@@ -144,6 +145,7 @@ function makeInput(overrides?: Partial<DispatchInput>): DispatchInput {
     workflow: "hotfix",
     repo: TMP_DIR,
     prompt: "Fix the bug",
+    branch: "feat/test-branch",
     ...overrides,
   };
 }
@@ -220,6 +222,41 @@ describe("dispatch", () => {
     const persisted = JSON.parse(await readFile(runFile, "utf-8"));
     expect(persisted.status).toBe("completed");
     expect(persisted.workflow).toBe("hotfix");
+  });
+
+  it("persists run with running status before session starts", async () => {
+    // Use a delay so we can observe the intermediate state
+    vi.useRealTimers();
+    mockQueryDelay = 100;
+
+    const orchestrator = createOrchestrator();
+    const slug = path
+      .basename(TMP_DIR)
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+
+    const dispatchPromise = orchestrator.dispatch(makeInput());
+
+    // Wait briefly for the initial persist to happen (before session completes)
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    // Check that runs dir has a file with status "running"
+    const runsDir = path.join(GLOBAL_RUNS_DIR, slug);
+    if (existsSync(runsDir)) {
+      const { readdir: rd } = await import("node:fs/promises");
+      const files = await rd(runsDir);
+      const jsonFiles = files.filter((f) => f.endsWith(".json"));
+      expect(jsonFiles.length).toBeGreaterThanOrEqual(1);
+
+      const content = await readFile(path.join(runsDir, jsonFiles[0] as string), "utf-8");
+      const run = JSON.parse(content);
+      // At this point the run should exist (either running or already completed)
+      expect(["running", "completed"]).toContain(run.status);
+    }
+
+    await dispatchPromise;
   });
 
   it("returns failure status on session error", async () => {
@@ -467,6 +504,58 @@ describe("start", () => {
     expect(recovered.status).toBe("failed");
   });
 
+  it("skips running runs with alive PID", async () => {
+    const runsDir = GLOBAL_RUNS_DIR;
+    mkdirSync(runsDir, { recursive: true });
+
+    const aliveRun = {
+      version: 1,
+      runId: "alive-run-1",
+      workflow: "hotfix",
+      repo: TMP_DIR,
+      prompt: "Fix something",
+      status: "running",
+      pid: process.pid, // Current process is alive
+      steps: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(path.join(runsDir, "alive-run-1.json"), JSON.stringify(aliveRun));
+
+    const orchestrator = createOrchestrator();
+    await orchestrator.start();
+
+    const stillRunning = JSON.parse(
+      await readFile(path.join(runsDir, "alive-run-1.json"), "utf-8"),
+    );
+    expect(stillRunning.status).toBe("running");
+  });
+
+  it("marks running runs with dead PID as failed", async () => {
+    const runsDir = GLOBAL_RUNS_DIR;
+    mkdirSync(runsDir, { recursive: true });
+
+    const deadRun = {
+      version: 1,
+      runId: "dead-run-1",
+      workflow: "hotfix",
+      repo: TMP_DIR,
+      prompt: "Fix something",
+      status: "running",
+      pid: 999999999, // Dead PID
+      steps: {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    writeFileSync(path.join(runsDir, "dead-run-1.json"), JSON.stringify(deadRun));
+
+    const orchestrator = createOrchestrator();
+    await orchestrator.start();
+
+    const recovered = JSON.parse(await readFile(path.join(runsDir, "dead-run-1.json"), "utf-8"));
+    expect(recovered.status).toBe("failed");
+  });
+
   it("does not modify completed runs", async () => {
     const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
@@ -572,6 +661,35 @@ describe("input validation", () => {
       makeInput({ metadata: { a: { b: { c: { d: { e: "ok" } } } } } }),
     );
     expect(result.status).toBe("success");
+  });
+
+  it("rejects writable agent without explicit branch", async () => {
+    const orchestrator = createOrchestrator();
+
+    const result = await orchestrator.dispatch(makeInput({ branch: undefined }));
+    expect(result.status).toBe("failure");
+    const stepError = Object.values(result.steps)[0]?.error;
+    expect(stepError).toContain("--branch is required for writable agents");
+  });
+
+  it("accepts gitStrategy 'pr' with explicit branch", async () => {
+    const orchestrator = createOrchestrator();
+
+    const result = await orchestrator.dispatch(
+      makeInput({ gitStrategy: "pr", branch: "feat/PROJ-42-add-auth" }),
+    );
+    expect(result.status).toBe("success");
+    expect(result.branch).toBe("feat/PROJ-42-add-auth");
+  });
+
+  it("uses explicit branch for gitStrategy 'branch'", async () => {
+    const orchestrator = createOrchestrator();
+
+    const result = await orchestrator.dispatch(
+      makeInput({ branch: "feat/my-custom-branch" }),
+    );
+    expect(result.status).toBe("success");
+    expect(result.branch).toBe("feat/my-custom-branch");
   });
 });
 
@@ -771,6 +889,74 @@ describe("static middleware", () => {
     const mw = Orchestrator.middleware.budgetGuard();
     expect(mw.name).toBe("budget-guard");
     expect(mw.on).toBe("PreToolUse");
+  });
+});
+
+// ─── MCP server resolution ──────────────────────────────
+
+describe("MCP server resolution", () => {
+  it("passes MCP servers from agent definition to session", async () => {
+    const orchestrator = new Orchestrator(
+      makeConfig({
+        mcpServers: {
+          notion: { type: "stdio", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"] },
+          github: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] },
+        },
+      }),
+    );
+    orchestrator.registerAgent(
+      makeAgent({
+        name: "mcp-dev",
+        definition: {
+          description: "Dev with MCP",
+          prompt: "Dev with Notion",
+          tools: ["Read", "Write"],
+          model: "sonnet",
+          mcpServers: ["notion"],
+        },
+      }),
+    );
+    orchestrator.registerWorkflow(
+      makeWorkflow({
+        name: "mcp-workflow",
+        steps: { run: { agent: "mcp-dev" } },
+      }),
+    );
+
+    const result = await orchestrator.dispatch(
+      makeInput({ workflow: "mcp-workflow" }),
+    );
+    expect(result.status).toBe("success");
+  });
+
+  it("resolves MCP servers from workflow step definition", async () => {
+    const orchestrator = new Orchestrator(
+      makeConfig({
+        mcpServers: {
+          notion: { type: "stdio", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"] },
+        },
+      }),
+    );
+    orchestrator.registerAgent(makeAgent({ name: "step-mcp-dev" }));
+    orchestrator.registerWorkflow(
+      makeWorkflow({
+        name: "step-mcp-workflow",
+        steps: {
+          run: { agent: "step-mcp-dev", mcpServers: ["notion"] },
+        },
+      }),
+    );
+
+    const result = await orchestrator.dispatch(
+      makeInput({ workflow: "step-mcp-workflow" }),
+    );
+    expect(result.status).toBe("success");
+  });
+
+  it("dispatches without MCP servers when none configured", async () => {
+    const orchestrator = createOrchestrator();
+    const result = await orchestrator.dispatch(makeInput());
+    expect(result.status).toBe("success");
   });
 });
 

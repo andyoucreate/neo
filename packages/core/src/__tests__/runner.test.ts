@@ -658,4 +658,37 @@ describe("parseOutput", () => {
     expect(result.output).toBeUndefined();
     expect(result.parseError).toBeUndefined();
   });
+
+  it("extracts PR_URL from output", () => {
+    const raw = "Task done.\nPR_URL: https://github.com/org/repo/pull/42\nAll good.";
+    const result = parseOutput(raw);
+
+    expect(result.prUrl).toBe("https://github.com/org/repo/pull/42");
+    expect(result.prNumber).toBe(42);
+  });
+
+  it("extracts PR_URL without pull number", () => {
+    const raw = "PR_URL: https://gitlab.com/org/repo/-/merge_requests/7";
+    const result = parseOutput(raw);
+
+    expect(result.prUrl).toBe("https://gitlab.com/org/repo/-/merge_requests/7");
+    expect(result.prNumber).toBeUndefined();
+  });
+
+  it("returns no prUrl when PR_URL not present", () => {
+    const result = parseOutput("No PR created.");
+
+    expect(result.prUrl).toBeUndefined();
+    expect(result.prNumber).toBeUndefined();
+  });
+
+  it("extracts PR_URL alongside schema parsing", () => {
+    const schema = z.object({ status: z.string() });
+    const raw = '```json\n{"status":"ok"}\n```\nPR_URL: https://github.com/org/repo/pull/99';
+    const result = parseOutput(raw, schema);
+
+    expect(result.output).toEqual({ status: "ok" });
+    expect(result.prUrl).toBe("https://github.com/org/repo/pull/99");
+    expect(result.prNumber).toBe(99);
+  });
 });

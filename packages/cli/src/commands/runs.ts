@@ -20,6 +20,10 @@ function shortId(runId: string): string {
   return runId.slice(0, 8);
 }
 
+function repoName(run: PersistedRun): string {
+  return run.repo.split("/").pop() ?? run.repo;
+}
+
 function showRunDetail(match: PersistedRun, short: boolean): void {
   if (short) {
     console.log(`${match.runId} ${match.status} $${totalCost(match).toFixed(4)}`);
@@ -58,7 +62,7 @@ function listRuns(runs: PersistedRun[], short: boolean): void {
     for (const r of runs) {
       const agent = Object.values(r.steps)[0]?.agent ?? "?";
       console.log(
-        `${shortId(r.runId)} ${r.status.padEnd(9)} ${agent.padEnd(18)} $${totalCost(r).toFixed(4).padStart(8)} ${formatDuration(totalDuration(r)).padStart(7)}`,
+        `${shortId(r.runId)} ${r.status.padEnd(9)} ${repoName(r).padEnd(14)} ${agent.padEnd(18)} $${totalCost(r).toFixed(4).padStart(8)} ${formatDuration(totalDuration(r)).padStart(7)}`,
       );
     }
     return;
@@ -70,10 +74,11 @@ function listRuns(runs: PersistedRun[], short: boolean): void {
   }
 
   printTable(
-    ["RUN", "STATUS", "AGENT", "COST", "DURATION", "BRANCH"],
+    ["RUN", "STATUS", "REPO", "AGENT", "COST", "DURATION", "BRANCH"],
     runs.map((r) => [
       shortId(r.runId),
       r.status,
+      repoName(r),
       Object.values(r.steps)[0]?.agent ?? "unknown",
       `$${totalCost(r).toFixed(4)}`,
       formatDuration(totalDuration(r)),

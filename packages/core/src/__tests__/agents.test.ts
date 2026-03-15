@@ -360,6 +360,73 @@ describe("resolveAgent", () => {
     expect(resolved.maxTurns).toBe(10);
   });
 
+  it("carries mcpServers from agent config into definition", () => {
+    const config: AgentConfig = {
+      name: "dev-notion",
+      description: "Dev with MCP",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a dev with Notion.",
+      sandbox: "writable",
+      mcpServers: ["notion", "github"],
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.definition.mcpServers).toEqual(["notion", "github"]);
+  });
+
+  it("merges mcpServers from base and override when extending", () => {
+    builtIns.set("mcp-base", {
+      name: "mcp-base",
+      description: "Base with MCP",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      mcpServers: ["notion"],
+    });
+
+    const config: AgentConfig = {
+      name: "mcp-extended",
+      extends: "mcp-base",
+      mcpServers: ["github"],
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.definition.mcpServers).toEqual(["notion", "github"]);
+  });
+
+  it("deduplicates mcpServers when merging", () => {
+    builtIns.set("mcp-base2", {
+      name: "mcp-base2",
+      description: "Base",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base.",
+      sandbox: "readonly",
+      mcpServers: ["notion", "github"],
+    });
+
+    const config: AgentConfig = {
+      name: "mcp-dup",
+      extends: "mcp-base2",
+      mcpServers: ["notion", "slack"],
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.definition.mcpServers).toEqual(["notion", "github", "slack"]);
+  });
+
+  it("omits mcpServers from definition when none defined", () => {
+    const config: AgentConfig = {
+      name: "no-mcp",
+      extends: "developer",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.definition.mcpServers).toBeUndefined();
+  });
+
   it("filters $inherited from tools when no extends", () => {
     const config: AgentConfig = {
       name: "standalone",
@@ -511,14 +578,11 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
     const registry = new AgentRegistry(realBuiltInDir);
     await registry.load();
 
-    expect(registry.list().length).toBe(8);
+    expect(registry.list().length).toBe(5);
     expect(registry.has("architect")).toBe(true);
     expect(registry.has("developer")).toBe(true);
     expect(registry.has("refiner")).toBe(true);
-    expect(registry.has("reviewer-quality")).toBe(true);
-    expect(registry.has("reviewer-security")).toBe(true);
-    expect(registry.has("reviewer-perf")).toBe(true);
-    expect(registry.has("reviewer-coverage")).toBe(true);
+    expect(registry.has("reviewer")).toBe(true);
     expect(registry.has("fixer")).toBe(true);
 
     // Verify a resolved agent has all required fields

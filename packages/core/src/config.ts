@@ -1,9 +1,9 @@
+import { getDataDir, toRepoSlug } from "@/paths";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { z } from "zod";
-import { getDataDir, toRepoSlug } from "@/paths";
 
 // ─── McpServerConfig schemas ─────────────────────────────
 
@@ -27,14 +27,17 @@ export const mcpServerConfigSchema = z.discriminatedUnion("type", [
 
 // ─── RepoConfig schema (single repo entry) ──────────────
 
+export const gitStrategySchema = z.enum(["pr", "branch"]).default("branch");
+
+export type GitStrategy = z.infer<typeof gitStrategySchema>;
+
 export const repoConfigSchema = z.object({
   path: z.string(),
   name: z.string().optional(),
   defaultBranch: z.string().default("main"),
   branchPrefix: z.string().default("feat"),
   pushRemote: z.string().default("origin"),
-  autoCreatePr: z.boolean().default(false),
-  prBaseBranch: z.string().optional(),
+  gitStrategy: gitStrategySchema,
 });
 
 // ─── Global config schema (~/.neo/config.yml) ───────────

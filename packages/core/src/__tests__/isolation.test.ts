@@ -193,7 +193,7 @@ describe("git operations", () => {
       defaultBranch: "main",
       branchPrefix: "feat",
       pushRemote: "origin",
-      autoCreatePr: false,
+      gitStrategy: "branch",
     };
 
     expect(getBranchName(config, "abc123")).toBe("feat/run-abc123");
@@ -206,10 +206,34 @@ describe("git operations", () => {
       defaultBranch: "main",
       branchPrefix: "fix",
       pushRemote: "origin",
-      autoCreatePr: false,
+      gitStrategy: "branch",
     };
 
     expect(getBranchName(config, "hotfix-1")).toBe("fix/run-hotfix-1");
+  });
+
+  it("getBranchName uses explicit branch when provided", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(getBranchName(config, "abc123", "feat/PROJ-42-add-auth")).toBe("feat/PROJ-42-add-auth");
+  });
+
+  it("getBranchName falls back to auto-generated when branch is undefined", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
   });
 });
 

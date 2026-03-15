@@ -1,8 +1,8 @@
+import type { PersistedRun } from "@neotx/core";
+import { getRunsDir, listReposFromGlobalConfig, toRepoSlug } from "@neotx/core";
 import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { PersistedRun } from "@neotx/core";
-import { getRunsDir, listReposFromGlobalConfig, toRepoSlug } from "@neotx/core";
 
 export interface RepoFilter {
   mode: "cwd" | "all" | "named";
@@ -34,12 +34,17 @@ export async function resolveRepoFilter(args: {
     return { mode: "named", repoSlug: toRepoSlug({ path: repo }), repoPath: repo };
   }
 
-  // Default: CWD
+  // Default: CWD — match if cwd is the repo root OR inside it
+  // If no registered repo matches, fall back to showing all runs
   const cwd = process.cwd();
   const repos = await listReposFromGlobalConfig();
-  const match = repos.find((r) => path.resolve(r.path) === cwd);
-  const slug = match ? toRepoSlug(match) : toRepoSlug({ path: cwd });
-  return { mode: "cwd", repoSlug: slug, repoPath: cwd };
+  const match = repos.find((r) => {
+    const resolved = path.resolve(r.path);
+    return cwd === resolved || cwd.startsWith(`${resolved}/`);
+  });
+  if (!match) return { mode: "all" };
+  const slug = toRepoSlug(match);
+  return { mode: "cwd", repoSlug: slug, repoPath: match.path };
 }
 
 /**

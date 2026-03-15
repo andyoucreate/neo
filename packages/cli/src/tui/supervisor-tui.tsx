@@ -1,5 +1,3 @@
-import { randomUUID } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
 import type { ActivityEntry, SupervisorDaemonState } from "@neotx/core";
 import {
   getSupervisorActivityPath,
@@ -8,6 +6,8 @@ import {
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
+import { randomUUID } from "node:crypto";
+import { appendFile, readFile } from "node:fs/promises";
 import { useCallback, useEffect, useState } from "react";
 
 // ─── Constants ───────────────────────────────────────────
@@ -336,46 +336,22 @@ function ActivityRow({
   );
 }
 
-function ThinkingPanel({ entries }: { entries: ActivityEntry[] }) {
-  // Find the latest thinking entry
-  const latest = [...entries].reverse().find((e) => {
-    const type = e.type as string;
-    return type === "thinking" || type === "plan";
-  });
-  if (!latest) return null;
-
-  const icon = TYPE_ICONS[latest.type] ?? "·";
-  const color = TYPE_COLORS[latest.type] ?? "#9ca3af";
-  const label = (latest.type as string) === "thinking" ? "THINKING" : "PLANNING";
-
-  const text = latest.summary;
-
-  return (
-    <Box flexDirection="column">
-      <Box paddingX={2} gap={1}>
-        <Text dimColor>├</Text>
-        <Text color={color} bold>
-          {icon} {label}
-        </Text>
-        <Text dimColor>{"─".repeat(36)}</Text>
-      </Box>
-      <Box paddingX={2}>
-        <Text dimColor>│ </Text>
-        <Text color={color} wrap="wrap">
-          {text}
-        </Text>
-      </Box>
-      <Box paddingX={2}>
-        <Text dimColor>│</Text>
-      </Box>
-    </Box>
-  );
-}
+/** Types shown in the activity feed — plan/thinking are internal, not shown */
+const ACTIVITY_TYPES = new Set([
+  "heartbeat",
+  "decision",
+  "action",
+  "dispatch",
+  "error",
+  "event",
+  "message",
+]);
 
 function ActivityPanel({ entries, termHeight }: { entries: ActivityEntry[]; termHeight: number }) {
-  // Reserve lines for header (5), budget (1), thinking (4), separator (1), input (2), footer (1) = 14
-  const maxVisible = Math.max(5, Math.min(MAX_VISIBLE_ENTRIES, termHeight - 14));
-  const visible = entries.slice(-maxVisible);
+  // Reserve lines for header (5), budget (1), separator (1), input (2), footer (1) = 10
+  const maxVisible = Math.max(5, Math.min(MAX_VISIBLE_ENTRIES, termHeight - 10));
+  const filtered = entries.filter((e) => ACTIVITY_TYPES.has(e.type));
+  const visible = filtered.slice(-maxVisible);
 
   return (
     <Box flexDirection="column">
@@ -569,7 +545,6 @@ export function SupervisorTui({ name }: { name: string }) {
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={50} costHistory={costHistory} />
-      <ThinkingPanel entries={entries} />
       <ActivityPanel entries={entries} termHeight={termHeight} />
       <InputPanel value={input} onChange={setInput} onSubmit={handleSubmit} lastSent={lastSent} />
       <Footer />

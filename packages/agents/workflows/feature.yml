@@ -12,7 +12,7 @@ steps:
 
       Original request: {{prompt}}
   review:
-    agent: reviewer-quality
+    agent: reviewer
     dependsOn: [implement]
     sandbox: readonly
   fix:

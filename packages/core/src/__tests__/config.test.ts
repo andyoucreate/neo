@@ -27,8 +27,7 @@ repos:
     defaultBranch: develop
     branchPrefix: fix
     pushRemote: upstream
-    autoCreatePr: true
-    prBaseBranch: develop
+    gitStrategy: pr
 
 concurrency:
   maxSessions: 10
@@ -76,8 +75,7 @@ idempotency:
     expect(config.repos[0]?.defaultBranch).toBe("develop");
     expect(config.repos[0]?.branchPrefix).toBe("fix");
     expect(config.repos[0]?.pushRemote).toBe("upstream");
-    expect(config.repos[0]?.autoCreatePr).toBe(true);
-    expect(config.repos[0]?.prBaseBranch).toBe("develop");
+    expect(config.repos[0]?.gitStrategy).toBe("pr");
 
     expect(config.concurrency.maxSessions).toBe(10);
     expect(config.concurrency.maxPerRepo).toBe(3);
@@ -122,7 +120,7 @@ repos:
     expect(config.repos[0]?.defaultBranch).toBe("main");
     expect(config.repos[0]?.branchPrefix).toBe("feat");
     expect(config.repos[0]?.pushRemote).toBe("origin");
-    expect(config.repos[0]?.autoCreatePr).toBe(false);
+    expect(config.repos[0]?.gitStrategy).toBe("branch");
 
     expect(config.concurrency.maxSessions).toBe(5);
     expect(config.concurrency.maxPerRepo).toBe(2);
@@ -249,7 +247,7 @@ repos:
     expect(config.repos[0]?.defaultBranch).toBe("main");
     expect(config.repos[0]?.branchPrefix).toBe("feat");
     expect(config.repos[0]?.pushRemote).toBe("origin");
-    expect(config.repos[0]?.autoCreatePr).toBe(false);
+    expect(config.repos[0]?.gitStrategy).toBe("branch");
 
     // Concurrency defaults
     expect(config.concurrency.maxSessions).toBe(5);

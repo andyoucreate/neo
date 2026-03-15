@@ -25,6 +25,7 @@ interface DispatchRequest {
   agentName: string;
   repo: string;
   prompt: string;
+  branch?: string;
   priority?: "critical" | "high" | "medium" | "low";
   metadata?: Record<string, unknown>;
   bundledAgentsDir: string;
@@ -103,6 +104,7 @@ async function main(): Promise<void> {
       workflow: `_run_${request.agentName}`,
       repo: request.repo,
       prompt: request.prompt,
+      ...(request.branch ? { branch: request.branch } : {}),
       priority: request.priority ?? "medium",
       metadata: request.metadata,
     });

@@ -11,3 +11,7 @@ function resolvePackageDir(pkg: string): string {
 export function resolveAgentsDir(): string {
   return path.join(resolvePackageDir("@neotx/agents"), "agents");
 }
+
+export function resolveAgentsPackageDir(): string {
+  return resolvePackageDir("@neotx/agents");
+}

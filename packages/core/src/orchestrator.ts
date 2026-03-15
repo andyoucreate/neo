@@ -1,21 +1,17 @@
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { Semaphore } from "@/concurrency/semaphore";
-import type { NeoConfig, RepoConfig } from "@/config";
+import type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
-import { getBranchName, pushWorktreeBranch } from "@/isolation/git";
+import { pushWorktreeBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import { cleanupOrphanedWorktrees, createWorktree, removeWorktree } from "@/isolation/worktree";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
-import { getJournalsDir, getRepoRunsDir, getRunsDir, toRepoSlug } from "@/paths";
+import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import type {
@@ -34,6 +30,10 @@ import type {
   WorkflowStepDef,
 } from "@/types";
 import { WorkflowRegistry } from "@/workflows/registry";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 
 // ─── Constants ─────────────────────────────────────────
 
@@ -41,7 +41,69 @@ const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const WORKTREES_DIR = ".neo/worktrees";
+const INSTRUCTIONS_PATH = ".neo/INSTRUCTIONS.md";
 const textEncoder = new TextEncoder();
+
+// ─── Repo instructions loader ──────────────────────────
+
+async function loadRepoInstructions(repoPath: string): Promise<string | undefined> {
+  const filePath = path.join(repoPath, INSTRUCTIONS_PATH);
+  try {
+    return await readFile(filePath, "utf-8");
+  } catch {
+    return undefined;
+  }
+}
+
+// ─── Git strategy prompt builder ───────────────────────
+
+function buildGitStrategyInstructions(
+  strategy: GitStrategy,
+  agent: ResolvedAgent,
+  branch: string,
+  baseBranch: string,
+  remote: string,
+  metadata?: Record<string, unknown>,
+): string | null {
+  const prNumber = metadata?.prNumber as number | undefined;
+
+  // Readonly agents: only inject PR comment instruction if a PR exists
+  if (agent.sandbox !== "writable") {
+    if (prNumber) {
+      return `## Pull Request\n\nPR #${String(prNumber)} is open for this task. After your review, leave your findings as a comment: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
+    }
+    return null;
+  }
+
+  // Writable agents: inject git workflow context
+  if (strategy === "pr") {
+    if (prNumber) {
+      return `## Git workflow\n\nYou are on branch \`${branch}\`.\nAn open PR exists: #${String(prNumber)}.\nAfter committing, push your changes to the branch. The PR will be updated automatically.\nLeave a review comment on the PR summarizing what you did: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
+    }
+    return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nAfter committing:\n1. Push: \`git push -u ${remote} ${branch}\`\n2. Create a PR against \`${baseBranch}\` — choose a title and description that reflect the work you completed. End the PR body with: \`🤖 Generated with [neo](https://neotx.dev)\`\n3. Output the PR URL on a dedicated line: \`PR_URL: <url>\``;
+  }
+
+  // strategy === "branch"
+  return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nCommit your changes. The branch will be pushed automatically.`;
+}
+
+// ─── Full prompt assembler ─────────────────────────────
+
+function buildFullPrompt(
+  agentPrompt: string | undefined,
+  repoInstructions: string | undefined,
+  gitInstructions: string | null,
+  taskPrompt: string,
+): string {
+  const sections: string[] = [];
+
+  if (agentPrompt) sections.push(agentPrompt);
+  if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
+  if (gitInstructions) sections.push(gitInstructions);
+  sections.push(`## Task\n\n${taskPrompt}`);
+
+  return sections.join("\n\n---\n\n");
+}
 
 // ─── Options ───────────────────────────────────────────
 
@@ -225,9 +287,12 @@ export class Orchestrator extends NeoEventEmitter {
     this.costJournal = new CostJournal({ dir: this.journalDir });
     this.eventJournal = new EventJournal({ dir: this.journalDir });
 
-    // Initialize webhook dispatcher if webhooks are configured
-    if (this.config.webhooks.length > 0) {
-      this.webhookDispatcher = new WebhookDispatcher(this.config.webhooks);
+    // Initialize webhook dispatcher with configured webhooks + auto-discovered supervisor webhooks
+    const supervisorWebhooks = await this.discoverSupervisorWebhooks();
+
+    const allWebhooks = [...this.config.webhooks, ...supervisorWebhooks];
+    if (allWebhooks.length > 0) {
+      this.webhookDispatcher = new WebhookDispatcher(allWebhooks);
     }
 
     // Restore today's cost from journal
@@ -373,10 +438,24 @@ export class Orchestrator extends NeoEventEmitter {
     const { input, runId, sessionId, startedAt, agent, repoConfig, activeSession } = ctx;
     let worktreePath: string | undefined;
 
+    // Persist initial running state so `neo runs` shows this run immediately
+    await this.persistRun({
+      version: 1,
+      runId,
+      workflow: input.workflow,
+      repo: input.repo,
+      prompt: input.prompt,
+      status: "running",
+      steps: {},
+      createdAt: activeSession.startedAt,
+      updatedAt: new Date().toISOString(),
+      metadata: input.metadata,
+    });
+
     try {
       // Create worktree if writable agent
       if (agent.sandbox === "writable") {
-        const branchName = getBranchName(repoConfig, runId);
+        const branchName = input.branch as string;
         const worktreeDir = path.join(input.repo, WORKTREES_DIR, runId);
         const info = await createWorktree({
           repoPath: input.repo,
@@ -429,8 +508,8 @@ export class Orchestrator extends NeoEventEmitter {
    * Runs in `finally` so it executes on both success and failure.
    */
   private async finalizeWorktree(worktreePath: string, ctx: DispatchContext): Promise<void> {
-    const { runId, repoConfig } = ctx;
-    const branch = getBranchName(repoConfig, runId);
+    const { repoConfig } = ctx;
+    const branch = ctx.input.branch as string;
     const remote = repoConfig.pushRemote ?? "origin";
 
     try {
@@ -477,10 +556,36 @@ export class Orchestrator extends NeoEventEmitter {
       timestamp: new Date().toISOString(),
     });
 
+    // Build the full prompt with repo instructions and git strategy context
+    const repoInstructions = await loadRepoInstructions(input.repo);
+    const strategy: GitStrategy = input.gitStrategy ?? ctx.repoConfig.gitStrategy ?? "branch";
+    if (agent.sandbox === "writable" && !input.branch) {
+      throw new Error(
+        "Validation error: --branch is required for writable agents. Provide an explicit branch name (e.g. --branch feat/PROJ-42-description).",
+      );
+    }
+    const branch = agent.sandbox === "writable" ? (input.branch as string) : "";
+    const gitInstructions = buildGitStrategyInstructions(
+      strategy,
+      agent,
+      branch,
+      ctx.repoConfig.defaultBranch,
+      ctx.repoConfig.pushRemote ?? "origin",
+      input.metadata,
+    );
+    const taskPrompt = stepDef.prompt ?? input.prompt;
+    const fullPrompt = buildFullPrompt(
+      agent.definition.prompt,
+      repoInstructions,
+      gitInstructions,
+      taskPrompt,
+    );
+
     const recoveryOpts = stepDef.recovery;
+    const mcpServers = this.resolveMcpServers(stepDef, agent);
     const sessionResult = await runWithRecovery({
       agent,
-      prompt: stepDef.prompt ?? input.prompt,
+      prompt: fullPrompt,
       repoPath: input.repo,
       sandboxConfig,
       hooks,
@@ -489,6 +594,7 @@ export class Orchestrator extends NeoEventEmitter {
       maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
       backoffBaseMs: this.config.recovery.backoffBaseMs,
       ...(worktreePath ? { worktreePath } : {}),
+      ...(mcpServers ? { mcpServers } : {}),
       ...(recoveryOpts?.nonRetryable ? { nonRetryable: recoveryOpts.nonRetryable } : {}),
       onAttempt: (attempt, strategy) => {
         if (attempt > 1) {
@@ -509,7 +615,7 @@ export class Orchestrator extends NeoEventEmitter {
 
     const parsed = parseOutput(sessionResult.output);
 
-    return {
+    const result: StepResult = {
       status: "success",
       sessionId: sessionResult.sessionId,
       output: parsed.output ?? parsed.rawOutput,
@@ -521,6 +627,15 @@ export class Orchestrator extends NeoEventEmitter {
       completedAt: new Date().toISOString(),
       attempt: 1,
     };
+
+    if (parsed.prUrl) {
+      result.prUrl = parsed.prUrl;
+    }
+    if (parsed.prNumber !== undefined) {
+      result.prNumber = parsed.prNumber;
+    }
+
+    return result;
   }
 
   private async finalizeDispatch(
@@ -528,7 +643,7 @@ export class Orchestrator extends NeoEventEmitter {
     stepResult: StepResult,
     idempotencyKey: string | null,
   ): Promise<TaskResult> {
-    const { input, runId, stepName, repoConfig, activeSession } = ctx;
+    const { input, runId, stepName, activeSession } = ctx;
 
     const taskResult: TaskResult = {
       runId,
@@ -537,14 +652,19 @@ export class Orchestrator extends NeoEventEmitter {
       status: stepResult.status === "success" ? "success" : "failure",
       steps: { [stepName]: stepResult },
       branch:
-        stepResult.status === "success" && activeSession.worktreePath
-          ? getBranchName(repoConfig, runId)
-          : undefined,
+        stepResult.status === "success" && activeSession.worktreePath ? input.branch : undefined,
       costUsd: stepResult.costUsd,
       durationMs: Date.now() - ctx.startedAt,
       timestamp: new Date().toISOString(),
       metadata: input.metadata,
     };
+
+    if (stepResult.prUrl) {
+      taskResult.prUrl = stepResult.prUrl;
+    }
+    if (stepResult.prNumber !== undefined) {
+      taskResult.prNumber = stepResult.prNumber;
+    }
 
     await this.persistRun({
       version: 1,
@@ -749,7 +869,7 @@ export class Orchestrator extends NeoEventEmitter {
       defaultBranch: "main",
       branchPrefix: "feat",
       pushRemote: "origin",
-      autoCreatePr: false,
+      gitStrategy: "branch",
     };
   }
 
@@ -784,6 +904,76 @@ export class Orchestrator extends NeoEventEmitter {
     return Math.max(0, ((cap - this._costToday) / cap) * 100);
   }
 
+  // ─── Private: MCP server resolution ────────────────────
+
+  private resolveMcpServers(
+    stepDef: WorkflowStepDef,
+    agent: ResolvedAgent,
+  ): Record<string, McpServerConfig> | undefined {
+    const configServers = this.config.mcpServers;
+    if (!configServers) return undefined;
+
+    // Collect unique server names from step definition and agent definition
+    const names = new Set<string>();
+    if (stepDef.mcpServers) {
+      for (const name of stepDef.mcpServers) names.add(name);
+    }
+    if (agent.definition.mcpServers) {
+      for (const name of agent.definition.mcpServers) names.add(name);
+    }
+
+    if (names.size === 0) return undefined;
+
+    const resolved: Record<string, McpServerConfig> = {};
+    for (const name of names) {
+      const serverConfig = configServers[name];
+      if (serverConfig) {
+        resolved[name] = serverConfig;
+      }
+    }
+
+    return Object.keys(resolved).length > 0 ? resolved : undefined;
+  }
+
+  // ─── Private: Supervisor discovery ─────────────────────
+
+  /** Discover running supervisor daemons and return webhook configs for their endpoints. */
+  private async discoverSupervisorWebhooks(): Promise<NeoConfig["webhooks"]> {
+    const { readdir } = await import("node:fs/promises");
+    const supervisorsDir = getSupervisorsDir();
+    if (!existsSync(supervisorsDir)) return [];
+
+    const webhooks: NeoConfig["webhooks"] = [];
+
+    try {
+      const entries = await readdir(supervisorsDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        try {
+          const statePath = path.join(supervisorsDir, entry.name, "state.json");
+          const raw = await readFile(statePath, "utf-8");
+          const state = JSON.parse(raw) as { status?: string; port?: number; pid?: number };
+
+          if (state.status !== "running" || !state.port) continue;
+          if (state.pid && !isProcessAlive(state.pid)) continue;
+
+          webhooks.push({
+            url: `http://localhost:${String(state.port)}/webhook`,
+            events: ["session:complete", "session:fail", "budget:alert"],
+            secret: this.config.supervisor.secret,
+            timeoutMs: 5000,
+          });
+        } catch {
+          // State file missing or corrupt — skip
+        }
+      }
+    } catch {
+      // Supervisors dir unreadable — skip
+    }
+
+    return webhooks;
+  }
+
   // ─── Private: Run persistence ──────────────────────────
 
   private async persistRun(run: PersistedRun): Promise<void> {
@@ -806,39 +996,59 @@ export class Orchestrator extends NeoEventEmitter {
     if (!existsSync(runsDir)) return;
 
     try {
-      const entries = await readdir(runsDir, { withFileTypes: true });
-      // Scan slug subdirs and legacy flat .json files
-      const jsonFiles: string[] = [];
-
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const subDir = path.join(runsDir, entry.name);
-          const subFiles = await readdir(subDir);
-          for (const f of subFiles) {
-            if (f.endsWith(".json")) jsonFiles.push(path.join(subDir, f));
-          }
-        } else if (entry.name.endsWith(".json")) {
-          jsonFiles.push(path.join(runsDir, entry.name));
-        }
-      }
-
+      const jsonFiles = await collectRunFiles(runsDir);
       for (const filePath of jsonFiles) {
-        const content = await readFile(filePath, "utf-8");
-        const run = JSON.parse(content) as PersistedRun;
-
-        if (run.status === "running") {
-          run.status = "failed";
-          run.updatedAt = new Date().toISOString();
-          await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
-        }
+        await this.recoverRunIfOrphaned(filePath);
       }
     } catch {
       // Non-critical
     }
   }
+
+  private async recoverRunIfOrphaned(filePath: string): Promise<void> {
+    const content = await readFile(filePath, "utf-8");
+    const run = JSON.parse(content) as PersistedRun;
+
+    if (run.status !== "running") return;
+    // If the run has a PID and the process is still alive, skip it
+    if (run.pid && isProcessAlive(run.pid)) return;
+
+    run.status = "failed";
+    run.updatedAt = new Date().toISOString();
+    await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+  }
 }
 
 // ─── Utility functions ─────────────────────────────────
+
+async function collectRunFiles(runsDir: string): Promise<string[]> {
+  const { readdir } = await import("node:fs/promises");
+  const entries = await readdir(runsDir, { withFileTypes: true });
+  const jsonFiles: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.isDirectory()) {
+      const subDir = path.join(runsDir, entry.name);
+      const subFiles = await readdir(subDir);
+      for (const f of subFiles) {
+        if (f.endsWith(".json")) jsonFiles.push(path.join(subDir, f));
+      }
+    } else if (entry.name.endsWith(".json")) {
+      jsonFiles.push(path.join(runsDir, entry.name));
+    }
+  }
+
+  return jsonFiles;
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);

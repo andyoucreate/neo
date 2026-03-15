@@ -7,7 +7,7 @@ export type {
   AgentTool,
   AgentToolEntry,
 } from "@/agents/schema";
-export type { McpServerConfig, NeoConfig, RepoConfig } from "@/config";
+export type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 
 // ─── Agent Definition (SDK-compatible) ───────────────────
 
@@ -16,6 +16,7 @@ export interface AgentDefinition {
   prompt: string;
   tools: string[];
   model: string;
+  mcpServers?: string[] | undefined;
 }
 
 // ─── Resolved agent (runtime, after merging) ─────────────
@@ -83,6 +84,8 @@ export interface StepResult {
   sessionId?: string | undefined;
   output?: unknown;
   rawOutput?: string | undefined;
+  prUrl?: string | undefined;
+  prNumber?: number | undefined;
   costUsd: number;
   durationMs: number;
   agent: string;
@@ -101,10 +104,12 @@ export interface DispatchInput {
   repo: string;
   prompt: string;
   runId?: string | undefined;
+  branch?: string | undefined;
   step?: string | undefined;
   from?: string | undefined;
   retry?: string | undefined;
   priority?: Priority | undefined;
+  gitStrategy?: "pr" | "branch" | undefined;
   overrides?:
     | {
         agents?: Record<string, string> | undefined;

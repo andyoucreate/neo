@@ -78,6 +78,7 @@ vi.mock("@/paths", async () => {
         .replace(/^-|-$/g, "");
     },
     getRepoRunsDir: (slug: string) => p.join(GLOBAL_RUNS_DIR, slug),
+    getSupervisorsDir: () => p.join(TMP_DIR, "global", "supervisors"),
   };
 });
 
@@ -115,14 +116,15 @@ prompt: ../prompts/developer.md
   );
 
   await writeFile(
-    path.join(AGENTS_DIR, "reviewer-quality.yml"),
-    `name: reviewer-quality
-description: "Code quality reviewer"
+    path.join(AGENTS_DIR, "reviewer.yml"),
+    `name: reviewer
+description: "Code reviewer"
 model: sonnet
 tools:
   - Read
   - Glob
   - Grep
+  - Bash
 sandbox: readonly
 prompt: ../prompts/reviewer.md
 `,
@@ -184,7 +186,7 @@ steps:
     dependsOn: [plan]
     prompt: "Implement based on plan"
   review:
-    agent: reviewer-quality
+    agent: reviewer
     dependsOn: [implement]
     sandbox: readonly
 `,
@@ -198,7 +200,7 @@ repos:
     defaultBranch: main
     branchPrefix: feat
     pushRemote: origin
-    autoCreatePr: false
+    gitStrategy: branch
 
 concurrency:
   maxSessions: 3
@@ -295,7 +297,7 @@ describe("e2e: agent registry", () => {
 
     expect(registry.list()).toHaveLength(4);
     expect(registry.has("developer")).toBe(true);
-    expect(registry.has("reviewer-quality")).toBe(true);
+    expect(registry.has("reviewer")).toBe(true);
     expect(registry.has("architect")).toBe(true);
     expect(registry.has("fixer")).toBe(true);
 
@@ -373,6 +375,7 @@ describe("e2e: orchestrator lifecycle", () => {
     const result = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Fix the login bug",
     });
 
@@ -403,6 +406,7 @@ describe("e2e: orchestrator lifecycle", () => {
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Add logging",
     });
 
@@ -426,11 +430,13 @@ describe("e2e: orchestrator lifecycle", () => {
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Task 1",
     });
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Task 2",
     });
 
@@ -463,6 +469,7 @@ describe("e2e: orchestrator lifecycle", () => {
     const result = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Should work after resume",
     });
     expect(result.status).toBe("success");
@@ -541,6 +548,7 @@ describe("e2e: middleware integration", () => {
     const result1 = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Expensive task",
     });
     expect(result1.status).toBe("success");
@@ -604,6 +612,7 @@ describe("e2e: middleware integration", () => {
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Test middleware context",
     });
 
@@ -704,6 +713,7 @@ describe("e2e: idempotency", () => {
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Fix the bug",
     });
 
@@ -724,11 +734,13 @@ describe("e2e: idempotency", () => {
     const r1 = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Fix bug A",
     });
     const r2 = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Fix bug B",
     });
 
@@ -757,16 +769,18 @@ describe("e2e: concurrent dispatches", () => {
     }
     await orchestrator.start();
 
-    // Dispatch multiple tasks concurrently (different prompts to avoid idempotency)
+    // Dispatch multiple tasks concurrently (different prompts and branches)
     const results = await Promise.all([
       orchestrator.dispatch({
         workflow: "hotfix",
         repo: REPO_DIR,
+        branch: "feat/test-branch-a",
         prompt: "Task A",
       }),
       orchestrator.dispatch({
         workflow: "hotfix",
         repo: REPO_DIR,
+        branch: "feat/test-branch-b",
         prompt: "Task B",
       }),
     ]);
@@ -815,6 +829,7 @@ describe("e2e: recovery on failure", () => {
     const result = await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "This will fail",
     });
 
@@ -857,6 +872,7 @@ describe("e2e: budget alerts", () => {
     await orchestrator.dispatch({
       workflow: "hotfix",
       repo: REPO_DIR,
+      branch: "feat/test-branch",
       prompt: "Expensive operation",
     });
 
@@ -880,7 +896,7 @@ describe("e2e: readonly agent", () => {
     });
 
     orchestrator.registerAgent({
-      name: "reviewer-quality",
+      name: "reviewer",
       definition: {
         description: "Code reviewer",
         prompt: "Review code",
@@ -894,7 +910,7 @@ describe("e2e: readonly agent", () => {
     orchestrator.registerWorkflow({
       name: "review",
       steps: {
-        review: { agent: "reviewer-quality" },
+        review: { agent: "reviewer" },
       },
     });
 

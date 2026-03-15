@@ -1,15 +1,6 @@
 name: review
-description: "4-lens parallel code review"
+description: "Single-pass code review covering quality, security, performance, and test coverage"
 steps:
-  quality:
-    agent: reviewer-quality
-    sandbox: readonly
-  security:
-    agent: reviewer-security
-    sandbox: readonly
-  perf:
-    agent: reviewer-perf
-    sandbox: readonly
-  coverage:
-    agent: reviewer-coverage
+  review:
+    agent: reviewer
     sandbox: readonly

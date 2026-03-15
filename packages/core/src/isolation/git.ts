@@ -44,10 +44,12 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
 }
 
 /**
- * Generate a deterministic branch name for a run.
- * Uses the repo's branchPrefix (default "feat") and the runId.
+ * Resolve the branch name for a run.
+ * If an explicit branch is provided, use it as-is.
+ * Otherwise, generate a deterministic name from the repo's branchPrefix and runId.
  */
-export function getBranchName(config: RepoConfig, runId: string): string {
+export function getBranchName(config: RepoConfig, runId: string, branch?: string): string {
+  if (branch) return branch;
   const prefix = config.branchPrefix ?? "feat";
   const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   return `${prefix}/run-${sanitized}`;

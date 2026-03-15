@@ -73,8 +73,8 @@ export default defineCommand({
       return;
     }
 
-    // Filter by repo unless --all
-    const filter = await resolveRepoFilter({ all: args.all, repo: args.repo });
+    // Filter by repo unless --all (--short implies --all for supervisor use)
+    const filter = await resolveRepoFilter({ all: args.all || args.short, repo: args.repo });
     if (filter.mode !== "all") {
       const slug = filter.repoSlug;
       entries = entries.filter((e) => {

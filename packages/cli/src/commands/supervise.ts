@@ -1,9 +1,3 @@
-import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync } from "node:fs";
-import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   getSupervisorDir,
   getSupervisorInboxPath,
@@ -14,6 +8,12 @@ import {
   supervisorDaemonStateSchema,
 } from "@neotx/core";
 import { defineCommand } from "citty";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { printError, printSuccess } from "../output.js";
 
 const DEFAULT_NAME = "supervisor";
@@ -70,7 +70,7 @@ async function handleStatus(name: string): Promise<void> {
   console.log(`  Status:     ${state.status}`);
   console.log("");
   console.log(`  Health:   curl localhost:${state.port}/health`);
-  console.log("  Attach:   neo supervise --attach");
+  console.log("  TUI:      neo supervise");
   console.log("  Stop:     neo supervise --kill");
 }
 
@@ -127,7 +127,7 @@ async function startDaemon(name: string): Promise<void> {
   const running = await isDaemonRunning(name);
   if (running) {
     printError(`Supervisor "${name}" is already running (PID ${running.pid}).`);
-    printError("Use --kill first, or --attach to connect.");
+    printError("Use --kill first, or run neo supervise to open TUI.");
     process.exitCode = 1;
     return;
   }
@@ -162,7 +162,7 @@ async function startDaemon(name: string): Promise<void> {
   console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
   console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);
   console.log(`  Logs:     ${getSupervisorDir(name)}/daemon.log`);
-  console.log(`  Attach:   neo supervise --attach`);
+  console.log(`  TUI:      neo supervise`);
   console.log(`  Status:   neo supervise --status`);
   console.log(`  Stop:     neo supervise --kill`);
 }
@@ -223,7 +223,13 @@ export default defineCommand({
     },
     attach: {
       type: "boolean",
-      description: "Open the TUI for a running supervisor",
+      description: "Open the TUI for a running supervisor (default when no flags given)",
+      default: false,
+    },
+    detach: {
+      type: "boolean",
+      alias: "d",
+      description: "Start daemon in the background without opening the TUI",
       default: false,
     },
     message: {
@@ -254,14 +260,26 @@ export default defineCommand({
       return;
     }
 
-    // Default: start daemon (detached)
-    const alreadyRunning = await isDaemonRunning(name);
-    if (alreadyRunning) {
-      printSuccess(
-        `Supervisor "${name}" already running (PID ${alreadyRunning.pid}). Use --attach for TUI.`,
-      );
+    // --detach: start daemon headless (no TUI)
+    if (args.detach) {
+      const alreadyRunning = await isDaemonRunning(name);
+      if (alreadyRunning) {
+        printSuccess(
+          `Supervisor "${name}" already running (PID ${alreadyRunning.pid}).`,
+        );
+        return;
+      }
+      await startDaemon(name);
       return;
     }
-    await startDaemon(name);
+
+    // Default: start daemon if needed, then open TUI
+    const alreadyRunning = await isDaemonRunning(name);
+    if (!alreadyRunning) {
+      await startDaemon(name);
+      // Wait briefly for daemon to initialize before attaching
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+    await handleAttach(name);
   },
 });

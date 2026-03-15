@@ -10,7 +10,9 @@
 
 import { createWriteStream } from "node:fs";
 import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { getSupervisorDir, loadGlobalConfig, SupervisorDaemon } from "@neotx/core";
+import { resolveAgentsPackageDir } from "../resolve.js";
 
 async function main(): Promise<void> {
   const name = process.argv[2];
@@ -29,7 +31,8 @@ async function main(): Promise<void> {
 
   try {
     const config = await loadGlobalConfig();
-    const daemon = new SupervisorDaemon({ name, config });
+    const defaultInstructionsPath = path.join(resolveAgentsPackageDir(), "SUPERVISOR.md");
+    const daemon = new SupervisorDaemon({ name, config, defaultInstructionsPath });
     await daemon.start();
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

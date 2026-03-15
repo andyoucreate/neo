@@ -127,7 +127,15 @@ export class EventQueue {
    * Start watching inbox.jsonl and events.jsonl for new entries.
    * New lines are parsed and pushed into the queue.
    */
-  startWatching(inboxPath: string, eventsPath: string): void {
+  async startWatching(inboxPath: string, eventsPath: string): Promise<void> {
+    // Ensure files exist before watching — fs.watch() throws on missing files
+    for (const p of [inboxPath, eventsPath]) {
+      try {
+        await writeFile(p, "", { flag: "a" });
+      } catch {
+        // Non-critical — watchJsonlFile will handle the error
+      }
+    }
     this.watchJsonlFile(inboxPath, "message");
     this.watchJsonlFile(eventsPath, "webhook");
   }

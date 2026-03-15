@@ -14,6 +14,8 @@ import { WebhookServer } from "./webhook-server.js";
 export interface SupervisorDaemonOptions {
   name: string;
   config: GlobalConfig;
+  /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
+  defaultInstructionsPath?: string | undefined;
 }
 
 /**
@@ -24,6 +26,7 @@ export class SupervisorDaemon {
   private readonly name: string;
   private readonly config: GlobalConfig;
   private readonly dir: string;
+  private readonly defaultInstructionsPath: string | undefined;
   private webhookServer: WebhookServer | null = null;
   private eventQueue: EventQueue | null = null;
   private heartbeatLoop: HeartbeatLoop | null = null;
@@ -34,6 +37,7 @@ export class SupervisorDaemon {
     this.name = options.name;
     this.config = options.config;
     this.dir = getSupervisorDir(options.name);
+    this.defaultInstructionsPath = options.defaultInstructionsPath;
   }
 
   async start(): Promise<void> {
@@ -81,7 +85,7 @@ export class SupervisorDaemon {
     await this.eventQueue.replayUnprocessed(inboxPath, eventsPath);
 
     // Start file watching
-    this.eventQueue.startWatching(inboxPath, eventsPath);
+    await this.eventQueue.startWatching(inboxPath, eventsPath);
 
     // Start webhook server
     this.webhookServer = new WebhookServer({
@@ -132,6 +136,7 @@ export class SupervisorDaemon {
       sessionId: this.sessionId,
       eventQueue: this.eventQueue,
       activityLog: this.activityLog,
+      defaultInstructionsPath: this.defaultInstructionsPath,
     });
 
     await this.heartbeatLoop.start();

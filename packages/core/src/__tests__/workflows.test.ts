@@ -28,7 +28,7 @@ steps:
     dependsOn: [plan]
     prompt: "Implement based on plan"
   review:
-    agent: reviewer-quality
+    agent: reviewer
     dependsOn: [implement]
     sandbox: readonly
   fix:

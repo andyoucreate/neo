@@ -11,7 +11,7 @@ export interface SessionOptions {
   worktreePath?: string;
   sandboxConfig: SandboxConfig;
   hooks?: Record<string, unknown>;
-  mcpServers?: McpServerConfig[];
+  mcpServers?: Record<string, McpServerConfig>;
   initTimeoutMs: number;
   maxDurationMs: number;
   resumeSessionId?: string | undefined;
@@ -108,7 +108,7 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
       queryOptions.resume = options.resumeSessionId;
     }
 
-    if (options.mcpServers?.length) {
+    if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
       queryOptions.mcpServers = options.mcpServers;
     }
 
@@ -116,13 +116,9 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
     let costUsd = 0;
     let turnCount = 0;
 
-    // Combine agent system prompt with task prompt so the agent
-    // receives its full instructions (commit, push, etc.)
-    const fullPrompt = agent.definition.prompt
-      ? `${agent.definition.prompt}\n\n---\n\n## Task\n\n${prompt}`
-      : prompt;
-
-    const stream = sdk.query({ prompt: fullPrompt, options: queryOptions as never });
+    // The prompt is already assembled by the orchestrator (agent prompt +
+    // repo instructions + git strategy context + task). Session just passes it through.
+    const stream = sdk.query({ prompt, options: queryOptions as never });
 
     for await (const message of stream) {
       checkAborted(abortController.signal);

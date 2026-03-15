@@ -1,9 +1,3 @@
-import { fork } from "node:child_process";
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { NeoEvent, PersistedRun } from "@neotx/core";
 import {
   AgentRegistry,
@@ -14,6 +8,12 @@ import {
   toRepoSlug,
 } from "@neotx/core";
 import { defineCommand } from "citty";
+import { fork } from "node:child_process";
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
 
@@ -56,6 +56,9 @@ function printResult(result: import("@neotx/core").TaskResult, agentName: string
   if (result.branch) {
     console.log(`Branch:   ${result.branch}`);
   }
+  if (result.prUrl) {
+    console.log(`PR:       ${result.prUrl}`);
+  }
 
   const stepResult = Object.values(result.steps)[0];
   const output = stepResult?.output ?? result.summary;
@@ -69,6 +72,7 @@ interface DetachParams {
   agentName: string;
   repo: string;
   prompt: string;
+  branch: string | undefined;
   priority: string;
   metadata: Record<string, unknown> | undefined;
   bundledAgentsDir: string;
@@ -107,6 +111,7 @@ async function runDetached(params: DetachParams): Promise<void> {
       agentName: params.agentName,
       repo: params.repo,
       prompt: params.prompt,
+      branch: params.branch,
       priority: params.priority,
       metadata: params.metadata,
       bundledAgentsDir: params.bundledAgentsDir,
@@ -152,13 +157,17 @@ export default defineCommand({
       description: "Task description for the agent",
       required: true,
     },
+    branch: {
+      type: "string",
+      description: "Branch name for the worktree (required for writable agents)",
+    },
     priority: {
       type: "string",
       description: "Priority level: critical, high, medium, low",
     },
     meta: {
       type: "string",
-      description: "Metadata as JSON string",
+      description: "Metadata as JSON string (for traceability: ticketId, stage, etc.)",
     },
     output: {
       type: "string",
@@ -175,6 +184,10 @@ export default defineCommand({
       alias: "s",
       description: "Run in foreground (blocking) instead of detached",
       default: false,
+    },
+    "git-strategy": {
+      type: "string",
+      description: "Git strategy: pr (create PR), branch (push only, default)",
     },
   },
   async run({ args }) {
@@ -210,6 +223,7 @@ export default defineCommand({
         agentName: args.agent,
         repo,
         prompt: args.prompt,
+        branch: args.branch,
         priority: args.priority ?? "medium",
         metadata: parseMetadata(args.meta),
         bundledAgentsDir,
@@ -237,12 +251,15 @@ export default defineCommand({
     try {
       await orchestrator.start();
 
+      const gitStrategy = args["git-strategy"] as "pr" | "branch" | undefined;
       const result = await orchestrator.dispatch({
         workflow: `_run_${args.agent}`,
         repo,
         prompt: args.prompt,
+        ...(args.branch ? { branch: args.branch } : {}),
         priority: (args.priority as "critical" | "high" | "medium" | "low") ?? "medium",
         metadata: parseMetadata(args.meta),
+        ...(gitStrategy ? { gitStrategy } : {}),
       });
 
       if (jsonOutput) {

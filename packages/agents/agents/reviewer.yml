@@ -1,0 +1,10 @@
+name: reviewer
+description: "Single-pass code reviewer. Covers quality, security, performance, and test coverage in one lightweight sweep. Use for fast reviews on small PRs or budget-constrained runs."
+model: sonnet
+tools:
+  - Read
+  - Glob
+  - Grep
+  - Bash
+sandbox: readonly
+prompt: ../prompts/reviewer.md

@@ -70,7 +70,7 @@ describe("addRepoToGlobalConfig", () => {
     const config = await loadGlobalConfig();
     const repo = config.repos[0];
     expect(repo?.pushRemote).toBe("origin");
-    expect(repo?.autoCreatePr).toBe(false);
+    expect(repo?.gitStrategy).toBe("branch");
   });
 
   it("preserves name when provided", async () => {
