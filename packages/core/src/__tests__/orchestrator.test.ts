@@ -1,3 +1,7 @@
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdir, readFile, rm } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   DispatchInput,
   NeoConfig,
@@ -6,10 +10,6 @@ import type {
   WorkflowDefinition,
 } from "@/index";
 import { Orchestrator } from "@/orchestrator";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── SDK Mock ───────────────────────────────────────────
 
@@ -685,9 +685,7 @@ describe("input validation", () => {
   it("uses explicit branch for gitStrategy 'branch'", async () => {
     const orchestrator = createOrchestrator();
 
-    const result = await orchestrator.dispatch(
-      makeInput({ branch: "feat/my-custom-branch" }),
-    );
+    const result = await orchestrator.dispatch(makeInput({ branch: "feat/my-custom-branch" }));
     expect(result.status).toBe("success");
     expect(result.branch).toBe("feat/my-custom-branch");
   });
@@ -900,7 +898,11 @@ describe("MCP server resolution", () => {
       makeConfig({
         mcpServers: {
           notion: { type: "stdio", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"] },
-          github: { type: "stdio", command: "npx", args: ["-y", "@modelcontextprotocol/server-github"] },
+          github: {
+            type: "stdio",
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-github"],
+          },
         },
       }),
     );
@@ -923,9 +925,7 @@ describe("MCP server resolution", () => {
       }),
     );
 
-    const result = await orchestrator.dispatch(
-      makeInput({ workflow: "mcp-workflow" }),
-    );
+    const result = await orchestrator.dispatch(makeInput({ workflow: "mcp-workflow" }));
     expect(result.status).toBe("success");
   });
 
@@ -947,9 +947,7 @@ describe("MCP server resolution", () => {
       }),
     );
 
-    const result = await orchestrator.dispatch(
-      makeInput({ workflow: "step-mcp-workflow" }),
-    );
+    const result = await orchestrator.dispatch(makeInput({ workflow: "step-mcp-workflow" }));
     expect(result.status).toBe("success");
   });
 

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { appendFile, readFile } from "node:fs/promises";
 import type { ActivityEntry, SupervisorDaemonState } from "@neotx/core";
 import {
   getSupervisorActivityPath,
@@ -6,8 +8,6 @@ import {
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
-import { randomUUID } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
 import { useCallback, useEffect, useState } from "react";
 
 // ─── Constants ───────────────────────────────────────────
