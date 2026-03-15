@@ -111,6 +111,33 @@ export function extractKnowledgeOps(response: string): KnowledgeOp[] {
 }
 
 /**
+ * Format a fact with provenance attribution when present.
+ * Format: 'fact [source, date]' or 'fact [source] (runId: X, confidence: Y, expiresAt: Z)'
+ */
+function formatFactWithProvenance(op: Extract<KnowledgeOp, { op: "append" }>): string {
+  const basicAttrs = [op.source, op.date].filter(Boolean);
+  const provenanceAttrs: string[] = [];
+
+  if (op.runId) {
+    provenanceAttrs.push(`runId: ${op.runId}`);
+  }
+  if (op.confidence !== undefined) {
+    provenanceAttrs.push(`confidence: ${op.confidence}`);
+  }
+  if (op.expiresAt) {
+    provenanceAttrs.push(`expiresAt: ${op.expiresAt}`);
+  }
+
+  const basicAttr = basicAttrs.join(", ");
+  const provenanceAttr = provenanceAttrs.length > 0 ? ` (${provenanceAttrs.join(", ")})` : "";
+
+  if (basicAttr || provenanceAttr) {
+    return `${op.fact} [${basicAttr}]${provenanceAttr}`;
+  }
+  return op.fact;
+}
+
+/**
  * Apply knowledge operations to markdown content.
  */
 export function applyKnowledgeOps(md: string, ops: KnowledgeOp[]): string {
@@ -120,8 +147,7 @@ export function applyKnowledgeOps(md: string, ops: KnowledgeOp[]): string {
     switch (op.op) {
       case "append": {
         const existing = sections.get(op.section) ?? [];
-        const attribution = [op.source, op.date].filter(Boolean).join(", ");
-        const fact = attribution ? `${op.fact} [${attribution}]` : op.fact;
+        const fact = formatFactWithProvenance(op);
         existing.push(fact);
         sections.set(op.section, existing);
         break;
@@ -169,7 +195,44 @@ export function selectKnowledgeForRepos(md: string, repoPaths: string[]): string
 }
 
 /**
+ * Check if a fact has expired based on its expiresAt provenance field.
+ * Looks for pattern: (expiresAt: YYYY-MM-DD...) in the fact string.
+ */
+export function isExpired(fact: string): boolean {
+  const expiresMatch = /\(.*?expiresAt:\s*(\d{4}-\d{2}-\d{2}[T\d:.-Z]*).*?\)/.exec(fact);
+  if (!expiresMatch?.[1]) return false;
+
+  const expiresAt = new Date(expiresMatch[1]).getTime();
+  if (Number.isNaN(expiresAt)) return false;
+
+  return Date.now() > expiresAt;
+}
+
+/**
+ * Check if a fact is test/mock data that should be filtered during compaction.
+ * Detects sourceType='test' or common test data patterns.
+ */
+export function isTestData(fact: string): boolean {
+  // Check for explicit test sourceType in attribution
+  if (/\[test[,\]]/.test(fact) || /\[.*?,\s*test\]/.test(fact)) {
+    return true;
+  }
+
+  // Check for test data keywords in the fact content
+  const testPatterns = [
+    /\btest[-_]?data\b/i,
+    /\bmock[-_]?data\b/i,
+    /\bfixture\b/i,
+    /\b__test__\b/i,
+    /\bspec[-_]?helper\b/i,
+  ];
+
+  return testPatterns.some((pattern) => pattern.test(fact));
+}
+
+/**
  * Compact knowledge by trimming oldest facts per section.
+ * Also filters out expired facts and test data.
  * Returns the compacted markdown string.
  */
 export function compactKnowledge(md: string, maxFactsPerRepo = 20): string {
@@ -177,9 +240,16 @@ export function compactKnowledge(md: string, maxFactsPerRepo = 20): string {
   const sections = parseKnowledge(md);
 
   for (const [section, facts] of sections) {
-    if (facts.length > maxFactsPerRepo) {
+    // Filter out expired and test data facts
+    const filtered = facts.filter((fact) => !isExpired(fact) && !isTestData(fact));
+
+    if (filtered.length > maxFactsPerRepo) {
       // Keep the most recent facts (last N)
-      sections.set(section, facts.slice(-maxFactsPerRepo));
+      sections.set(section, filtered.slice(-maxFactsPerRepo));
+    } else if (filtered.length === 0) {
+      sections.delete(section);
+    } else {
+      sections.set(section, filtered);
     }
   }
 
