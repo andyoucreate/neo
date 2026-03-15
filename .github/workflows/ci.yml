@@ -58,6 +58,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - run: pnpm build
       - run: pnpm test -- --reporter=verbose
         env:
           NODE_OPTIONS: "--experimental-vm-modules"
