@@ -29,6 +29,10 @@ Zero infrastructure - no database, no Redis, no Docker.
 
 The supervisor decides what needs to happen. neo handles how it happens safely.
 
+## Be Part of NeoScaling
+
+NeoScaling replaces traditional hiring-based scaling with AI agent orchestration. Instead of waiting months to recruit, onboard, and ramp up new engineers, you spin up autonomous developer agents that start shipping code immediately. neo gives you the infrastructure to run multiple agents in parallel—each working in isolated git worktrees, tracked for cost, and recoverable on failure. Scale your engineering capacity on demand, pay only for what you use, and skip the overhead of growing headcount.
+
 ## Quickstart
 
 ```bash
