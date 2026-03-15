@@ -28,11 +28,23 @@ export async function createWorktree(options: {
   const worktreeDir = resolve(options.worktreeDir);
 
   await withGitLock(repoPath, async () => {
-    await execFileAsync(
-      "git",
-      ["worktree", "add", "-b", options.branch, worktreeDir, options.baseBranch],
-      { cwd: repoPath, timeout: GIT_TIMEOUT },
-    );
+    // Fetch latest remote state so the worktree starts from up-to-date code.
+    // Falls back to local baseBranch when no remote is configured (e.g. in tests).
+    let startPoint = options.baseBranch;
+    try {
+      await execFileAsync("git", ["fetch", "origin", options.baseBranch], {
+        cwd: repoPath,
+        timeout: GIT_TIMEOUT,
+      });
+      startPoint = `origin/${options.baseBranch}`;
+    } catch {
+      // No remote available — use local branch as-is
+    }
+
+    await execFileAsync("git", ["worktree", "add", "-b", options.branch, worktreeDir, startPoint], {
+      cwd: repoPath,
+      timeout: GIT_TIMEOUT,
+    });
   });
 
   // Disable git hooks in the worktree — pre-commit hooks (husky, lint-staged)
