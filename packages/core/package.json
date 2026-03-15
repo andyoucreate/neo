@@ -6,7 +6,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/voltaire-network/neo.git",
+    "url": "https://github.com/andyoucreate/neo.git",
     "directory": "packages/core"
   },
   "main": "dist/index.js",
