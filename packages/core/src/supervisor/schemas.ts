@@ -110,6 +110,23 @@ export const knowledgeOpSchema = z.discriminatedUnion("op", [
 
 export type KnowledgeOp = z.infer<typeof knowledgeOpSchema>;
 
+// ─── Run note (persisted in per-run JSONL files) ────────
+
+export const runNoteSchema = z.object({
+  type: z.enum(["blocker", "decision", "observation", "progress"]),
+  content: z.string(),
+  timestamp: z.string(), // ISO8601
+  metadata: z
+    .object({
+      ticketId: z.string().optional(),
+      prNumber: z.number().optional(),
+    })
+    .passthrough()
+    .optional(),
+});
+
+export type RunNote = z.infer<typeof runNoteSchema>;
+
 // ─── Queued event (union of all event sources) ──────────
 
 export type QueuedEvent =
