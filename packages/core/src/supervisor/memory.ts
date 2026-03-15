@@ -64,8 +64,8 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
 
     return {
       agenda: (parsed.agenda as string) ?? "",
-      activeWork: (parsed.activeWork as ActiveWorkItem[]) ?? [],
-      blockers: (parsed.blockers as BlockerItem[]) ?? [],
+      activeWork: normalizeActiveWork(parsed.activeWork),
+      blockers: normalizeBlockers(parsed.blockers),
       decisions:
         (parsed.decisions as DecisionItem[]) ?? (parsed.recentDecisions as DecisionItem[]) ?? [],
       trackerSync: (parsed.trackerSync as Record<string, string>) ?? {},
@@ -73,6 +73,75 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
   } catch {
     return emptyMemory();
   }
+}
+
+/**
+ * Normalize activeWork items from potentially free-form LLM output
+ * into the expected ActiveWorkItem shape.
+ */
+function normalizeActiveWork(raw: unknown): ActiveWorkItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item: unknown) => {
+      if (typeof item === "string") {
+        return { description: item, status: "running" as const, since: new Date().toISOString() };
+      }
+      if (item == null || typeof item !== "object") return null;
+      const obj = item as Record<string, unknown>;
+      const result: ActiveWorkItem = {
+        description:
+          (obj.description as string) ?? (obj.ticket as string) ?? JSON.stringify(obj),
+        status:
+          validateStatus(obj.status) ??
+          ((obj.stage as string) === "ci_pending" ? "waiting" : "running"),
+        since: (obj.since as string) ?? new Date().toISOString(),
+      };
+      if (obj.runId) result.runId = obj.runId as string;
+      if (obj.repo) result.repo = obj.repo as string;
+      const prio = validatePriority(obj.priority);
+      if (prio) result.priority = prio;
+      if (obj.deadline) result.deadline = obj.deadline as string;
+      return result;
+    })
+    .filter((item): item is ActiveWorkItem => item !== null);
+}
+
+function validateStatus(v: unknown): ActiveWorkItem["status"] | undefined {
+  if (v === "running" || v === "waiting" || v === "blocked") return v;
+  return undefined;
+}
+
+function validatePriority(v: unknown): ActiveWorkItem["priority"] | undefined {
+  if (v === "critical" || v === "high" || v === "medium" || v === "low") return v;
+  return undefined;
+}
+
+/**
+ * Normalize blocker items from potentially free-form LLM output
+ * into the expected BlockerItem shape.
+ */
+function normalizeBlockers(raw: unknown): BlockerItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item: unknown) => {
+      if (typeof item === "string") {
+        return { description: item, since: new Date().toISOString() };
+      }
+      if (item == null || typeof item !== "object") return null;
+      const obj = item as Record<string, unknown>;
+      return {
+        description:
+          (obj.description as string) ??
+          (obj.reason as string) ??
+          (obj.ticket as string) ??
+          JSON.stringify(obj),
+        source: (obj.source as string) ?? undefined,
+        runId: (obj.runId as string) ?? undefined,
+        repo: (obj.repo as string) ?? undefined,
+        since: (obj.since as string) ?? new Date().toISOString(),
+      } as BlockerItem;
+    })
+    .filter((item): item is BlockerItem => item !== null);
 }
 
 function migrateFromOldFormat(parsed: Record<string, unknown>): SupervisorMemory {

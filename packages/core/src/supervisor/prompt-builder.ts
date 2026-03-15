@@ -322,14 +322,34 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
 Before integrating, check for CONTRADICTIONS between new entries and existing knowledge.
 If a new fact contradicts an existing one, REPLACE the old fact.
 
-Use <memory-ops> for memory updates:
+Use <memory-ops> for memory updates. CRITICAL: You MUST use the exact field names shown below. Free-form fields will break the system.
+
+**activeWork items** must have these fields:
+- \`description\` (string, required) — what is being done
+- \`status\` (required) — exactly one of: \`"running"\`, \`"waiting"\`, \`"blocked"\`
+- \`since\` (ISO date string, required) — when this work started
+- \`runId\` (string, optional) — the neo run ID
+- \`repo\` (string, optional) — repo path
+- \`priority\` (optional) — one of: \`"critical"\`, \`"high"\`, \`"medium"\`, \`"low"\`
+
+**blocker items** must have these fields:
+- \`description\` (string, required) — what is blocked and why
+- \`since\` (ISO date string, required) — when this became a blocker
+- \`source\` (string, optional) — who reported it
+- \`runId\` (string, optional) — related run ID
+
+Examples:
 \`\`\`
 <memory-ops>
 {"op":"set","path":"agenda","value":"updated agenda text"}
+{"op":"append","path":"activeWork","value":{"description":"PR#27 CI pending","status":"waiting","since":"${new Date().toISOString().slice(0, 19)}Z","runId":"0b7b1cda"}}
+{"op":"append","path":"blockers","value":{"description":"@acme/sdk v3.0 not published","since":"${new Date().toISOString().slice(0, 19)}Z"}}
 {"op":"append","path":"decisions","value":{"date":"${new Date().toISOString().slice(0, 10)}","decision":"..."}}
 {"op":"remove","path":"blockers","index":0}
 </memory-ops>
 \`\`\`
+
+Do NOT use custom fields like \`ticket\`, \`stage\`, \`pr\`, \`cost\`, \`reason\` — include that info inside \`description\`.
 
 Use <knowledge-ops> for knowledge updates:
 \`\`\`
@@ -402,10 +422,16 @@ Tasks:
 Flag contradictions: if two facts contradict, keep the newer one.
 Mark facts you're unsure about with (needs verification).
 
-Use <memory-ops> for memory updates:
+Use <memory-ops> for memory updates. CRITICAL: Use the exact field names below — no custom fields.
+
+**activeWork**: \`{"description":"...","status":"running|waiting|blocked","since":"ISO-date"}\` + optional \`runId\`, \`repo\`, \`priority\`
+**blockers**: \`{"description":"...","since":"ISO-date"}\` + optional \`source\`, \`runId\`
+Pack context (ticket IDs, PR#, cost) inside \`description\` — do NOT add custom fields.
+
 \`\`\`
 <memory-ops>
 {"op":"set","path":"agenda","value":"updated agenda text"}
+{"op":"append","path":"activeWork","value":{"description":"PR#27 CI pending","status":"waiting","since":"${new Date().toISOString().slice(0, 19)}Z"}}
 {"op":"append","path":"decisions","value":{"date":"${new Date().toISOString().slice(0, 10)}","decision":"..."}}
 {"op":"remove","path":"blockers","index":0}
 </memory-ops>
