@@ -1,0 +1,43 @@
+# Development Standards
+
+This document outlines the coding conventions and best practices for this project.
+
+## Core Principles
+
+- DRY (Don't Repeat Yourself): Extract repeated logic into reusable functions/modules
+- YAGNI (You Aren't Gonna Need It): Only implement what's needed now
+- KISS (Keep It Simple, Stupid): Favor simplicity and clarity over cleverness
+
+## TypeScript Conventions
+
+- Use `function` for declarations, arrow functions for callbacks
+- Always enable strict mode
+- Prefer `unknown` over `any`
+- Use `@/` path aliases for internal imports
+
+## Naming Conventions
+
+- Files: kebab-case (e.g., user-profile.ts)
+- Variables & Functions: camelCase (e.g., userName, fetchUserData)
+- Constants: UPPER_CASE (e.g., MAX_RETRY_COUNT)
+- Types & Interfaces: PascalCase (e.g., UserProfile)
+
+## Git Workflow
+
+- Conventional commits: feat(scope): msg, fix:, refactor:, chore:
+- Branch naming: feat/, fix/, chore/ prefix
+- One task = one commit
+- Never push to main/master directly
+
+## Testing
+
+- Write tests for all business logic
+- Use vitest as the test runner
+- Follow Arrange-Act-Assert pattern
+
+## Code Quality
+
+- Run typecheck before committing
+- Use biome for linting and formatting
+- No inline styles (except dynamic values)
+- No hard-coded magic values
