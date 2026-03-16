@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+// ─── Wake reason (why daemon woke from idle) ─────────────
+
+export const wakeReasonSchema = z.enum(["events", "timer", "active_runs", "forced"]);
+
+export type WakeReason = z.infer<typeof wakeReasonSchema>;
+
 // ─── Daemon state (persisted in state.json) ──────────────
 
 export const supervisorDaemonStateSchema = z.object({
@@ -19,6 +25,7 @@ export const supervisorDaemonStateSchema = z.object({
   lastConsolidationHeartbeat: z.number().default(0),
   lastCompactionHeartbeat: z.number().default(0),
   lastConsolidationTimestamp: z.string().optional(),
+  wakeReason: wakeReasonSchema.optional(),
 });
 
 export type SupervisorDaemonState = z.infer<typeof supervisorDaemonStateSchema>;
@@ -121,12 +128,19 @@ export const knowledgeOpSchema = z.discriminatedUnion("op", [
 
 export type KnowledgeOp = z.infer<typeof knowledgeOpSchema>;
 
+// ─── Internal event kinds (timer-based, not external) ────
+
+export const internalEventKindSchema = z.enum(["consolidation_timer", "active_run_check"]);
+
+export type InternalEventKind = z.infer<typeof internalEventKindSchema>;
+
 // ─── Queued event (union of all event sources) ──────────
 
 export type QueuedEvent =
   | { kind: "webhook"; data: WebhookIncomingEvent }
   | { kind: "message"; data: InboxMessage }
-  | { kind: "run_complete"; runId: string; timestamp: string };
+  | { kind: "run_complete"; runId: string; timestamp: string }
+  | { kind: "internal"; eventKind: InternalEventKind; timestamp: string };
 
 // ─── Run notes (per-run narrative tracking) ──────────────
 
