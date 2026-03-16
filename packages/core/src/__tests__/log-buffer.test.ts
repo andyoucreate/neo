@@ -4,13 +4,11 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildAgentDigest,
   compactLogBuffer,
-  computeHotState,
   markConsolidated,
   readLogBuffer,
   readLogBufferSince,
   readUnconsolidated,
 } from "@/supervisor/log-buffer";
-import type { SupervisorMemory } from "@/supervisor/memory";
 import type { LogBufferEntry } from "@/supervisor/schemas";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_log_buffer_test__");
@@ -23,16 +21,6 @@ function makeEntry(overrides?: Partial<LogBufferEntry>): LogBufferEntry {
     target: "digest",
     timestamp: new Date().toISOString(),
     ...overrides,
-  };
-}
-
-function emptyMemory(): SupervisorMemory {
-  return {
-    agenda: "",
-    activeWork: [],
-    blockers: [],
-    decisions: [],
-    trackerSync: {},
   };
 }
 
@@ -230,55 +218,5 @@ describe("buildAgentDigest", () => {
     const entries = [makeEntry({ message: "orphan work" })];
     const digest = buildAgentDigest(entries);
     expect(digest).toContain("[unassigned]");
-  });
-});
-
-describe("computeHotState", () => {
-  it("merges memory activeWork with buffer entries", () => {
-    const memory: SupervisorMemory = {
-      ...emptyMemory(),
-      activeWork: [
-        { description: "existing task", status: "running" as const, since: "2026-03-15T00:00:00Z" },
-      ],
-    };
-    const entries = [makeEntry({ type: "progress", message: "new work", agent: "dev" })];
-
-    const state = computeHotState(memory, entries);
-    expect(state.activeWork).toContain("existing task");
-    expect(state.activeWork).toContain("[dev] new work");
-  });
-
-  it("adds blockers from buffer entries", () => {
-    const memory = emptyMemory();
-    const entries = [makeEntry({ type: "blocker", message: "API is down" })];
-
-    const state = computeHotState(memory, entries);
-    expect(state.blockers).toContain("API is down");
-  });
-
-  it("merges existing blockers with new ones", () => {
-    const memory: SupervisorMemory = {
-      ...emptyMemory(),
-      blockers: [{ description: "old blocker", since: "2026-03-15T00:00:00Z" }],
-    };
-    const entries = [makeEntry({ type: "blocker", message: "new blocker" })];
-
-    const state = computeHotState(memory, entries);
-    expect(state.blockers).toContain("old blocker");
-    expect(state.blockers).toContain("new blocker");
-  });
-
-  it("marks milestones with checkmark", () => {
-    const memory = emptyMemory();
-    const entries = [makeEntry({ type: "milestone", message: "auth complete" })];
-
-    const state = computeHotState(memory, entries);
-    expect(state.activeWork).toContain("✓ auth complete");
-  });
-
-  it("returns empty arrays for empty inputs", () => {
-    const state = computeHotState(emptyMemory(), []);
-    expect(state.activeWork).toEqual([]);
-    expect(state.blockers).toEqual([]);
   });
 });

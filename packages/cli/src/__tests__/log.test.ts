@@ -4,10 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_log_test__");
 
-// Mock getSupervisorDir to use our temp directory
-vi.mock("@neotx/core", () => ({
-  getSupervisorDir: () => TMP_DIR,
-}));
+// Mock getSupervisorDir to use our temp directory, pass through appendLogBuffer
+vi.mock("@neotx/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@neotx/core")>();
+  return {
+    ...actual,
+    getSupervisorDir: () => TMP_DIR,
+  };
+});
 
 // Mock output functions
 vi.mock("../output.js", () => ({

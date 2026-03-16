@@ -18,13 +18,6 @@ export type {
 } from "@/concurrency/semaphore";
 // ─── Concurrency ────────────────────────────────────────
 export { Semaphore } from "@/concurrency/semaphore";
-export type {
-  GlobalConfig,
-  McpServerConfig,
-  NeoConfig,
-  RepoConfig,
-  RepoConfigInput,
-} from "@/config";
 export {
   addRepoToGlobalConfig,
   globalConfigSchema,
@@ -36,6 +29,13 @@ export {
   removeRepoFromGlobalConfig,
   repoConfigSchema,
 } from "@/config";
+export type {
+  GlobalConfig,
+  McpServerConfig,
+  NeoConfig,
+  RepoConfig,
+  RepoConfigInput,
+} from "@/config";
 // ─── Cost ──────────────────────────────────────────────
 export { CostJournal } from "@/cost/journal";
 export { NeoEventEmitter } from "@/events";
@@ -43,12 +43,12 @@ export { NeoEventEmitter } from "@/events";
 export { EventJournal } from "@/events/journal";
 export { matchesFilter, WebhookDispatcher } from "@/events/webhook";
 // ─── Isolation ──────────────────────────────────────────
-export type { SessionCloneInfo } from "@/isolation/clone";
 export {
   createSessionClone,
   listSessionClones,
   removeSessionClone,
 } from "@/isolation/clone";
+export type { SessionCloneInfo } from "@/isolation/clone";
 export {
   createBranch,
   deleteBranch,
@@ -58,18 +58,18 @@ export {
   pushBranch,
   pushSessionBranch,
 } from "@/isolation/git";
-export type { SandboxConfig } from "@/isolation/sandbox";
 export { buildSandboxConfig } from "@/isolation/sandbox";
+export type { SandboxConfig } from "@/isolation/sandbox";
 export type { AuditLogMiddleware } from "@/middleware/audit-log";
 // ─── Middleware ─────────────────────────────────────────
 export { auditLog } from "@/middleware/audit-log";
 export { budgetGuard } from "@/middleware/budget-guard";
-export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
 export { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
-export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
+export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
 export { loopDetection } from "@/middleware/loop-detection";
-export type { OrchestratorOptions } from "@/orchestrator";
+export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
 export { Orchestrator } from "@/orchestrator";
+export type { OrchestratorOptions } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────
 export {
   getDataDir,
@@ -83,58 +83,53 @@ export {
   getSupervisorEventsPath,
   getSupervisorInboxPath,
   getSupervisorLockPath,
-  getSupervisorMemoryPath,
-  getSupervisorStatePath,
   getSupervisorsDir,
+  getSupervisorStatePath,
   toRepoSlug,
 } from "@/paths";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
-export type { RecoveryOptions } from "@/runner/recovery";
 export { runWithRecovery } from "@/runner/recovery";
+export type { RecoveryOptions } from "@/runner/recovery";
+export { runSession, SessionError } from "@/runner/session";
 export type {
   SessionEvent,
   SessionOptions,
   SessionResult,
 } from "@/runner/session";
-export { runSession, SessionError } from "@/runner/session";
 // ─── Supervisor (legacy) ──────────────────────────────
-export type { SupervisorState } from "@/supervisor";
 export { supervisorStateSchema } from "@/supervisor";
+export type { SupervisorState } from "@/supervisor";
 // ─── Supervisor (daemon) ──────────────────────────────
+export {
+  activityEntrySchema,
+  ActivityLog,
+  appendLogBuffer,
+  appendRunNote,
+  EventQueue,
+  findRepoSlugForRun,
+  getActiveRunsWithNotes,
+  getRecentCompletedRunsWithNotes,
+  HeartbeatLoop,
+  inboxMessageSchema,
+  loadFocus,
+  loadKnowledge,
+  readRunNotes,
+  SupervisorDaemon,
+  supervisorDaemonStateSchema,
+  webhookIncomingEventSchema,
+  WebhookServer,
+} from "@/supervisor/index";
 export type {
   ActivityEntry,
   HeartbeatLoopOptions,
-  HeartbeatPromptOptions,
   InboxMessage,
   QueuedEvent,
   RunNote,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
   WebhookIncomingEvent,
-} from "@/supervisor/index";
-export {
-  ActivityLog,
-  activityEntrySchema,
-  buildHeartbeatPrompt,
-  checkMemorySize,
-  EventQueue,
-  extractMemoryFromResponse,
-  findRepoSlugForRun,
-  getActiveRunsWithNotes,
-  HeartbeatLoop,
-  inboxMessageSchema,
-  loadKnowledge,
-  loadMemory,
-  parseKnowledge,
-  parseStructuredMemory,
-  readRunNotes,
-  SupervisorDaemon,
-  saveMemory,
-  supervisorDaemonStateSchema,
-  WebhookServer,
-  webhookIncomingEventSchema,
 } from "@/supervisor/index";
 export * from "@/types";
 // ─── Workflows ─────────────────────────────────────────

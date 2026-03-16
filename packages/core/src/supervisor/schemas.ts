@@ -94,40 +94,6 @@ export const logBufferEntrySchema = z.object({
 
 export type LogBufferEntry = z.infer<typeof logBufferEntrySchema>;
 
-// ─── Memory delta operations ────────────────────────────
-
-export const memoryOpSchema = z.discriminatedUnion("op", [
-  z.object({ op: z.literal("set"), path: z.string(), value: z.unknown() }),
-  z.object({ op: z.literal("append"), path: z.string(), value: z.unknown() }),
-  z.object({ op: z.literal("remove"), path: z.string(), index: z.number() }),
-]);
-
-export type MemoryOp = z.infer<typeof memoryOpSchema>;
-
-// ─── Knowledge delta operations ─────────────────────────
-
-export const knowledgeSourceTypeSchema = z.enum(["agent", "supervisor", "user", "test"]);
-
-export type KnowledgeSourceType = z.infer<typeof knowledgeSourceTypeSchema>;
-
-export const knowledgeOpSchema = z.discriminatedUnion("op", [
-  z.object({
-    op: z.literal("append"),
-    section: z.string(),
-    fact: z.string(),
-    source: z.string().optional(),
-    date: z.string().optional(),
-    // Provenance fields (all optional for backwards compatibility)
-    sourceType: knowledgeSourceTypeSchema.optional(),
-    runId: z.string().optional(),
-    confidence: z.number().min(0).max(1).optional(),
-    expiresAt: z.string().optional(), // ISO date string
-  }),
-  z.object({ op: z.literal("remove"), section: z.string(), index: z.number() }),
-]);
-
-export type KnowledgeOp = z.infer<typeof knowledgeOpSchema>;
-
 // ─── Internal event kinds (timer-based, not external) ────
 
 export const internalEventKindSchema = z.enum(["consolidation_timer", "active_run_check"]);
@@ -152,23 +118,3 @@ export const runNoteSchema = z.object({
 
 export type RunNote = z.infer<typeof runNoteSchema>;
 
-// ─── Memory V2 schema (slimmer global memory) ────────────
-
-export const blockerItemSchema = z.object({
-  description: z.string(),
-  source: z.string().optional(),
-  runId: z.string().optional(),
-  repo: z.string().optional(),
-  since: z.string(),
-});
-
-export type BlockerItem = z.infer<typeof blockerItemSchema>;
-
-export const supervisorMemoryV2Schema = z.object({
-  version: z.literal(2),
-  agenda: z.string(),
-  blockers: z.array(blockerItemSchema),
-  trackerSync: z.record(z.string(), z.string()),
-});
-
-export type SupervisorMemoryV2 = z.infer<typeof supervisorMemoryV2Schema>;

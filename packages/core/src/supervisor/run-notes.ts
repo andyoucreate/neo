@@ -1,8 +1,8 @@
+import { getRepoRunsDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import { existsSync } from "node:fs";
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import { getRepoRunsDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import type { RunNote } from "./schemas.js";
 import { runNoteSchema } from "./schemas.js";
 
@@ -58,163 +58,6 @@ export async function readRecentNotes(
 ): Promise<RunNote[]> {
   const notes = await readRunNotes(repoSlug, runId);
   return notes.slice(-limit);
-}
-
-// ─── Extraction from LLM response ────────────────────────
-
-/**
- * Extract <run-notes> blocks from an LLM response.
- * Returns parsed notes with auto-generated timestamps.
- *
- * Expected format:
- * ```
- * <run-notes>
- * decision: Chose JWT for auth
- * observation: Tests passing
- * blocker: Need API key
- * outcome: PR merged
- * </run-notes>
- * ```
- */
-export function extractRunNotes(response: string): RunNote[] {
-  const match = /<run-notes>([\s\S]*?)<\/run-notes>/i.exec(response);
-  if (!match?.[1]) return [];
-
-  const notes: RunNote[] = [];
-  const now = new Date().toISOString();
-  const lines = match[1].trim().split("\n").filter(Boolean);
-
-  for (const line of lines) {
-    const colonIdx = line.indexOf(":");
-    if (colonIdx === -1) continue;
-
-    const typeRaw = line.slice(0, colonIdx).trim().toLowerCase();
-    const text = line.slice(colonIdx + 1).trim();
-
-    if (!text) continue;
-
-    if (
-      typeRaw === "decision" ||
-      typeRaw === "observation" ||
-      typeRaw === "blocker" ||
-      typeRaw === "outcome"
-    ) {
-      notes.push({ type: typeRaw, text, ts: now });
-    }
-  }
-
-  return notes;
-}
-
-/**
- * Persist extracted run notes for a given run.
- * Extracts notes from LLM response and appends them to the run's notes file.
- * No-op if no notes are found or repoSlug/runId are missing.
- */
-export async function persistRunNotes(
-  response: string,
-  repoSlug: string | undefined,
-  runId: string | undefined,
-): Promise<void> {
-  if (!repoSlug || !runId) return;
-
-  const notes = extractRunNotes(response);
-  for (const note of notes) {
-    await appendRunNote(repoSlug, runId, note);
-  }
-}
-
-/**
- * Extended run note with runId for supervisor context.
- */
-export interface ExtendedRunNote {
-  runId: string;
-  type: "observation" | "decision" | "stage" | "blocker" | "resolution";
-  text: string;
-}
-
-/**
- * Extract JSON-formatted run notes from supervisor LLM response.
- * These notes include runId for multi-run context.
- *
- * Expected format:
- * ```
- * <run-notes>
- * {"runId":"abc123","type":"observation","text":"Tests passing"}
- * {"runId":"abc123","type":"decision","text":"Using JWT auth"}
- * </run-notes>
- * ```
- */
-export function extractExtendedRunNotes(response: string): ExtendedRunNote[] {
-  const match = /<run-notes>([\s\S]*?)<\/run-notes>/i.exec(response);
-  if (!match?.[1]) return [];
-
-  const notes: ExtendedRunNote[] = [];
-  const lines = match[1].trim().split("\n").filter(Boolean);
-
-  for (const line of lines) {
-    try {
-      const parsed = JSON.parse(line) as Record<string, unknown>;
-      if (
-        typeof parsed.runId === "string" &&
-        typeof parsed.type === "string" &&
-        typeof parsed.text === "string" &&
-        ["observation", "decision", "stage", "blocker", "resolution"].includes(parsed.type)
-      ) {
-        notes.push({
-          runId: parsed.runId,
-          type: parsed.type as ExtendedRunNote["type"],
-          text: parsed.text,
-        });
-      }
-    } catch {
-      // Skip non-JSON lines
-    }
-  }
-
-  return notes;
-}
-
-/**
- * Persist extended run notes from supervisor output.
- * Groups notes by runId and persists to appropriate run files.
- * Requires a repoSlug resolver function since supervisor doesn't have single repo context.
- */
-export async function persistExtendedRunNotes(
-  response: string,
-  getRepoSlugForRun: (runId: string) => Promise<string | undefined>,
-): Promise<void> {
-  const extendedNotes = extractExtendedRunNotes(response);
-  const now = new Date().toISOString();
-
-  for (const note of extendedNotes) {
-    const repoSlug = await getRepoSlugForRun(note.runId);
-    if (!repoSlug) continue;
-
-    // Map extended types to core types
-    const coreType = mapExtendedType(note.type);
-    await appendRunNote(repoSlug, note.runId, {
-      type: coreType,
-      text: note.text,
-      ts: now,
-    });
-  }
-}
-
-function mapExtendedType(
-  extType: ExtendedRunNote["type"],
-): "observation" | "decision" | "blocker" | "outcome" {
-  switch (extType) {
-    case "stage":
-    case "observation":
-      return "observation";
-    case "resolution":
-      return "outcome";
-    case "decision":
-      return "decision";
-    case "blocker":
-      return "blocker";
-  }
 }
 
 /**
@@ -333,6 +176,109 @@ async function processRepoDir(
   }
 
   return lines;
+}
+
+function isCompletedStatus(status: string): boolean {
+  return status === "completed" || status === "failed";
+}
+
+async function collectRunsMatching(
+  filter: (run: PersistedRun, updatedAt: number) => boolean,
+  maxNotesPerRun = Number.POSITIVE_INFINITY,
+): Promise<{ line: string; notes: string[]; updatedAt: number }[]> {
+  const runsDir = getRunsDir();
+  if (!existsSync(runsDir)) return [];
+
+  const now = new Date();
+  const results: { line: string; notes: string[]; updatedAt: number }[] = [];
+
+  const repoEntries = await readdir(runsDir, { withFileTypes: true });
+  for (const repoEntry of repoEntries) {
+    if (!repoEntry.isDirectory()) continue;
+    const repoDir = path.join(runsDir, repoEntry.name);
+    const files = await readdir(repoDir);
+
+    for (const file of files) {
+      if (!isActiveRunFile(file)) continue;
+      try {
+        const raw = await readFile(path.join(repoDir, file), "utf-8");
+        const run = JSON.parse(raw) as PersistedRun;
+        const updatedAt = new Date(run.updatedAt).getTime();
+
+        if (!filter(run, updatedAt)) continue;
+
+        const notes = await readRecentNotes(repoEntry.name, run.runId, maxNotesPerRun);
+        results.push({
+          line: formatRunLine(run, now),
+          notes: notes.map((n) => formatNoteLine(n)),
+          updatedAt,
+        });
+      } catch {
+        // Skip corrupted files
+      }
+    }
+  }
+
+  return results;
+}
+
+function formatCollectedRuns(
+  runs: { line: string; notes: string[] }[],
+): string {
+  if (runs.length === 0) return "";
+  const lines: string[] = [];
+  for (const run of runs) {
+    lines.push(run.line);
+    lines.push(...run.notes);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Get recently completed/failed runs with their last notes.
+ * Used in standard heartbeats so the supervisor sees what just finished.
+ * @param maxAge Only include runs completed within this many milliseconds (default: 2h)
+ * @param maxRuns Cap number of runs returned
+ * @param maxNotesPerRun Cap notes per run
+ */
+export async function getRecentCompletedRunsWithNotes(
+  maxAge = 2 * 60 * 60 * 1000,
+  maxRuns = 5,
+  maxNotesPerRun = 3,
+): Promise<string> {
+  const cutoff = Date.now() - maxAge;
+
+  try {
+    const runs = await collectRunsMatching(
+      (run, updatedAt) => isCompletedStatus(run.status) && updatedAt >= cutoff,
+      maxNotesPerRun,
+    );
+    runs.sort((a, b) => b.updatedAt - a.updatedAt);
+    return formatCollectedRuns(runs.slice(0, maxRuns));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Build a full history of runs updated since a given timestamp,
+ * with ALL their notes. Used during consolidation so the supervisor
+ * can integrate learnings from completed runs into knowledge.
+ * @param since Only include runs updated after this ISO timestamp
+ * @param maxRuns Cap to avoid overloading the prompt
+ */
+export async function getRecentRunHistory(since?: string, maxRuns = 10): Promise<string> {
+  const sinceMs = since ? new Date(since).getTime() : 0;
+
+  try {
+    const runs = await collectRunsMatching(
+      (_run, updatedAt) => updatedAt >= sinceMs,
+    );
+    runs.sort((a, b) => b.updatedAt - a.updatedAt);
+    return formatCollectedRuns(runs.slice(0, maxRuns));
+  } catch {
+    return "";
+  }
 }
 
 /**

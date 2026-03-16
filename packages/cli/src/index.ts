@@ -14,7 +14,6 @@ const main = defineCommand({
     log: () => import("./commands/log.js").then((m) => m.default),
     logs: () => import("./commands/logs.js").then((m) => m.default),
     notes: () => import("./commands/notes.js").then((m) => m.default),
-    memory: () => import("./commands/memory.js").then((m) => m.default),
     cost: () => import("./commands/cost.js").then((m) => m.default),
     repos: () => import("./commands/repos.js").then((m) => m.default),
     agents: () => import("./commands/agents.js").then((m) => m.default),

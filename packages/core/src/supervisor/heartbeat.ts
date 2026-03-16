@@ -1,19 +1,15 @@
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
-import {
-  applyKnowledgeOps,
-  extractKnowledgeOps,
-  loadKnowledge,
-  saveKnowledge,
-} from "./knowledge.js";
+import { loadFocus } from "./focus.js";
+import { loadKnowledge } from "./knowledge.js";
 import {
   compactLogBuffer,
   markConsolidated,
@@ -21,19 +17,10 @@ import {
   readUnconsolidated,
 } from "./log-buffer.js";
 import {
-  applyMemoryOps,
-  auditMemoryOps,
-  extractMemoryOps,
-  loadMemory,
-  parseStructuredMemory,
-  saveMemory,
-} from "./memory.js";
-import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
   buildStandardPrompt,
 } from "./prompt-builder.js";
-import { findRepoSlugForRun, persistExtendedRunNotes } from "./run-notes.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
 
 // ─── SDK message shapes (same as runner/session.ts) ──────
@@ -49,17 +36,17 @@ interface SDKStreamMessage {
 /**
  * Determine whether this heartbeat should be a consolidation cycle.
  * Consolidation runs every `consolidationInterval` heartbeats,
- * or earlier if there are pending memory/knowledge entries (after at least 2 heartbeats).
+ * or earlier if there are pending unconsolidated entries (after at least 2 heartbeats).
  */
 export function shouldConsolidate(
   heartbeatCount: number,
   lastConsolidationHeartbeat: number,
   consolidationInterval: number,
-  hasPendingMemoryEntries: boolean,
+  hasPendingEntries: boolean,
 ): boolean {
   const since = heartbeatCount - lastConsolidationHeartbeat;
   if (since >= consolidationInterval) return true;
-  if (hasPendingMemoryEntries && since >= 2) return true;
+  if (hasPendingEntries && since >= 2) return true;
   return false;
 }
 
@@ -96,7 +83,7 @@ export interface HeartbeatLoopOptions {
  * 3. Determine standard vs consolidation mode
  * 4. Build the appropriate prompt
  * 5. Call sdk.query() for Claude to reason and act
- * 6. Extract and apply memory/knowledge ops (consolidation only)
+ * 6. Mark entries consolidated and compact log buffer (consolidation only)
  * 7. Log activity
  * 8. Wait for the next event or idle timeout
  */
@@ -191,10 +178,9 @@ export class HeartbeatLoop {
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
 
-    // Check for active runs (more reliable than string-parsing memory)
+    // Check for active runs
     const activeRuns = await this.getActiveRuns();
     const hasActiveWork = activeRuns.length > 0;
-    const earlyMemory = await loadMemory(this.supervisorDir);
 
     // Skip logic: two separate counters for idle vs active-work scenarios
     const idleSkipCount = state?.idleSkipCount ?? 0;
@@ -246,9 +232,7 @@ export class HeartbeatLoop {
       ? unconsolidated.some((e) => e.timestamp > lastConsolidationTs)
       : unconsolidated.length > 0;
 
-    const hasPendingMemoryEntries = unconsolidated.some(
-      (e) => e.target === "memory" || e.target === "knowledge",
-    );
+    const hasPendingEntries = unconsolidated.length > 0;
     const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
 
     // Skip consolidation if no new entries since last consolidation
@@ -257,21 +241,22 @@ export class HeartbeatLoop {
       heartbeatCount,
       lastConsolidation,
       this.config.supervisor.consolidationInterval,
-      hasPendingMemoryEntries,
+      hasPendingEntries,
     );
     const isConsolidation =
       isCompaction || (wouldConsolidate && hasNewEntriesSinceLastConsolidation);
 
-    // Build prompt based on mode
+    // Build prompt based on mode (reuse activeRuns from skip-logic to avoid double I/O)
     const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
-      earlyMemory,
       grouped,
       todayCost,
       heartbeatCount,
       unconsolidated,
       isCompaction,
       isConsolidation,
+      activeRuns,
       lastHeartbeat: state?.lastHeartbeat,
+      lastConsolidationTimestamp: lastConsolidationTs,
     });
     await this.activityLog.log(
       "heartbeat",
@@ -287,21 +272,18 @@ export class HeartbeatLoop {
     );
 
     // Call SDK with timeout + shutdown abort
-    const { output, costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+    const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
 
-    // Extract and persist run notes from output (all modes)
-    await persistExtendedRunNotes(output, findRepoSlugForRun);
+    // Run notes are now added via `neo notes <runId> <type> "text"` CLI commands
+    // executed by the supervisor during its SDK turn — no post-hoc extraction needed.
 
-    // Post-response: extract and apply ops based on mode
+    // Post-response: mark entries consolidated and compact log buffer
     if (isConsolidation) {
-      const knowledgeMd = await loadKnowledge(this.supervisorDir);
-      await this.handleConsolidation(
-        output,
-        heartbeatCount,
-        unconsolidated,
-        earlyMemory,
-        knowledgeMd,
-      );
+      const allIds = unconsolidated.map((e) => e.id);
+      if (allIds.length > 0) {
+        await markConsolidated(this.supervisorDir, allIds);
+      }
+      await compactLogBuffer(this.supervisorDir);
     }
 
     // Update state
@@ -337,59 +319,22 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Handle consolidation: extract and apply memory/knowledge ops,
-   * mark entries consolidated, compact the log buffer.
-   */
-  private async handleConsolidation(
-    output: string,
-    heartbeatCount: number,
-    unconsolidated: { id: string }[],
-    rawMemory: string,
-    rawKnowledge: string,
-  ): Promise<void> {
-    // Extract and apply memory ops (NO fallback — if zero ops, memory stays untouched)
-    const memOps = extractMemoryOps(output);
-    if (memOps.length > 0) {
-      const memory = parseStructuredMemory(rawMemory);
-      const updated = applyMemoryOps(memory, memOps);
-      await saveMemory(this.supervisorDir, JSON.stringify(updated, null, 2));
-      await auditMemoryOps(this.supervisorDir, heartbeatCount, memOps);
-    }
-
-    // Extract and apply knowledge ops (NO fallback — same principle)
-    const knowledgeOps = extractKnowledgeOps(output);
-    if (knowledgeOps.length > 0) {
-      const updatedKnowledge = applyKnowledgeOps(rawKnowledge, knowledgeOps);
-      await saveKnowledge(this.supervisorDir, updatedKnowledge);
-
-      // Audit knowledge ops alongside memory ops
-      await auditMemoryOps(this.supervisorDir, heartbeatCount, []);
-    }
-
-    // Mark all entries as consolidated and compact
-    const allIds = unconsolidated.map((e) => e.id);
-    if (allIds.length > 0) {
-      await markConsolidated(this.supervisorDir, allIds);
-    }
-    await compactLogBuffer(this.supervisorDir);
-  }
-
-  /**
    * Build the prompt for the current heartbeat mode.
    */
   private async buildHeartbeatModePrompt(opts: {
-    earlyMemory: string;
     grouped: ReturnType<EventQueue["drainAndGroup"]>;
     todayCost: number;
     heartbeatCount: number;
     unconsolidated: LogBufferEntry[];
     isCompaction: boolean;
     isConsolidation: boolean;
+    activeRuns: string[];
     lastHeartbeat: string | undefined;
+    lastConsolidationTimestamp: string | undefined;
   }): Promise<{ prompt: string; modeLabel: string }> {
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
-    const memory = parseStructuredMemory(opts.earlyMemory);
     const knowledge = await loadKnowledge(this.supervisorDir);
+    const focusMd = await loadFocus(this.supervisorDir);
     const sharedOpts = {
       repos: this.config.repos,
       grouped: opts.grouped,
@@ -401,21 +346,21 @@ export class HeartbeatLoop {
             this.config.supervisor.dailyCapUsd) *
           100,
       },
-      activeRuns: await this.getActiveRuns(),
+      activeRuns: opts.activeRuns,
       heartbeatCount: opts.heartbeatCount,
       mcpServerNames,
       customInstructions: this.customInstructions,
       supervisorDir: this.supervisorDir,
+      focusMd,
     };
 
     if (opts.isCompaction) {
       return {
         prompt: await buildCompactionPrompt({
           ...sharedOpts,
-          memory,
-          memoryJson: opts.earlyMemory,
           knowledgeMd: knowledge,
           allUnconsolidatedEntries: opts.unconsolidated,
+          lastConsolidationTimestamp: opts.lastConsolidationTimestamp,
         }),
         modeLabel: "compaction",
       };
@@ -425,10 +370,9 @@ export class HeartbeatLoop {
       return {
         prompt: await buildConsolidationPrompt({
           ...sharedOpts,
-          memory,
-          memoryJson: opts.earlyMemory,
           knowledgeMd: knowledge,
           allUnconsolidatedEntries: opts.unconsolidated,
+          lastConsolidationTimestamp: opts.lastConsolidationTimestamp,
         }),
         modeLabel: "consolidation",
       };
@@ -437,7 +381,6 @@ export class HeartbeatLoop {
     return {
       prompt: await buildStandardPrompt({
         ...sharedOpts,
-        memory,
         recentEntries: await readLogBufferSince(
           this.supervisorDir,
           opts.lastHeartbeat ?? new Date(0).toISOString(),

@@ -72,10 +72,6 @@ export function getSupervisorStatePath(name: string): string {
   return path.join(getSupervisorDir(name), "state.json");
 }
 
-export function getSupervisorMemoryPath(name: string): string {
-  return path.join(getSupervisorDir(name), "memory.md");
-}
-
 export function getSupervisorActivityPath(name: string): string {
   return path.join(getSupervisorDir(name), "activity.jsonl");
 }

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
-import { getSupervisorDir } from "@neotx/core";
+import { appendLogBuffer, getSupervisorDir } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
 
@@ -101,18 +101,17 @@ export default defineCommand({
     };
     await appendFile(`${dir}/activity.jsonl`, `${JSON.stringify(activityEntry)}\n`, "utf-8");
 
-    // 2. Always: append to log-buffer.jsonl (new)
-    const bufferEntry = {
+    // 2. Always: append to log-buffer.jsonl via shared helper
+    await appendLogBuffer(dir, {
       id,
-      type,
+      type: type as "progress" | "action" | "decision" | "blocker" | "milestone" | "discovery",
       message: args.message,
       agent,
       runId,
       repo,
       target,
       timestamp: now,
-    };
-    await appendFile(`${dir}/log-buffer.jsonl`, `${JSON.stringify(bufferEntry)}\n`, "utf-8");
+    });
 
     // 3. If blocker: also append to inbox.jsonl (wake up heartbeat)
     if (type === "blocker") {

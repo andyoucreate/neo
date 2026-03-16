@@ -2,9 +2,21 @@ import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { PersistedRun, RunNote } from "@neotx/core";
-import { findRepoSlugForRun, getRunsDir, readRunNotes } from "@neotx/core";
+import { appendRunNote, findRepoSlugForRun, getRunsDir, readRunNotes } from "@neotx/core";
 import { defineCommand } from "citty";
-import { printError, printJson, printTable } from "../output.js";
+import { printError, printJson, printSuccess, printTable } from "../output.js";
+
+const VALID_NOTE_TYPES = ["observation", "decision", "stage", "blocker", "resolution"] as const;
+type NoteInputType = (typeof VALID_NOTE_TYPES)[number];
+
+// Map user-facing types to core RunNote types
+const NOTE_TYPE_MAP: Record<NoteInputType, "observation" | "decision" | "blocker" | "outcome"> = {
+  observation: "observation",
+  decision: "decision",
+  stage: "observation",
+  blocker: "blocker",
+  resolution: "outcome",
+};
 
 const TYPE_MARKERS: Record<string, string> = {
   decision: "◆",
@@ -188,12 +200,22 @@ async function showActiveNotes(last: number, short: boolean, jsonOutput: boolean
 export default defineCommand({
   meta: {
     name: "notes",
-    description: "Show run notes timeline (per-run narrative tracking)",
+    description: "Show or add run notes (per-run narrative tracking)",
   },
   args: {
     runId: {
       type: "positional",
-      description: "Run ID to show timeline (omit with --active to show all active runs)",
+      description: "Run ID to show or annotate",
+      required: false,
+    },
+    type: {
+      type: "positional",
+      description: "Note type: observation, decision, stage, blocker, resolution",
+      required: false,
+    },
+    text: {
+      type: "positional",
+      description: "Note text",
       required: false,
     },
     active: {
@@ -220,14 +242,40 @@ export default defineCommand({
     const jsonOutput = args.output === "json";
     const last = Number(args.last);
 
-    if (args.runId) {
-      // Show timeline for a specific run
+    if (args.runId && args.type && args.text) {
+      // neo notes <runId> <type> "text" — add a note
+      const type = args.type;
+      if (!VALID_NOTE_TYPES.includes(type as NoteInputType)) {
+        printError(`Invalid type "${type}". Must be one of: ${VALID_NOTE_TYPES.join(", ")}`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const slug = await findRepoSlugForRun(args.runId);
+      if (!slug) {
+        printError(`Run "${args.runId}" not found.`);
+        process.exitCode = 1;
+        return;
+      }
+
+      const coreType = NOTE_TYPE_MAP[type as NoteInputType];
+      await appendRunNote(slug, args.runId, {
+        type: coreType,
+        text: args.text,
+        ts: new Date().toISOString(),
+      });
+
+      printSuccess(`Note added to ${args.runId.slice(0, 8)}: [${type}] ${args.text.slice(0, 100)}`);
+    } else if (args.runId && !args.type) {
+      // neo notes <runId> — show timeline
       await showRunTimeline(args.runId, undefined, args.short, jsonOutput);
     } else if (args.active) {
-      // Show notes from all active runs
+      // neo notes --active — show all active runs
       await showActiveNotes(last, args.short, jsonOutput);
     } else {
-      printError("Usage: neo notes <runId> or neo notes --active");
+      printError(
+        'Usage: neo notes <runId> | neo notes <runId> <type> "text" | neo notes --active',
+      );
       process.exitCode = 1;
     }
   },

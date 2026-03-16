@@ -14,7 +14,7 @@ import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
-import { loadKnowledge, selectKnowledgeForRepos } from "@/supervisor/knowledge";
+import { loadKnowledge } from "@/supervisor/knowledge";
 import type {
   ActiveSession,
   CostEntry,
@@ -100,6 +100,33 @@ function formatTimeAgo(ms: number): string {
   return `${days}d ago`;
 }
 
+// ─── Reporting instructions for agents ──────────────────
+
+function buildReportingInstructions(runId: string): string {
+  const shortId = runId.slice(0, 8);
+  return `## Reporting
+
+Report progress so the supervisor can track your work. Environment is pre-configured.
+
+\`\`\`bash
+neo log decision "chose X because Y"       # key decisions
+neo log action "opened PR #42"              # actions taken
+neo log blocker "missing API key in vault"  # blocked (wakes supervisor)
+neo log milestone "all tests passing"       # major milestone
+neo log discovery --knowledge "repo uses Prisma ORM"  # stable fact
+\`\`\`
+
+Track your run narrative:
+\`\`\`bash
+neo notes ${shortId} observation "tests passing, 2 warnings"
+neo notes ${shortId} decision "split migration into 2 PRs"
+neo notes ${shortId} blocker "CI failing — missing env var"
+neo notes ${shortId} resolution "env var added, CI green"
+\`\`\`
+
+Log at key moments: after decisions, on blockers, and before finishing.`;
+}
+
 // ─── Full prompt assembler ─────────────────────────────
 
 function buildFullPrompt(
@@ -110,6 +137,7 @@ function buildFullPrompt(
   knowledgeContext?: string | undefined,
   crossRunLessons?: string | undefined,
   cwdInstructions?: string | undefined,
+  reportingInstructions?: string | undefined,
 ): string {
   const sections: string[] = [];
 
@@ -119,6 +147,7 @@ function buildFullPrompt(
   if (crossRunLessons) sections.push(crossRunLessons);
   if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
   if (gitInstructions) sections.push(gitInstructions);
+  if (reportingInstructions) sections.push(reportingInstructions);
   sections.push(`## Task\n\n${taskPrompt}`);
 
   return sections.join("\n\n---\n\n");
@@ -603,6 +632,8 @@ export class Orchestrator extends NeoEventEmitter {
       ? `## Working directory\n\nYou are working in an isolated clone at: \`${sessionPath}\`\nALWAYS run commands from this directory. NEVER cd to or operate on any other repository.`
       : undefined;
 
+    const reportingInstructions = buildReportingInstructions(runId);
+
     const fullPrompt = buildFullPrompt(
       agent.definition.prompt,
       repoInstructions,
@@ -611,16 +642,26 @@ export class Orchestrator extends NeoEventEmitter {
       knowledgeContext,
       crossRunLessons,
       cwdInstructions,
+      reportingInstructions,
     );
 
     const recoveryOpts = stepDef.recovery;
     const mcpServers = this.resolveMcpServers(stepDef, agent);
+
+    // Inject env vars so agents can use `neo log` and `neo notes` for reporting
+    const agentEnv: Record<string, string> = {
+      NEO_RUN_ID: runId,
+      NEO_AGENT_NAME: agent.name,
+      NEO_REPOSITORY: input.repo,
+    };
+
     const sessionResult = await runWithRecovery({
       agent,
       prompt: fullPrompt,
       repoPath: input.repo,
       sandboxConfig,
       hooks,
+      env: agentEnv,
       initTimeoutMs: this.config.sessions.initTimeoutMs,
       maxDurationMs: this.config.sessions.maxDurationMs,
       maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
@@ -729,16 +770,13 @@ export class Orchestrator extends NeoEventEmitter {
    * Load knowledge relevant to the target repo from the default supervisor.
    * Returns a formatted section or undefined if no knowledge exists.
    */
-  private async loadKnowledgeContext(repoPath: string): Promise<string | undefined> {
+  private async loadKnowledgeContext(_repoPath: string): Promise<string | undefined> {
     try {
       const supervisorDir = path.join(getSupervisorsDir(), "supervisor");
       const knowledge = await loadKnowledge(supervisorDir);
       if (!knowledge.trim()) return undefined;
 
-      const relevant = selectKnowledgeForRepos(knowledge, [repoPath]);
-      if (!relevant.trim()) return undefined;
-
-      return `## Known facts about this repository\n${relevant}`;
+      return `## Known facts\n${knowledge}`;
     } catch {
       return undefined;
     }

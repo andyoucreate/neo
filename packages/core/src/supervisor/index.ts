@@ -4,26 +4,17 @@ export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 export type { GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
+// ─── Focus (working memory) ─────────────────────────────
+export { loadFocus } from "./focus.js";
 export type { HeartbeatLoopOptions } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
 // ─── Knowledge ──────────────────────────────────────────
-export {
-  applyKnowledgeOps,
-  compactKnowledge,
-  extractKnowledgeOps,
-  loadKnowledge,
-  markStaleFacts,
-  parseKnowledge,
-  renderKnowledge,
-  saveKnowledge,
-  selectKnowledgeForRepos,
-} from "./knowledge.js";
+export { loadKnowledge } from "./knowledge.js";
 // ─── Log buffer ─────────────────────────────────────────
 export {
   appendLogBuffer,
   buildAgentDigest,
   compactLogBuffer,
-  computeHotState,
   getLogBufferSize,
   markConsolidated,
   readLogBuffer,
@@ -31,26 +22,7 @@ export {
   readUnconsolidated,
 } from "./log-buffer.js";
 export type {
-  ActiveWorkItem,
-  BlockerItem,
-  DecisionItem,
-  SupervisorMemory,
-} from "./memory.js";
-// ─── Memory ─────────────────────────────────────────────
-export {
-  applyMemoryOps,
-  auditMemoryOps,
-  checkMemorySize,
-  extractKnowledgeFromResponse,
-  extractMemoryFromResponse,
-  extractMemoryOps,
-  loadMemory,
-  parseStructuredMemory,
-  saveMemory,
-} from "./memory.js";
-export type {
   ConsolidationPromptOptions,
-  HeartbeatPromptOptions,
   PromptOptions,
   StandardPromptOptions,
 } from "./prompt-builder.js";
@@ -58,25 +30,22 @@ export type {
 export {
   buildCompactionPrompt,
   buildConsolidationPrompt,
-  buildHeartbeatPrompt,
   buildStandardPrompt,
-  renderHotState,
+  renderHotStateWithRunNotes,
 } from "./prompt-builder.js";
 // ─── Run notes ───────────────────────────────────────────
 export {
   appendRunNote,
-  extractRunNotes,
   findRepoSlugForRun,
   getActiveRunsWithNotes,
+  getRecentCompletedRunsWithNotes,
   readRecentNotes,
   readRunNotes,
 } from "./run-notes.js";
 export type {
   ActivityEntry,
   InboxMessage,
-  KnowledgeOp,
   LogBufferEntry,
-  MemoryOp,
   QueuedEvent,
   RunNote,
   SupervisorDaemonState,
@@ -86,9 +55,7 @@ export type {
 export {
   activityEntrySchema,
   inboxMessageSchema,
-  knowledgeOpSchema,
   logBufferEntrySchema,
-  memoryOpSchema,
   runNoteSchema,
   supervisorDaemonStateSchema,
   webhookIncomingEventSchema,

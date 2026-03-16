@@ -1,6 +1,5 @@
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { SupervisorMemory } from "./memory.js";
 import type { LogBufferEntry } from "./schemas.js";
 
 const LOG_BUFFER_FILE = "log-buffer.jsonl";
@@ -202,33 +201,6 @@ export function buildAgentDigest(entries: LogBufferEntry[]): string {
   }
 
   return lines.join("\n");
-}
-
-/**
- * Merge memory + pending buffer entries to compute current hot state.
- */
-export function computeHotState(
-  memory: SupervisorMemory,
-  pendingEntries: LogBufferEntry[],
-): { activeWork: string[]; blockers: string[] } {
-  const activeWork = new Set(memory.activeWork.map((item) => item.description));
-  const blockers = new Set(memory.blockers.map((item) => item.description));
-
-  for (const entry of pendingEntries) {
-    if (entry.type === "blocker") {
-      blockers.add(entry.message);
-    } else if (entry.type === "milestone") {
-      activeWork.add(`✓ ${entry.message}`);
-    } else if (entry.type === "progress" || entry.type === "action") {
-      const label = entry.agent ? `[${entry.agent}] ${entry.message}` : entry.message;
-      activeWork.add(label);
-    }
-  }
-
-  return {
-    activeWork: [...activeWork],
-    blockers: [...blockers],
-  };
 }
 
 /**

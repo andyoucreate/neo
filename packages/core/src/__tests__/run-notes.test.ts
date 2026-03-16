@@ -3,8 +3,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   appendRunNote,
-  extractRunNotes,
   getActiveRunsWithNotes,
+  getRecentCompletedRunsWithNotes,
   readRecentNotes,
   readRunNotes,
 } from "@/supervisor/run-notes";
@@ -123,105 +123,6 @@ describe("readRecentNotes", () => {
   });
 });
 
-describe("extractRunNotes", () => {
-  it("extracts notes from run-notes block", () => {
-    const response = `
-Some text before.
-
-<run-notes>
-decision: Chose JWT for auth
-observation: Tests passing
-blocker: Need API key
-outcome: PR merged
-</run-notes>
-
-Some text after.
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(4);
-    expect(notes[0]).toMatchObject({ type: "decision", text: "Chose JWT for auth" });
-    expect(notes[1]).toMatchObject({ type: "observation", text: "Tests passing" });
-    expect(notes[2]).toMatchObject({ type: "blocker", text: "Need API key" });
-    expect(notes[3]).toMatchObject({ type: "outcome", text: "PR merged" });
-  });
-
-  it("returns empty array for missing block", () => {
-    const response = "Just some text without run-notes.";
-    const notes = extractRunNotes(response);
-    expect(notes).toEqual([]);
-  });
-
-  it("skips invalid note types", () => {
-    const response = `
-<run-notes>
-decision: Valid
-invalid: Should be skipped
-observation: Also valid
-</run-notes>
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(2);
-    expect(notes[0]?.type).toBe("decision");
-    expect(notes[1]?.type).toBe("observation");
-  });
-
-  it("skips lines without colon", () => {
-    const response = `
-<run-notes>
-decision: Valid note
-no colon here
-observation: Another valid
-</run-notes>
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(2);
-  });
-
-  it("skips empty text after colon", () => {
-    const response = `
-<run-notes>
-decision:
-observation: Has text
-blocker:
-</run-notes>
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]?.type).toBe("observation");
-  });
-
-  it("handles case insensitivity", () => {
-    const response = `
-<RUN-NOTES>
-DECISION: Uppercase type
-Observation: Mixed case
-</RUN-NOTES>
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(2);
-    expect(notes[0]?.type).toBe("decision");
-    expect(notes[1]?.type).toBe("observation");
-  });
-
-  it("generates timestamps", () => {
-    const response = `
-<run-notes>
-decision: Test note
-</run-notes>
-`;
-
-    const notes = extractRunNotes(response);
-    expect(notes).toHaveLength(1);
-    expect(notes[0]?.ts).toBeTruthy();
-    expect(new Date(notes[0]?.ts ?? "").getTime()).not.toBeNaN();
-  });
-});
-
 describe("getActiveRunsWithNotes", () => {
   it("returns formatted hot state for active runs", async () => {
     const runId = "abcd1234efgh5678";
@@ -336,5 +237,99 @@ describe("getActiveRunsWithNotes", () => {
     // Format: "skip-tes [RUNNING" (runId truncated to 8 chars)
     const matches = hotState.match(/skip-tes \[RUNNING/g);
     expect(matches?.length).toBe(1);
+  });
+});
+
+describe("getRecentCompletedRunsWithNotes", () => {
+  it("returns recently completed runs with notes", async () => {
+    const runId = "completed1234567";
+    const run = makeRun({
+      runId,
+      status: "completed",
+      updatedAt: new Date().toISOString(),
+    });
+
+    await writeFile(
+      path.join(TMP_DIR, "runs", REPO_SLUG, `${runId}.json`),
+      JSON.stringify(run),
+      "utf-8",
+    );
+
+    await appendRunNote(REPO_SLUG, runId, makeNote({ type: "outcome", text: "PR merged" }));
+
+    const result = await getRecentCompletedRunsWithNotes();
+
+    expect(result).toContain("complete");
+    expect(result).toContain("[COMPLETED");
+    expect(result).toContain("PR merged");
+    expect(result).toContain("✓"); // outcome marker
+  });
+
+  it("includes failed runs", async () => {
+    const runId = "failed12345678";
+    const run = makeRun({
+      runId,
+      status: "failed",
+      updatedAt: new Date().toISOString(),
+    });
+
+    await writeFile(
+      path.join(TMP_DIR, "runs", REPO_SLUG, `${runId}.json`),
+      JSON.stringify(run),
+      "utf-8",
+    );
+
+    await appendRunNote(REPO_SLUG, runId, makeNote({ type: "blocker", text: "CI broken" }));
+
+    const result = await getRecentCompletedRunsWithNotes();
+
+    expect(result).toContain("failed12");
+    expect(result).toContain("[FAILED");
+    expect(result).toContain("CI broken");
+  });
+
+  it("excludes active runs", async () => {
+    const runId = "running1234567";
+    const run = makeRun({
+      runId,
+      status: "running",
+      updatedAt: new Date().toISOString(),
+    });
+
+    await writeFile(
+      path.join(TMP_DIR, "runs", REPO_SLUG, `${runId}.json`),
+      JSON.stringify(run),
+      "utf-8",
+    );
+
+    const result = await getRecentCompletedRunsWithNotes();
+    expect(result).not.toContain("running1");
+  });
+
+  it("excludes runs older than maxAge", async () => {
+    const runId = "old12345678901";
+    const oldDate = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(); // 3h ago
+    const run = makeRun({
+      runId,
+      status: "completed",
+      updatedAt: oldDate,
+    });
+
+    await writeFile(
+      path.join(TMP_DIR, "runs", REPO_SLUG, `${runId}.json`),
+      JSON.stringify(run),
+      "utf-8",
+    );
+
+    // Default maxAge is 2h, so this should be excluded
+    const result = await getRecentCompletedRunsWithNotes();
+    expect(result).not.toContain("old12345");
+  });
+
+  it("returns empty string for missing runs dir", async () => {
+    await rm(path.join(TMP_DIR, "runs"), { recursive: true, force: true });
+
+    const result = await getRecentCompletedRunsWithNotes();
+    expect(result).toBe("");
   });
 });
