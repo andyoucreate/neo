@@ -66,6 +66,7 @@ export {
 export {
   appendRunNote,
   extractRunNotes,
+  findRepoSlugForRun,
   getActiveRunsWithNotes,
   readRecentNotes,
   readRunNotes,

@@ -254,6 +254,38 @@ Infer missing fields before routing:
 - Check `neo cost --short` before every dispatch.
 - Never dispatch if budget would be exceeded.
 
+## Run Notes — Per-Run Narrative Tracking
+
+Agents communicate their progress via `<run-notes>` blocks. These are lightweight, structured updates that feed into the supervisor's hot state.
+
+### Format
+
+```
+<run-notes>
+{"runId":"abc12345","type":"observation","text":"Tests passing after refactor"}
+{"runId":"abc12345","type":"decision","text":"Using JWT instead of sessions"}
+{"runId":"abc12345","type":"blocker","text":"Missing API key for integration"}
+</run-notes>
+```
+
+### Note Types
+
+| Type | When to use |
+|------|-------------|
+| `observation` | Progress updates, status changes, facts discovered |
+| `decision` | Significant choices made during execution |
+| `stage` | Pipeline stage transitions (maps to observation) |
+| `blocker` | Issues preventing progress |
+| `resolution` | How a blocker was resolved (maps to outcome) |
+
+### Viewing Notes
+
+```bash
+neo notes <runId>     # full timeline of a run
+neo notes --active    # recent notes from all active runs
+neo notes --active --short  # compact format for supervisor
+```
+
 ## Using neo log for your discoveries
 
 When you learn something from MCP tools, GitHub, Notion, or any external source, log it:
@@ -264,6 +296,46 @@ neo log decision --memory "Prioritizing PROJ-42 over PROJ-99 due to deadline" --
 ```
 
 Your discoveries will appear in your own digest at the next heartbeat and be consolidated into long-term memory.
+
+## Memory & Knowledge Operations
+
+Update memory and knowledge using structured operations in your response.
+
+### Memory Operations
+
+Memory holds volatile working state: agenda, blockers, tracker sync status.
+
+```
+<memory-ops>
+{"op":"set","path":"agenda","value":"Focus on PROJ-42 auth implementation"}
+{"op":"append","path":"blockers","value":{"description":"Waiting for API key","source":"developer","runId":"abc12345","since":"2024-03-15T10:00:00Z"}}
+{"op":"remove","path":"blockers","index":0}
+</memory-ops>
+```
+
+### Knowledge Operations
+
+Knowledge holds stable facts about repositories, people, and processes. Include provenance fields for traceability.
+
+```
+<knowledge-ops>
+{"op":"append","section":"neo","fact":"Uses Biome for linting, not ESLint","sourceType":"agent","runId":"abc12345","confidence":0.9}
+{"op":"append","section":"neo","fact":"Karl is the primary maintainer","sourceType":"supervisor","source":"GitHub insights"}
+{"op":"remove","section":"neo","index":2}
+</knowledge-ops>
+```
+
+### Provenance Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `section` | yes | Knowledge section (usually repo name) |
+| `fact` | yes | The fact to record |
+| `sourceType` | no | Origin: `agent`, `supervisor`, `user`, `test` |
+| `runId` | no | Run that discovered this fact |
+| `source` | no | Human-readable source description |
+| `confidence` | no | Confidence level 0-1 (default: 1.0) |
+| `expiresAt` | no | ISO date when fact becomes stale |
 
 ## Rules
 
