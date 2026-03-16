@@ -98,6 +98,8 @@ export type {
   SessionResult,
 } from "@/runner/session";
 export { runSession, SessionError } from "@/runner/session";
+// ─── Process utilities ─────────────────────────────────
+export { isProcessAlive } from "@/shared/process";
 export type { SupervisorState } from "@/supervisor";
 // ─── Supervisor (legacy) ──────────────────────────────
 export { supervisorStateSchema } from "@/supervisor";

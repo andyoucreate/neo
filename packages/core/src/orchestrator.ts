@@ -18,6 +18,7 @@ import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
+import { isProcessAlive } from "@/shared/process";
 import { formatMemoriesForPrompt, MemoryStore } from "@/supervisor/memory/index.js";
 import type {
   ActiveSession,
@@ -1183,15 +1184,6 @@ async function collectRunFiles(runsDir: string): Promise<string[]> {
   }
 
   return jsonFiles;
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
