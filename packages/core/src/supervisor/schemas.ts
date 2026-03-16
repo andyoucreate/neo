@@ -135,3 +135,24 @@ export const runNoteSchema = z.object({
 });
 
 export type RunNote = z.infer<typeof runNoteSchema>;
+
+// ─── Memory V2 schema (slimmer global memory) ────────────
+
+export const blockerItemSchema = z.object({
+  description: z.string(),
+  source: z.string().optional(),
+  runId: z.string().optional(),
+  repo: z.string().optional(),
+  since: z.string(),
+});
+
+export type BlockerItem = z.infer<typeof blockerItemSchema>;
+
+export const supervisorMemoryV2Schema = z.object({
+  version: z.literal(2),
+  agenda: z.string(),
+  blockers: z.array(blockerItemSchema),
+  trackerSync: z.record(z.string(), z.string()),
+});
+
+export type SupervisorMemoryV2 = z.infer<typeof supervisorMemoryV2Schema>;
