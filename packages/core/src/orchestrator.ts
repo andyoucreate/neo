@@ -8,7 +8,7 @@ import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
-import { cleanupOrphanedSessions, createSessionClone, removeSessionClone } from "@/isolation/clone";
+import { createSessionClone, removeSessionClone } from "@/isolation/clone";
 import { pushSessionBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import { auditLog } from "@/middleware/audit-log";
@@ -329,10 +329,6 @@ export class Orchestrator extends NeoEventEmitter {
     await this.recoverOrphanedRuns();
 
     await mkdir(this.config.sessions.dir, { recursive: true });
-    const activePaths = new Set(
-      [...this._activeSessions.values()].map((s) => s.sessionPath).filter(Boolean) as string[],
-    );
-    await cleanupOrphanedSessions(this.config.sessions.dir, activePaths).catch(() => {});
   }
 
   async shutdown(): Promise<void> {

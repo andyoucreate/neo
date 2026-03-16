@@ -45,7 +45,6 @@ export { matchesFilter, WebhookDispatcher } from "@/events/webhook";
 // ─── Isolation ──────────────────────────────────────────
 export type { SessionCloneInfo } from "@/isolation/clone";
 export {
-  cleanupOrphanedSessions,
   createSessionClone,
   listSessionClones,
   removeSessionClone,

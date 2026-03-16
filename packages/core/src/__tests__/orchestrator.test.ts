@@ -52,7 +52,6 @@ vi.mock("@/isolation/clone", () => ({
       repoPath: "/tmp/repo",
     }),
   removeSessionClone: () => Promise.resolve(undefined),
-  cleanupOrphanedSessions: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
 }));
 

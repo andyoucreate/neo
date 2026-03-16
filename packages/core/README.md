@@ -352,7 +352,6 @@ import {
   createSessionClone,
   removeSessionClone,
   listSessionClones,
-  cleanupOrphanedSessions,
 } from "@neotx/core";
 
 // Create a session clone with a new branch
@@ -369,9 +368,6 @@ const clones = await listSessionClones("/tmp/neo-sessions");
 
 // Remove a session clone (branch preserved for PR)
 await removeSessionClone(info.path);
-
-// Clean up orphaned sessions
-await cleanupOrphanedSessions("/tmp/neo-sessions");
 ```
 
 Each clone is fully independent — no shared git state, no mutex needed.

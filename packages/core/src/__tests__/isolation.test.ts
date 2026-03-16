@@ -6,7 +6,6 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
 import {
-  cleanupOrphanedSessions,
   createSessionClone,
   listSessionClones,
   removeSessionClone,
@@ -108,47 +107,6 @@ describe("session clone lifecycle", () => {
     expect(list).toEqual([]);
   });
 
-  it("cleanupOrphanedSessions skips active session directories", async () => {
-    const sessionsBase = path.join(TMP_DIR, "sessions");
-    await mkdir(sessionsBase, { recursive: true });
-
-    // Create two session directories
-    const activeSession = path.join(sessionsBase, "active-session");
-    const orphanSession = path.join(sessionsBase, "orphan-session");
-    await mkdir(activeSession, { recursive: true });
-    await mkdir(orphanSession, { recursive: true });
-
-    // Mark activeSession as active
-    const activePaths = new Set([activeSession]);
-
-    await cleanupOrphanedSessions(sessionsBase, activePaths);
-
-    // Active session should still exist
-    expect(existsSync(activeSession)).toBe(true);
-    // Orphan session should be removed
-    expect(existsSync(orphanSession)).toBe(false);
-  });
-
-  it("cleanupOrphanedSessions removes all directories when no active paths", async () => {
-    const sessionsBase = path.join(TMP_DIR, "sessions");
-    await mkdir(sessionsBase, { recursive: true });
-
-    const session1 = path.join(sessionsBase, "session-1");
-    const session2 = path.join(sessionsBase, "session-2");
-    await mkdir(session1, { recursive: true });
-    await mkdir(session2, { recursive: true });
-
-    await cleanupOrphanedSessions(sessionsBase);
-
-    expect(existsSync(session1)).toBe(false);
-    expect(existsSync(session2)).toBe(false);
-  });
-
-  it("cleanupOrphanedSessions handles non-existent directory", async () => {
-    const nonExistent = path.join(TMP_DIR, "nonexistent-sessions");
-    // Should not throw
-    await cleanupOrphanedSessions(nonExistent);
-  });
 });
 
 // ─── Git Operations ─────────────────────────────────────
