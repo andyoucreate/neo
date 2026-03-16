@@ -14,9 +14,11 @@ export const supervisorDaemonStateSchema = z.object({
   todayCostUsd: z.number().default(0),
   costResetDate: z.string().optional(),
   idleSkipCount: z.number().default(0),
+  activeWorkSkipCount: z.number().default(0),
   status: z.enum(["running", "draining", "stopped"]).default("running"),
   lastConsolidationHeartbeat: z.number().default(0),
   lastCompactionHeartbeat: z.number().default(0),
+  lastConsolidationTimestamp: z.string().optional(),
 });
 
 export type SupervisorDaemonState = z.infer<typeof supervisorDaemonStateSchema>;

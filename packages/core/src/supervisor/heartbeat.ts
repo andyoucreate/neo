@@ -191,45 +191,76 @@ export class HeartbeatLoop {
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
 
-    // Skip idle heartbeats (no events) unless:
-    // - Memory has activeWork (pending CI, deferred dispatches, etc.)
-    // - We've reached the max idle skip count (periodic check-in)
+    // Check for active runs (more reliable than string-parsing memory)
+    const activeRuns = await this.getActiveRuns();
+    const hasActiveWork = activeRuns.length > 0;
     const earlyMemory = await loadMemory(this.supervisorDir);
-    const memoryHasWork =
-      earlyMemory.includes('"activeWork"') && !earlyMemory.includes('"activeWork": []');
+
+    // Skip logic: two separate counters for idle vs active-work scenarios
     const idleSkipCount = state?.idleSkipCount ?? 0;
-    if (
-      totalEventCount === 0 &&
-      !memoryHasWork &&
-      idleSkipCount < this.config.supervisor.idleSkipMax
-    ) {
-      await this.updateState({ idleSkipCount: idleSkipCount + 1 });
-      await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
-      return;
+    const activeWorkSkipCount = state?.activeWorkSkipCount ?? 0;
+
+    if (totalEventCount === 0) {
+      if (hasActiveWork) {
+        // Active work but no events: allow limited skips to reduce cost
+        if (activeWorkSkipCount < this.config.supervisor.activeWorkSkipMax) {
+          await this.updateState({
+            activeWorkSkipCount: activeWorkSkipCount + 1,
+            idleSkipCount: 0,
+          });
+          await this.activityLog.log(
+            "heartbeat",
+            `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${activeRuns.length} runs active, no events`,
+          );
+          return;
+        }
+        // Max active-work skips reached — proceed with heartbeat
+      } else {
+        // No active work and no events: allow more skips
+        if (idleSkipCount < this.config.supervisor.idleSkipMax) {
+          await this.updateState({
+            idleSkipCount: idleSkipCount + 1,
+            activeWorkSkipCount: 0,
+          });
+          await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
+          return;
+        }
+        // Max idle skips reached — proceed with heartbeat
+      }
     }
 
-    // Reset idle skip counter (we're running a real heartbeat)
-    if (idleSkipCount > 0) {
-      await this.updateState({ idleSkipCount: 0 });
+    // Reset skip counters (we're running a real heartbeat)
+    if (idleSkipCount > 0 || activeWorkSkipCount > 0) {
+      await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
     }
 
     // Determine heartbeat mode: compaction > consolidation > standard
     const heartbeatCount = state?.heartbeatCount ?? 0;
     const lastConsolidation = state?.lastConsolidationHeartbeat ?? 0;
     const lastCompaction = state?.lastCompactionHeartbeat ?? 0;
+    const lastConsolidationTs = state?.lastConsolidationTimestamp;
     const unconsolidated = await readUnconsolidated(this.supervisorDir);
+
+    // Check if there are new entries since last consolidation
+    const hasNewEntriesSinceLastConsolidation = lastConsolidationTs
+      ? unconsolidated.some((e) => e.timestamp > lastConsolidationTs)
+      : unconsolidated.length > 0;
+
     const hasPendingMemoryEntries = unconsolidated.some(
       (e) => e.target === "memory" || e.target === "knowledge",
     );
     const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
+
+    // Skip consolidation if no new entries since last consolidation
+    // (unless compaction is due, which always runs)
+    const wouldConsolidate = shouldConsolidate(
+      heartbeatCount,
+      lastConsolidation,
+      this.config.supervisor.consolidationInterval,
+      hasPendingMemoryEntries,
+    );
     const isConsolidation =
-      isCompaction ||
-      shouldConsolidate(
-        heartbeatCount,
-        lastConsolidation,
-        this.config.supervisor.consolidationInterval,
-        hasPendingMemoryEntries,
-      );
+      isCompaction || (wouldConsolidate && hasNewEntriesSinceLastConsolidation);
 
     // Build prompt based on mode
     const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
@@ -285,6 +316,7 @@ export class HeartbeatLoop {
     };
     if (isConsolidation) {
       stateUpdate.lastConsolidationHeartbeat = heartbeatCount + 1;
+      stateUpdate.lastConsolidationTimestamp = new Date().toISOString();
     }
     if (isCompaction) {
       stateUpdate.lastCompactionHeartbeat = heartbeatCount + 1;

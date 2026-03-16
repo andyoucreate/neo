@@ -112,9 +112,11 @@ export class SupervisorDaemon {
       todayCostUsd: existingState?.todayCostUsd ?? 0,
       costResetDate: existingState?.costResetDate,
       idleSkipCount: existingState?.idleSkipCount ?? 0,
+      activeWorkSkipCount: existingState?.activeWorkSkipCount ?? 0,
       status: "running",
       lastConsolidationHeartbeat: existingState?.lastConsolidationHeartbeat ?? 0,
       lastCompactionHeartbeat: existingState?.lastCompactionHeartbeat ?? 0,
+      lastConsolidationTimestamp: existingState?.lastConsolidationTimestamp,
     });
 
     // Install signal handlers
