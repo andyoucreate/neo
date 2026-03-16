@@ -56,10 +56,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: pnpm
+          # No cache — native modules must be compiled per Node version
       - run: pnpm install --frozen-lockfile
-      - name: Rebuild native modules
-        run: pnpm rebuild better-sqlite3
       - run: pnpm build
       - run: pnpm test -- --reporter=verbose
         env:
