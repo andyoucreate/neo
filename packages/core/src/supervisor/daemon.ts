@@ -94,6 +94,22 @@ export class SupervisorDaemon {
       eventsPath,
       onEvent: (event) => {
         this.eventQueue?.push({ kind: "webhook", data: event });
+
+        // Convert session:complete/session:fail webhooks into run_complete events
+        // so the heartbeat gets a structured signal that a run finished
+        if (
+          (event.event === "session:complete" || event.event === "session:fail") &&
+          event.payload
+        ) {
+          const runId = typeof event.payload.runId === "string" ? event.payload.runId : undefined;
+          if (runId) {
+            this.eventQueue?.push({
+              kind: "run_complete",
+              runId,
+              timestamp: event.receivedAt,
+            });
+          }
+        }
       },
       getHealth: () => this.getHealthInfo(),
     });

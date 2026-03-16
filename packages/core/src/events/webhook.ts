@@ -31,6 +31,7 @@ const RETRY_BASE_DELAY_MS = 500;
  */
 export class WebhookDispatcher {
   private readonly webhooks: WebhookConfig[];
+  private readonly pending: Set<Promise<void>> = new Set();
 
   constructor(webhooks: WebhookConfig[]) {
     this.webhooks = webhooks;
@@ -62,8 +63,11 @@ export class WebhookDispatcher {
       }
 
       if (RETRY_EVENT_TYPES.has(event.type)) {
-        // Terminal events: retry with exponential backoff
-        sendWithRetry(webhook.url, headers, body, webhook.timeoutMs).catch(() => {});
+        // Terminal events: retry with exponential backoff, track for flush
+        const p = sendWithRetry(webhook.url, headers, body, webhook.timeoutMs)
+          .catch(() => {})
+          .finally(() => this.pending.delete(p));
+        this.pending.add(p);
       } else {
         // Non-terminal: fire-and-forget
         fetch(webhook.url, {
@@ -74,6 +78,12 @@ export class WebhookDispatcher {
         }).catch(() => {});
       }
     }
+  }
+
+  /** Wait for all pending terminal webhook deliveries to complete. */
+  async flush(): Promise<void> {
+    if (this.pending.size === 0) return;
+    await Promise.allSettled([...this.pending]);
   }
 }
 

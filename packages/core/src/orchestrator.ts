@@ -330,6 +330,14 @@ export class Orchestrator extends NeoEventEmitter {
       this.webhookDispatcher = new WebhookDispatcher(allWebhooks);
     }
 
+    // Log supervisor webhook discovery for debugging connectivity
+    if (supervisorWebhooks.length > 0) {
+      // biome-ignore lint/suspicious/noConsole: Intentional logging for webhook discovery
+      console.log(
+        `[neo] Discovered ${supervisorWebhooks.length} supervisor webhook(s): ${supervisorWebhooks.map((w) => w.url).join(", ")}`,
+      );
+    }
+
     // Restore today's cost from journal
     this._costToday = await this.costJournal.getDayTotal();
 
@@ -372,6 +380,12 @@ export class Orchestrator extends NeoEventEmitter {
       type: "orchestrator:shutdown",
       timestamp: new Date().toISOString(),
     });
+
+    // Flush pending webhook deliveries — ensures terminal events
+    // (session:complete/fail) reach the supervisor before process exits
+    if (this.webhookDispatcher) {
+      await this.webhookDispatcher.flush();
+    }
   }
 
   // ─── Emit override (journal events) ───────────────────
