@@ -1,6 +1,11 @@
 import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { type MemoryOp, memoryOpSchema } from "./schemas.js";
+import {
+  type BlockerItem,
+  type MemoryOp,
+  memoryOpSchema,
+  type SupervisorMemoryV2,
+} from "./schemas.js";
 
 const MEMORY_FILE = "memory.json";
 const ARCHIVE_FILE = "memory-archive.jsonl";
@@ -20,13 +25,8 @@ export interface ActiveWorkItem {
   deadline?: string;
 }
 
-export interface BlockerItem {
-  description: string;
-  source?: string;
-  runId?: string;
-  repo?: string;
-  since: string;
-}
+// Re-export BlockerItem from schemas for backwards compatibility
+export type { BlockerItem } from "./schemas.js";
 
 export interface DecisionItem {
   date: string;
@@ -34,6 +34,7 @@ export interface DecisionItem {
   outcome?: string;
 }
 
+// V1 memory format (legacy, still supported)
 export interface SupervisorMemory {
   agenda: string;
   activeWork: ActiveWorkItem[];
@@ -42,17 +43,36 @@ export interface SupervisorMemory {
   trackerSync: Record<string, string>;
 }
 
+// Re-export V2 type from schemas
+export type { SupervisorMemoryV2 } from "./schemas.js";
+
+// Union type for either version
+export type AnyMemory = SupervisorMemory | SupervisorMemoryV2;
+
+/**
+ * Check if memory is V2 format based on version field.
+ */
+export function isMemoryV2(memory: AnyMemory): memory is SupervisorMemoryV2 {
+  return "version" in memory && memory.version === 2;
+}
+
 /**
  * Parse raw memory content into structured format.
  * Tries JSON first, falls back to empty memory.
  * Handles migration from old format (string arrays).
+ * Supports both V1 and V2 formats.
  */
 export function parseStructuredMemory(raw: string): SupervisorMemory {
   if (!raw.trim()) return emptyMemory();
   try {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
-    // Migration: detect old format
+    // V2 format: version field present and equals 2
+    if (parsed.version === 2) {
+      return parseV2Memory(parsed);
+    }
+
+    // Migration: detect old format (string arrays)
     const isOldFormat =
       Array.isArray(parsed.activeWork) &&
       parsed.activeWork.length > 0 &&
@@ -62,6 +82,7 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
       return migrateFromOldFormat(parsed);
     }
 
+    // V1 format (no version field)
     return {
       agenda: (parsed.agenda as string) ?? "",
       activeWork: normalizeActiveWork(parsed.activeWork),
@@ -73,6 +94,23 @@ export function parseStructuredMemory(raw: string): SupervisorMemory {
   } catch {
     return emptyMemory();
   }
+}
+
+/**
+ * Parse V2 memory format. Returns V1-compatible structure but ignores
+ * activeWork and decisions fields (they don't exist in V2, but may be
+ * present if LLM incorrectly includes them).
+ */
+function parseV2Memory(parsed: Record<string, unknown>): SupervisorMemory {
+  // V2 does NOT have activeWork or decisions — they are derived from run state
+  // If somehow present (LLM error), drop them silently
+  return {
+    agenda: (parsed.agenda as string) ?? "",
+    activeWork: [], // V2: activeWork is derived from run state
+    blockers: normalizeBlockers(parsed.blockers),
+    decisions: [], // V2: decisions go to run-notes
+    trackerSync: (parsed.trackerSync as Record<string, string>) ?? {},
+  };
 }
 
 /**
@@ -310,10 +348,42 @@ function setAtPath(obj: Record<string, unknown>, path: string, value: unknown): 
   current[lastKey] = value;
 }
 
-export function applyMemoryOps(memory: SupervisorMemory, ops: MemoryOp[]): SupervisorMemory {
+// Paths that are forbidden for V2 memory (activeWork/decisions are derived, not stored)
+const V2_FORBIDDEN_PATHS = ["activeWork", "decisions"];
+
+/**
+ * Check if a path targets a V2-forbidden field.
+ * Matches exact path or nested paths (e.g., "activeWork.0.description").
+ */
+function isV2ForbiddenPath(path: string): boolean {
+  const root = path.split(".")[0];
+  return root !== undefined && V2_FORBIDDEN_PATHS.includes(root);
+}
+
+export interface ApplyMemoryOpsOptions {
+  /** If true, memory is V2 format — reject ops on activeWork/decisions */
+  isV2?: boolean;
+}
+
+export function applyMemoryOps(
+  memory: SupervisorMemory,
+  ops: MemoryOp[],
+  options: ApplyMemoryOpsOptions = {},
+): SupervisorMemory {
   const clone = JSON.parse(JSON.stringify(memory)) as Record<string, unknown>;
 
   for (const op of ops) {
+    // V2: reject ops on activeWork/decisions (log warning, skip)
+    if (options.isV2 && (op.op === "set" || op.op === "append")) {
+      if (isV2ForbiddenPath(op.path)) {
+        // biome-ignore lint/suspicious/noConsole: intentional warning for V2 memory violations
+        console.warn(
+          `[memory] V2 memory: ignoring ${op.op} on "${op.path}" — activeWork/decisions are derived from run state`,
+        );
+        continue;
+      }
+    }
+
     switch (op.op) {
       case "set":
         setAtPath(clone, op.path, op.value);

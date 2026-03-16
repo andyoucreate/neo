@@ -399,13 +399,13 @@ If a new fact contradicts an existing one, REPLACE the old fact.
 
 Use <memory-ops> for memory updates. CRITICAL: You MUST use the exact field names shown below. Free-form fields will break the system.
 
-**activeWork items** must have these fields:
-- \`description\` (string, required) — what is being done
-- \`status\` (required) — exactly one of: \`"running"\`, \`"waiting"\`, \`"blocked"\`
-- \`since\` (ISO date string, required) — when this work started
-- \`runId\` (string, optional) — the neo run ID
-- \`repo\` (string, optional) — repo path
-- \`priority\` (optional) — one of: \`"critical"\`, \`"high"\`, \`"medium"\`, \`"low"\`
+**Memory V2 note**: \`activeWork\` is now derived from run state — do NOT use memory ops to track it.
+Per-run decisions and observations go to \`<run-notes>\` instead of \`decisions[]\`.
+
+**Memory fields**:
+- \`agenda\` (string) — your current focus and priorities
+- \`blockers[]\` (array) — system-level blockers only (not per-run)
+- \`trackerSync\` (object) — ticket sync state
 
 **blocker items** must have these fields:
 - \`description\` (string, required) — what is blocked and why
@@ -416,14 +416,14 @@ Use <memory-ops> for memory updates. CRITICAL: You MUST use the exact field name
 Examples:
 \`\`\`
 <memory-ops>
-{"op":"set","path":"agenda","value":"updated agenda text"}
-{"op":"append","path":"activeWork","value":{"description":"PR#27 CI pending","status":"waiting","since":"${new Date().toISOString().slice(0, 19)}Z","runId":"0b7b1cda"}}
-{"op":"append","path":"blockers","value":{"description":"@acme/sdk v3.0 not published","since":"${new Date().toISOString().slice(0, 19)}Z"}}
-{"op":"append","path":"decisions","value":{"date":"${new Date().toISOString().slice(0, 10)}","decision":"..."}}
+{"op":"set","path":"agenda","value":"Focus: Ship auth feature, then address SDK blocker"}
+{"op":"append","path":"blockers","value":{"description":"@acme/sdk v3.0 not published — blocks analytics integration","since":"${new Date().toISOString().slice(0, 19)}Z"}}
+{"op":"set","path":"trackerSync.PROJ-123","value":"in_progress"}
 {"op":"remove","path":"blockers","index":0}
 </memory-ops>
 \`\`\`
 
+Do NOT use \`activeWork\` or \`decisions\` ops — activeWork is derived from runs, decisions go to run-notes.
 Do NOT use custom fields like \`ticket\`, \`stage\`, \`pr\`, \`cost\`, \`reason\` — include that info inside \`description\`.
 
 Use <knowledge-ops> for knowledge updates:
@@ -514,26 +514,31 @@ export async function buildCompactionPrompt(opts: ConsolidationPromptOptions): P
 Tasks:
 1. Remove stale facts from knowledge (>7 days old with no recent reinforcement)
 2. Merge duplicate or similar facts within the same repo section
-3. Summarize old decisions into patterns (keep last 10 detailed, summarize older ones)
-4. Remove completed items from activeWork
-5. Clear resolved blockers
-6. Update your agenda — remove completed goals, add new priorities
-7. Stay under 6KB memory / 20 facts per repo in knowledge
+3. Clear resolved blockers
+4. Update your agenda — remove completed goals, add new priorities
+5. Stay under 6KB memory / 20 facts per repo in knowledge
+
+**Memory V2 note**: \`activeWork\` is now derived from run state — do NOT use memory ops to track it.
+Per-run decisions and observations go to \`<run-notes>\` instead of \`decisions[]\`.
 
 Flag contradictions: if two facts contradict, keep the newer one.
 Mark facts you're unsure about with (needs verification).
 
 Use <memory-ops> for memory updates. CRITICAL: Use the exact field names below — no custom fields.
 
-**activeWork**: \`{"description":"...","status":"running|waiting|blocked","since":"ISO-date"}\` + optional \`runId\`, \`repo\`, \`priority\`
+**Memory fields**:
+- \`agenda\` (string) — your current focus and priorities
+- \`blockers[]\` (array) — system-level blockers only (not per-run)
+- \`trackerSync\` (object) — ticket sync state
+
 **blockers**: \`{"description":"...","since":"ISO-date"}\` + optional \`source\`, \`runId\`
 Pack context (ticket IDs, PR#, cost) inside \`description\` — do NOT add custom fields.
 
 \`\`\`
 <memory-ops>
-{"op":"set","path":"agenda","value":"updated agenda text"}
-{"op":"append","path":"activeWork","value":{"description":"PR#27 CI pending","status":"waiting","since":"${new Date().toISOString().slice(0, 19)}Z"}}
-{"op":"append","path":"decisions","value":{"date":"${new Date().toISOString().slice(0, 10)}","decision":"..."}}
+{"op":"set","path":"agenda","value":"Focus: Ship auth feature, then address SDK blocker"}
+{"op":"append","path":"blockers","value":{"description":"@acme/sdk v3.0 not published","since":"${new Date().toISOString().slice(0, 19)}Z"}}
+{"op":"set","path":"trackerSync.PROJ-123","value":"done"}
 {"op":"remove","path":"blockers","index":0}
 </memory-ops>
 \`\`\`
