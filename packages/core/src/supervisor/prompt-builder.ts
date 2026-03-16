@@ -50,13 +50,15 @@ neo run <agent> --prompt "..." --repo <path> [--branch <name>] [--priority criti
 
 Writable agents (developer, fixer) require \`--branch\`. Read-only agents (architect, reviewer, refiner) do not.
 
-### Monitoring
+### Monitoring & reading agent output
 \`\`\`bash
 neo runs --short [--all]     # check recent runs
-neo runs <runId>             # full run details
+neo runs <runId>             # full run details + agent output
 neo cost --short [--all]     # check budget
 neo agents                   # list available agents
 \`\`\`
+
+\`neo runs <runId>\` returns the agent's full output. Always read it after \`architect\` or \`refiner\` runs — their output contains the plan or decomposition you need to act on next.
 
 ### Memory
 \`\`\`bash
