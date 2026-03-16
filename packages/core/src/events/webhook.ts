@@ -1,10 +1,11 @@
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import type { NeoConfig } from "@/config";
 import type { NeoEvent } from "@/types";
 
 type WebhookConfig = NeoConfig["webhooks"][number];
 
 interface WebhookPayload {
+  id: string;
   version: 1;
   event: string;
   payload: Record<string, unknown>;
@@ -12,13 +13,21 @@ interface WebhookPayload {
   deliveredAt: string;
 }
 
+/** Event types that get retry on failure (terminal events the supervisor must see). */
+const RETRY_EVENT_TYPES = new Set(["session:complete", "session:fail", "budget:alert"]);
+
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 500;
+
 /**
- * Fire-and-forget webhook dispatcher for NeoEvents.
+ * Webhook dispatcher for NeoEvents.
  *
  * - Matches events against per-webhook filters (exact or wildcard like "session:*")
  * - Excludes gate:waiting events (contain non-serializable callbacks)
  * - Signs payloads with HMAC-SHA256 when a secret is configured
- * - Never throws — errors are silently swallowed (consistent with EventJournal)
+ * - Terminal events (session:complete, session:fail, budget:alert) are retried
+ *   with exponential backoff on failure
+ * - Non-terminal events remain fire-and-forget
  */
 export class WebhookDispatcher {
   private readonly webhooks: WebhookConfig[];
@@ -35,6 +44,7 @@ export class WebhookDispatcher {
       if (!matchesFilter(event.type, webhook.events)) continue;
 
       const payload: WebhookPayload = {
+        id: randomUUID(),
         version: 1,
         event: event.type,
         payload: toSerializable(event),
@@ -51,13 +61,49 @@ export class WebhookDispatcher {
         headers["X-Neo-Signature"] = sign(body, webhook.secret);
       }
 
-      // Fire-and-forget — never awaited, errors swallowed
-      fetch(webhook.url, {
+      if (RETRY_EVENT_TYPES.has(event.type)) {
+        // Terminal events: retry with exponential backoff
+        sendWithRetry(webhook.url, headers, body, webhook.timeoutMs).catch(() => {});
+      } else {
+        // Non-terminal: fire-and-forget
+        fetch(webhook.url, {
+          method: "POST",
+          headers,
+          body,
+          signal: AbortSignal.timeout(webhook.timeoutMs),
+        }).catch(() => {});
+      }
+    }
+  }
+}
+
+/**
+ * Send a webhook POST with exponential backoff retry.
+ * Retries up to RETRY_MAX_ATTEMPTS times with delays of 500ms, 1s, 2s.
+ */
+async function sendWithRetry(
+  url: string,
+  headers: Record<string, string>,
+  body: string,
+  timeoutMs: number,
+): Promise<void> {
+  for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(url, {
         method: "POST",
         headers,
         body,
-        signal: AbortSignal.timeout(webhook.timeoutMs),
-      }).catch(() => {});
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (res.ok) return;
+      // Non-2xx: treat as failure, retry
+    } catch {
+      // Network error or timeout: retry
+    }
+
+    if (attempt < RETRY_MAX_ATTEMPTS) {
+      const delay = RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
 }

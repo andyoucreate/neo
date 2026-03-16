@@ -1167,6 +1167,19 @@ export class Orchestrator extends NeoEventEmitter {
     run.status = "failed";
     run.updatedAt = new Date().toISOString();
     await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+
+    // Emit session:fail so the supervisor learns about the orphaned run
+    this.emit({
+      type: "session:fail",
+      sessionId: run.runId,
+      runId: run.runId,
+      error: "Orphaned run: process died without completing",
+      attempt: 1,
+      maxRetries: this.config.recovery.maxRetries,
+      willRetry: false,
+      metadata: run.metadata,
+      timestamp: new Date().toISOString(),
+    });
   }
 }
 

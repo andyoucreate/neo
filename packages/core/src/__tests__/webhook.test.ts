@@ -54,7 +54,7 @@ describe("WebhookDispatcher", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends POST request with correct payload", () => {
+  it("sends POST request with correct payload including id", () => {
     const dispatcher = new WebhookDispatcher([
       { url: "https://example.com/hook", timeoutMs: 5000 },
     ]);
@@ -76,6 +76,8 @@ describe("WebhookDispatcher", () => {
         runId: "run-1",
       }),
     });
+    expect(body.id).toBeDefined();
+    expect(typeof body.id).toBe("string");
     expect(body.deliveredAt).toBeDefined();
   });
 
@@ -169,6 +171,96 @@ describe("WebhookDispatcher", () => {
 
     // Should not throw
     expect(() => dispatcher.dispatch(makeEvent())).not.toThrow();
+  });
+
+  it("retries terminal events on failure", async () => {
+    vi.useFakeTimers();
+    fetchSpy
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce(new Response("ok"));
+
+    const dispatcher = new WebhookDispatcher([
+      { url: "https://example.com/hook", timeoutMs: 5000 },
+    ]);
+
+    dispatcher.dispatch(
+      makeEvent({
+        type: "session:complete",
+        status: "success",
+        costUsd: 0.1,
+        durationMs: 1000,
+      } as Partial<NeoEvent>),
+    );
+
+    // First attempt fires immediately
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    // Advance past retry delays (500ms, 1000ms)
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchSpy).toHaveBeenCalledTimes(3);
+
+    vi.useRealTimers();
+  });
+
+  it("retries session:fail events on failure", async () => {
+    vi.useFakeTimers();
+    fetchSpy
+      .mockRejectedValueOnce(new Error("Network error"))
+      .mockResolvedValueOnce(new Response("ok"));
+
+    const dispatcher = new WebhookDispatcher([
+      { url: "https://example.com/hook", timeoutMs: 5000 },
+    ]);
+
+    dispatcher.dispatch(
+      makeEvent({
+        type: "session:fail",
+        error: "crash",
+        attempt: 1,
+        maxRetries: 3,
+        willRetry: false,
+      } as Partial<NeoEvent>),
+    );
+
+    expect(fetchSpy).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(500);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    vi.useRealTimers();
+  });
+
+  it("does not retry non-terminal events", () => {
+    fetchSpy.mockRejectedValue(new Error("Network error"));
+    const dispatcher = new WebhookDispatcher([
+      { url: "https://example.com/hook", timeoutMs: 5000 },
+    ]);
+
+    dispatcher.dispatch(makeEvent({ type: "session:start" } as Partial<NeoEvent>));
+
+    // Only one attempt — no retry for non-terminal events
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  });
+
+  it("generates unique ids per dispatch", () => {
+    const dispatcher = new WebhookDispatcher([
+      { url: "https://example.com/hook", timeoutMs: 5000 },
+    ]);
+
+    dispatcher.dispatch(makeEvent());
+    dispatcher.dispatch(makeEvent());
+
+    const body1 = JSON.parse(
+      (fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string,
+    ) as { id: string };
+    const body2 = JSON.parse(
+      (fetchSpy.mock.calls[1] as [string, RequestInit])[1].body as string,
+    ) as { id: string };
+    expect(body1.id).not.toBe(body2.id);
   });
 
   it("strips non-serializable fields from event payload", () => {

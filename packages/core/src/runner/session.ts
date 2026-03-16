@@ -107,7 +107,9 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
   }
 
   if (options.env && Object.keys(options.env).length > 0) {
-    queryOptions.env = options.env;
+    // Merge with process.env so PATH, HOME, etc. are preserved.
+    // Custom vars override process.env if there's a conflict.
+    queryOptions.env = { ...process.env, ...options.env };
   }
 
   return queryOptions;
