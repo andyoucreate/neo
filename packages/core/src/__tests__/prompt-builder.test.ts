@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { GroupedEvents } from "@/supervisor/event-queue";
-import {
-  buildConsolidationPrompt,
-  buildStandardPrompt,
-} from "@/supervisor/prompt-builder";
+import { buildConsolidationPrompt, buildStandardPrompt } from "@/supervisor/prompt-builder";
 import type { LogBufferEntry } from "@/supervisor/schemas";
 
 function makeEntry(overrides?: Partial<LogBufferEntry>): LogBufferEntry {

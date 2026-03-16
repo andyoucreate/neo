@@ -273,9 +273,7 @@ export default defineCommand({
       // neo notes --active — show all active runs
       await showActiveNotes(last, args.short, jsonOutput);
     } else {
-      printError(
-        'Usage: neo notes <runId> | neo notes <runId> <type> "text" | neo notes --active',
-      );
+      printError('Usage: neo notes <runId> | neo notes <runId> <type> "text" | neo notes --active');
       process.exitCode = 1;
     }
   },

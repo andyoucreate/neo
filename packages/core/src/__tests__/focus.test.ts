@@ -1,11 +1,14 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadFocus } from "@/supervisor/focus";
 
 function makeTmpDir(): string {
-  const dir = path.join(tmpdir(), `focus-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  const dir = path.join(
+    tmpdir(),
+    `focus-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  );
   mkdirSync(dir, { recursive: true });
   return dir;
 }

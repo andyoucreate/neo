@@ -1,8 +1,8 @@
-import { getRepoRunsDir, getRunsDir } from "@/paths";
-import type { PersistedRun } from "@/types";
 import { existsSync } from "node:fs";
 import { appendFile, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { getRepoRunsDir, getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
 import type { RunNote } from "./schemas.js";
 import { runNoteSchema } from "./schemas.js";
 
@@ -222,9 +222,7 @@ async function collectRunsMatching(
   return results;
 }
 
-function formatCollectedRuns(
-  runs: { line: string; notes: string[] }[],
-): string {
+function formatCollectedRuns(runs: { line: string; notes: string[] }[]): string {
   if (runs.length === 0) return "";
   const lines: string[] = [];
   for (const run of runs) {
@@ -271,9 +269,7 @@ export async function getRecentRunHistory(since?: string, maxRuns = 10): Promise
   const sinceMs = since ? new Date(since).getTime() : 0;
 
   try {
-    const runs = await collectRunsMatching(
-      (_run, updatedAt) => updatedAt >= sinceMs,
-    );
+    const runs = await collectRunsMatching((_run, updatedAt) => updatedAt >= sinceMs);
     runs.sort((a, b) => b.updatedAt - a.updatedAt);
     return formatCollectedRuns(runs.slice(0, maxRuns));
   } catch {
