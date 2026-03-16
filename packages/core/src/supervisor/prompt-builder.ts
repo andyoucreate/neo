@@ -92,17 +92,44 @@ const REPORTING_RULES = `### Reporting
 - \`neo log discovery "..."\` — ephemeral observations
 - 1-3 sentences per log. Pack maximum info: ticket, agent, branch, runId, cost, PR#. No markdown.
 
-For stable facts, use \`neo memory write\` — they persist and are injected into agent prompts:
-- \`neo memory write --type fact --scope /path "Uses Prisma"\`
-- \`neo memory write --type focus --expires 2h "Waiting on CI"\`
-
 Your text output is NEVER shown to users.`;
 
-const MEMORY_RULES = `### Memory — what goes where
-- **Memory store** (\`neo memory\`): structured facts, procedures, focus, feedback. Stored in SQLite with semantic embeddings — the most relevant memories are automatically injected into agent prompts. Decays by usage.
-- **Notes** (\`notes/\`, via Bash): detailed plans, analysis, checklists spanning multiple heartbeats. Prefix: \`plan-\`, \`context-\`, \`checklist-\`. Delete when done.
+const MEMORY_RULES = `### Memory — types and when to use each
 
-Use \`neo memory write\` for one-liner facts (write descriptive content for better semantic matching). Use \`notes/\` for multi-page documents.`;
+| Type | What | When | TTL |
+|------|------|------|-----|
+| \`fact\` | Stable truth about a repo | After discovering architecture, stack, conventions | Permanent (decays if unused) |
+| \`procedure\` | How-to recipe | After learning a non-obvious workflow | Permanent (decays if unused) |
+| \`focus\` | Current working context | After dispatching, deferring work, or changing priorities | Expires (set --expires) |
+| \`feedback\` | Recurring review issue | After seeing the same reviewer complaint 3+ times | Permanent |
+| \`episode\` | Run outcome | Auto-created on run completion — do NOT write manually | Permanent |
+
+\`\`\`bash
+# Focus: what you're working on RIGHT NOW (always set --expires)
+neo memory write --type focus --expires 2h "Waiting on CI for PR #42 on myapp"
+neo memory write --type focus --expires 4h "3 tickets in progress: PROJ-10, PROJ-11, PROJ-12"
+
+# Facts: stable truths about repos (be descriptive for semantic search)
+neo memory write --type fact --scope /path/to/repo "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
+neo memory write --type fact --scope /path/to/repo "CI pipeline: GitHub Actions, ~8min, flaky test in auth.spec.ts"
+
+# Procedures: how-to recipes agents should follow
+neo memory write --type procedure --scope /path/to/repo "Run pnpm test:e2e with DATABASE_URL set for integration tests"
+neo memory write --type procedure --scope /path/to/repo "Always run pnpm build before pushing — CI doesn't rebuild"
+
+# Feedback: patterns from reviewer that keep recurring
+neo memory write --type feedback --scope /path/to/repo --category input_validation "Always validate user input at controller boundaries"
+
+# Forget stale entries
+neo memory forget <id>
+
+# Search across all memories (semantic)
+neo memory search "database setup"
+\`\`\`
+
+**Focus is critical** — always update your focus after dispatching or deferring work. Without focus, you lose context between heartbeats.
+
+**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans, analysis, and checklists that span multiple heartbeats. Delete when done.`;
 
 // ─── Section builders ───────────────────────────────────
 
@@ -169,15 +196,8 @@ function buildMemorySection(memories: MemoryEntry[], supervisorDir: string): str
     parts.push(`Recurring review issues:\n${lines}`);
   }
 
-  // Instructions for updating
-  parts.push(`Update memory with structured commands:
-\`\`\`bash
-neo memory write --type focus --expires 2h "Waiting on CI for PR #42"
-neo memory write --type fact --scope /path/to/repo "Uses Prisma with PostgreSQL"
-neo memory forget <id>
-\`\`\`
-
-For detailed plans and checklists, use notes:
+  // Notes reminder
+  parts.push(`For detailed plans and checklists, use notes:
 \`\`\`bash
 cat > ${supervisorDir}/notes/plan-feature.md << 'EOF'
 <your detailed plan here>

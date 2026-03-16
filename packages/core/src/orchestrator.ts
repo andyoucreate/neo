@@ -91,24 +91,29 @@ function buildGitStrategyInstructions(
 // ─── Reporting instructions for agents ──────────────────
 
 function buildReportingInstructions(_runId: string): string {
-  return `## Reporting
+  return `## Reporting & Memory
 
-Report progress so the supervisor can track your work. Environment is pre-configured.
-
+### Progress reporting (real-time, visible in TUI)
+Chain \`neo log\` with the command that triggered it — never standalone:
 \`\`\`bash
-neo log decision "chose X because Y"       # key decisions
-neo log action "opened PR #42"             # actions taken
-neo log blocker "missing API key in vault" # blocked (wakes supervisor)
-neo log milestone "all tests passing"      # major milestone
+pnpm test && neo log milestone "all tests passing" || neo log blocker "tests failing"
+git push origin HEAD && neo log action "pushed to branch"
+neo log decision "chose JWT over sessions — simpler for MVP"
 \`\`\`
 
-Write stable discoveries to memory so future agents benefit:
+### Memory (persistent, injected into future agent prompts)
+Write discoveries so the next agent on this repo starts smarter:
 \`\`\`bash
-neo memory write --type fact --scope $NEO_REPOSITORY "repo uses Prisma ORM"
-neo memory write --type procedure --scope $NEO_REPOSITORY "run pnpm test:e2e for integration"
+# Stable facts — describe clearly for semantic search
+neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
+neo memory write --type fact --scope $NEO_REPOSITORY "Biome for lint+format, config in biome.json"
+
+# How-to procedures — non-obvious workflows
+neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var"
+neo memory write --type procedure --scope $NEO_REPOSITORY "Always run pnpm build before push — CI doesn't rebuild"
 \`\`\`
 
-Log at key moments: after decisions, on blockers, and before finishing.`;
+Write at key moments: after discovering conventions, after resolving a non-obvious issue, before finishing.`;
 }
 
 // ─── Full prompt assembler ─────────────────────────────
