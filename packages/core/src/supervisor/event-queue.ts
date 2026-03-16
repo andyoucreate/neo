@@ -1,9 +1,15 @@
 import { type FSWatcher, watch } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import type { InboxMessage, QueuedEvent, WebhookIncomingEvent } from "./schemas.js";
+import type { InboxMessage, QueuedEvent, WakeReason, WebhookIncomingEvent } from "./schemas.js";
 
-interface EventQueueOptions {
+export interface EventQueueOptions {
   maxEventsPerSec: number;
+  /** How often consolidation runs (ms) - triggers 'timer' wake reason */
+  consolidationIntervalMs?: number;
+  /** How often to check for active work (ms) - triggers 'active_runs' wake reason */
+  activeWorkCheckMs?: number;
+  /** Safety timeout (ms) - max time to wait before returning 'timer' */
+  eventTimeoutMs?: number;
 }
 
 export interface GroupedMessage {
@@ -33,6 +39,9 @@ export class EventQueue {
   private readonly seenIds = new Set<string>();
   private readonly maxSeenIds = 1000;
   private readonly maxEventsPerSec: number;
+  private readonly consolidationIntervalMs: number;
+  private readonly activeWorkCheckMs: number;
+  private readonly eventTimeoutMs: number;
   private eventCountThisSecond = 0;
   private currentSecond = 0;
   private watchers: FSWatcher[] = [];
@@ -40,9 +49,16 @@ export class EventQueue {
 
   /** Resolve function to wake up the heartbeat loop when an event arrives */
   private wakeUp: (() => void) | null = null;
+  /** Whether shutdown has been signaled */
+  private shutdownSignaled = false;
+  /** Resolve function for shutdown signal */
+  private shutdownResolve: (() => void) | null = null;
 
   constructor(options: EventQueueOptions) {
     this.maxEventsPerSec = options.maxEventsPerSec;
+    this.consolidationIntervalMs = options.consolidationIntervalMs ?? 300_000;
+    this.activeWorkCheckMs = options.activeWorkCheckMs ?? 60_000;
+    this.eventTimeoutMs = options.eventTimeoutMs ?? 300_000;
   }
 
   /**
@@ -177,6 +193,81 @@ export class EventQueue {
    * Interrupt any pending waitForEvent — used during shutdown.
    */
   interrupt(): void {
+    this.wakeUp?.();
+  }
+
+  /**
+   * Block until work is available. Returns a WakeReason indicating why we woke.
+   *
+   * Waits for any of:
+   * - Event arrival → 'events'
+   * - Consolidation timer (consolidationIntervalMs) → 'timer'
+   * - Active work check timer (activeWorkCheckMs) → 'active_runs'
+   * - Shutdown signal → 'forced'
+   *
+   * Uses Promise-based waiting, not polling.
+   */
+  waitForWork(): Promise<WakeReason> {
+    // If events already queued, return immediately
+    if (this.queue.length > 0) {
+      return Promise.resolve("events" as WakeReason);
+    }
+
+    // If shutdown already signaled, return immediately
+    if (this.shutdownSignaled) {
+      return Promise.resolve("forced" as WakeReason);
+    }
+
+    return new Promise<WakeReason>((resolve) => {
+      const timers: NodeJS.Timeout[] = [];
+
+      const cleanup = () => {
+        for (const t of timers) clearTimeout(t);
+        this.wakeUp = null;
+        this.shutdownResolve = null;
+      };
+
+      // Timer for consolidation (longer interval)
+      const consolidationTimer = setTimeout(() => {
+        cleanup();
+        resolve("timer");
+      }, this.consolidationIntervalMs);
+      timers.push(consolidationTimer);
+
+      // Timer for active work check (shorter interval)
+      const activeWorkTimer = setTimeout(() => {
+        cleanup();
+        resolve("active_runs");
+      }, this.activeWorkCheckMs);
+      timers.push(activeWorkTimer);
+
+      // Safety timeout (max wait time)
+      const safetyTimer = setTimeout(() => {
+        cleanup();
+        resolve("timer");
+      }, this.eventTimeoutMs);
+      timers.push(safetyTimer);
+
+      // Event arrival handler
+      this.wakeUp = () => {
+        cleanup();
+        resolve("events");
+      };
+
+      // Shutdown signal handler
+      this.shutdownResolve = () => {
+        cleanup();
+        resolve("forced");
+      };
+    });
+  }
+
+  /**
+   * Signal shutdown to wake any pending waitForWork.
+   */
+  signalShutdown(): void {
+    this.shutdownSignaled = true;
+    this.shutdownResolve?.();
     this.wakeUp?.();
   }
 
