@@ -41,6 +41,7 @@ describe("buildCompactionPrompt", () => {
       mcpServerNames: [],
       supervisorDir: "/tmp/test-supervisor",
       memories: [],
+      recentActions: [],
     });
 
     expect(prompt).toContain("COMPACTION");

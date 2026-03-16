@@ -433,6 +433,7 @@ export class HeartbeatLoop {
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
     const store = this.getMemoryStore();
     const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
+    const recentActions = await this.activityLog.tail(20);
     const sharedOpts = {
       repos: this.config.repos,
       grouped: opts.grouped,
@@ -450,6 +451,7 @@ export class HeartbeatLoop {
       customInstructions: this.customInstructions,
       supervisorDir: this.supervisorDir,
       memories,
+      recentActions,
     };
 
     if (opts.isCompaction) {

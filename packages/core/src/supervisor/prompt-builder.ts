@@ -1,7 +1,7 @@
 import type { RepoConfig } from "@/config";
 import type { GroupedEvents } from "./event-queue.js";
 import type { MemoryEntry } from "./memory/entry.js";
-import type { QueuedEvent } from "./schemas.js";
+import type { ActivityEntry, QueuedEvent } from "./schemas.js";
 
 // ─── Shared options ─────────────────────────────────────
 
@@ -19,6 +19,7 @@ export interface PromptOptions {
   customInstructions?: string | undefined;
   supervisorDir: string;
   memories: MemoryEntry[];
+  recentActions: ActivityEntry[];
 }
 
 export interface StandardPromptOptions extends PromptOptions {}
@@ -207,6 +208,33 @@ EOF
   return parts.join("\n\n");
 }
 
+// ─── Recent actions ─────────────────────────────────────
+
+const SIGNIFICANT_TYPES = new Set(["decision", "action", "dispatch", "error", "plan"]);
+
+function buildRecentActionsSection(entries: ActivityEntry[]): string {
+  const significant = entries.filter((e) => SIGNIFICANT_TYPES.has(e.type));
+  if (significant.length === 0) return "";
+
+  const lines = significant.map((e) => {
+    const ago = formatTimeAgo(Date.now() - new Date(e.timestamp).getTime());
+    return `- [${e.type}] ${e.summary} (${ago})`;
+  });
+
+  return `Recent actions (your last heartbeats):\n${lines.join("\n")}`;
+}
+
+function formatTimeAgo(ms: number): string {
+  if (ms < 60_000) return "just now";
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h${minutes % 60}m ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+// ─── Events ─────────────────────────────────────────────
+
 function buildEventsSection(grouped: GroupedEvents): string {
   const { messages, webhooks, runCompletions } = grouped;
   const totalEvents = messages.length + webhooks.length + runCompletions.length;
@@ -263,6 +291,12 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
   }
 
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
+
+  const recentActions = buildRecentActionsSection(opts.recentActions);
+  if (recentActions) {
+    contextParts.push(recentActions);
+  }
+
   contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
@@ -306,6 +340,12 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
   }
 
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
+
+  const recentActions = buildRecentActionsSection(opts.recentActions);
+  if (recentActions) {
+    contextParts.push(recentActions);
+  }
+
   contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);

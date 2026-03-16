@@ -40,6 +40,7 @@ function baseOpts() {
     mcpServerNames: [],
     supervisorDir: "/tmp/test-supervisor",
     memories: [],
+    recentActions: [],
   };
 }
 
