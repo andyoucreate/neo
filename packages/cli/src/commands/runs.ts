@@ -98,11 +98,6 @@ export default defineCommand({
       description: "Run ID to show details (omit to list all runs)",
       required: false,
     },
-    all: {
-      type: "boolean",
-      description: "Show runs from all repos",
-      default: false,
-    },
     repo: {
       type: "string",
       description: "Filter by repo name or path",
@@ -127,7 +122,7 @@ export default defineCommand({
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
-    const filter = await resolveRepoFilter({ all: args.all, repo: args.repo });
+    const filter = await resolveRepoFilter({ repo: args.repo });
     let runs = await loadRunsFiltered(filter);
 
     if (runs.length === 0) {

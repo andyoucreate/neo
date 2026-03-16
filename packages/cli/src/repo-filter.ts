@@ -5,7 +5,7 @@ import type { PersistedRun } from "@neotx/core";
 import { getRunsDir, listReposFromGlobalConfig, toRepoSlug } from "@neotx/core";
 
 export interface RepoFilter {
-  mode: "cwd" | "all" | "named";
+  mode: "all" | "named";
   repoSlug?: string;
   repoPath?: string;
 }
@@ -14,12 +14,7 @@ export interface RepoFilter {
  * Resolve which repos to query based on --repo flag.
  * Default: show all repos (global view).
  */
-export async function resolveRepoFilter(args: {
-  all?: boolean | undefined;
-  repo?: string | undefined;
-}): Promise<RepoFilter> {
-  if (args.all) return { mode: "all" };
-
+export async function resolveRepoFilter(args: { repo?: string | undefined }): Promise<RepoFilter> {
   if (args.repo) {
     const repo = args.repo;
     // Could be a name/slug or a path
