@@ -4,12 +4,8 @@ export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 export type { GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
-// ─── Focus (working memory) ─────────────────────────────
-export { loadFocus } from "./focus.js";
 export type { HeartbeatLoopOptions } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
-// ─── Knowledge ──────────────────────────────────────────
-export { loadKnowledge } from "./knowledge.js";
 // ─── Log buffer ─────────────────────────────────────────
 export {
   appendLogBuffer,
@@ -22,6 +18,24 @@ export {
   readUnconsolidated,
 } from "./log-buffer.js";
 export type {
+  Embedder,
+  MemoryEntry,
+  MemoryQuery,
+  MemoryStats,
+  MemoryType,
+  MemoryWriteInput,
+} from "./memory/index.js";
+// ─── Memory store ──────────────────────────────────────
+export {
+  cosineSimilarity,
+  formatMemoriesForPrompt,
+  LocalEmbedder,
+  MemoryStore,
+  memoryEntrySchema,
+  memoryTypeSchema,
+  memoryWriteInputSchema,
+} from "./memory/index.js";
+export type {
   ConsolidationPromptOptions,
   PromptOptions,
   StandardPromptOptions,
@@ -31,23 +45,12 @@ export {
   buildCompactionPrompt,
   buildConsolidationPrompt,
   buildStandardPrompt,
-  renderHotStateWithRunNotes,
 } from "./prompt-builder.js";
-// ─── Run notes ───────────────────────────────────────────
-export {
-  appendRunNote,
-  findRepoSlugForRun,
-  getActiveRunsWithNotes,
-  getRecentCompletedRunsWithNotes,
-  readRecentNotes,
-  readRunNotes,
-} from "./run-notes.js";
 export type {
   ActivityEntry,
   InboxMessage,
   LogBufferEntry,
   QueuedEvent,
-  RunNote,
   SupervisorDaemonState,
   WebhookIncomingEvent,
 } from "./schemas.js";
@@ -56,7 +59,6 @@ export {
   activityEntrySchema,
   inboxMessageSchema,
   logBufferEntrySchema,
-  runNoteSchema,
   supervisorDaemonStateSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";

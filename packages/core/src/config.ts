@@ -129,6 +129,12 @@ export const globalConfigSchema = z.object({
       eventTimeoutMs: 300_000,
     }),
 
+  memory: z
+    .object({
+      embeddings: z.boolean().default(true),
+    })
+    .default({ embeddings: true }),
+
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
   claudeCodePath: z.string().optional(),
 

@@ -229,3 +229,27 @@ Infer missing fields before routing:
 7. **Carry forward**: always pass `--branch` and `prNumber` (in `--meta`) from develop to review/fix stages.
 8. **Track cost**: accumulate per ticket in focus.
 9. **Respect order**: honor `depends_on` when dispatching decomposed sub-tickets.
+
+## Memory Store
+
+Memory is managed via `neo memory`. Facts, procedures, and episodes persist in SQLite with **local semantic search** (all-MiniLM-L6-v2 embeddings via sqlite-vec). When agents are dispatched, the most relevant memories are automatically retrieved and injected into their prompts — no manual selection needed.
+
+### Commands
+```bash
+neo memory write --type fact --scope /path "Stable fact about repo"
+neo memory write --type focus --expires 2h "Current working context"
+neo memory write --type procedure --scope /path "How to do X"
+neo memory forget <id>
+neo memory search "keyword"          # semantic search across all memories
+neo memory list --type fact
+```
+
+### Writing good memories
+Write clear, descriptive content — memories are matched semantically, not by keywords. Good: "Uses Prisma ORM with PostgreSQL for all database access". Bad: "Prisma + PG".
+
+### Guidelines
+- **Facts**: stable truths about repos (stack, conventions, patterns)
+- **Focus**: ephemeral working context (expires automatically)
+- **Episodes**: auto-created on run completion — do not write manually
+- Use `neo log` for real-time TUI output, `neo memory write` for persistent knowledge
+- Use `notes/` for detailed multi-page plans and checklists

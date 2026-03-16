@@ -1,12 +1,7 @@
 import type { RepoConfig } from "@/config";
 import type { GroupedEvents } from "./event-queue.js";
-import { buildAgentDigest } from "./log-buffer.js";
-import {
-  getActiveRunsWithNotes,
-  getRecentCompletedRunsWithNotes,
-  getRecentRunHistory,
-} from "./run-notes.js";
-import type { LogBufferEntry, QueuedEvent } from "./schemas.js";
+import type { MemoryEntry } from "./memory/entry.js";
+import type { QueuedEvent } from "./schemas.js";
 
 // ─── Shared options ─────────────────────────────────────
 
@@ -23,16 +18,12 @@ export interface PromptOptions {
   mcpServerNames: string[];
   customInstructions?: string | undefined;
   supervisorDir: string;
-  focusMd: string;
+  memories: MemoryEntry[];
 }
 
-export interface StandardPromptOptions extends PromptOptions {
-  recentEntries: LogBufferEntry[];
-}
+export interface StandardPromptOptions extends PromptOptions {}
 
 export interface ConsolidationPromptOptions extends PromptOptions {
-  knowledgeMd: string;
-  allUnconsolidatedEntries: LogBufferEntry[];
   /** ISO timestamp of last consolidation — used to filter run history */
   lastConsolidationTimestamp?: string | undefined;
 }
@@ -58,16 +49,27 @@ neo run <agent> --prompt "..." --repo <path> [--branch <name>] [--priority criti
 
 Writable agents (developer, fixer) require \`--branch\`. Read-only agents (architect, reviewer, refiner) do not.
 
-### Other commands
+### Monitoring
 \`\`\`bash
 neo runs --short [--all]     # check recent runs
 neo runs <runId>             # full run details
-neo notes <runId> <type> "text"  # add a note to a run
-neo notes <runId>            # show run timeline
-neo notes --active           # show notes from all active runs
 neo cost --short [--all]     # check budget
 neo agents                   # list available agents
-neo log <type> "<message>"   # log a progress report
+\`\`\`
+
+### Memory
+\`\`\`bash
+neo memory write --type fact --scope /path "Stable fact about repo"
+neo memory write --type focus --expires 2h "Current working context"
+neo memory write --type procedure --scope /path "How to do X"
+neo memory forget <id>
+neo memory search "keyword"
+neo memory list --type fact
+\`\`\`
+
+### Reporting
+\`\`\`bash
+neo log <type> "<message>"   # visible in TUI only
 \`\`\``;
 
 // ─── Shared instruction blocks ──────────────────────────
@@ -76,7 +78,7 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 1. Process incoming events (messages, run completions)
 2. Follow up on pending work (CI checks, deferred dispatches) with \`neo runs\` or \`gh pr checks\`
 3. Make decisions and dispatch agents
-4. Log decisions with \`neo log\`, update your focus
+4. Update memory and log decisions
 5. Yield — each heartbeat should take seconds, not minutes
 
 After dispatching with \`neo run\`, note the runId in your focus and yield. Do NOT poll in a loop.
@@ -84,97 +86,29 @@ Completion events arrive at future heartbeats — react then.
 If you deferred work (e.g. "CI pending"), you MUST check it at the next heartbeat.`;
 
 const REPORTING_RULES = `### Reporting
-\`neo log\` is your ONLY visible output — the TUI shows these and nothing else. Be synthetic but information-dense.
+\`neo log\` is your ONLY visible output — the TUI shows these and nothing else.
 - \`neo log decision "..."\` — why you chose this route
 - \`neo log action "..."\` — what you dispatched/did
-- \`neo log discovery --knowledge "..."\` — stable facts to persist
-- \`neo log discovery "..."\` — observations about active work (update focus for important context)
+- \`neo log discovery "..."\` — ephemeral observations
 - 1-3 sentences per log. Pack maximum info: ticket, agent, branch, runId, cost, PR#. No markdown.
 
-Your text output is NEVER shown to users. Do not write summaries or reports outside of \`neo log\`.`;
+For stable facts, use \`neo memory write\` — they persist and are injected into agent prompts:
+- \`neo memory write --type fact --scope /path "Uses Prisma"\`
+- \`neo memory write --type focus --expires 2h "Waiting on CI"\`
 
-const MEMORY_VERTICALS = `### Memory verticals — what goes where
-- **Focus** (\`focus.md\`, auto-loaded): important context for current work — decisions, pending follow-ups, what you're waiting on. High-signal, ephemeral (hours to days).
-- **Notes** (\`notes/\`, read on demand): detailed plans, analysis, checklists that span multiple heartbeats. Prefix: \`plan-\`, \`context-\`, \`checklist-\`. Delete when done.
-- **Knowledge** (\`knowledge.md\`, rewritten via Bash during consolidation): STABLE FACTS about repos, systems, and processes. Not for ephemeral working context.
+Your text output is NEVER shown to users.`;
 
-If it only matters for the current task, put it in focus. If it's a stable fact, use knowledge. If it's a detailed document, use notes.`;
+const MEMORY_RULES = `### Memory — what goes where
+- **Memory store** (\`neo memory\`): structured facts, procedures, focus, feedback. Stored in SQLite with semantic embeddings — the most relevant memories are automatically injected into agent prompts. Decays by usage.
+- **Notes** (\`notes/\`, via Bash): detailed plans, analysis, checklists spanning multiple heartbeats. Prefix: \`plan-\`, \`context-\`, \`checklist-\`. Delete when done.
 
-const RUN_NOTES_INSTRUCTIONS = `### Run notes
-Track active runs with \`neo notes\`. Notes are persisted per-run and surface in future heartbeats via the "activeRuns" hot state, so consolidation can integrate them.
-
-\`\`\`bash
-neo notes <runId> <type> "text"
-\`\`\`
-
-| Type | When to use |
-|------|-------------|
-| \`observation\` | Notable output from a run (test results, PR status, errors seen) |
-| \`decision\` | Why you chose a particular approach for this run |
-| \`stage\` | Run entered a new phase (e.g. "tests running", "PR opened") |
-| \`blocker\` | Something is blocking progress on this run |
-| \`resolution\` | A previously logged blocker has been resolved |
-
-Emit notes after dispatching, after checking run status, and when processing run_complete events.
-
-\`\`\`bash
-neo notes abc12345 stage "Dispatched to fix auth module"
-neo notes abc12345 observation "Tests passing, PR #42 opened"
-neo notes def67890 blocker "CI failing — missing API key"
-neo notes def67890 resolution "Key added, CI re-triggered"
-\`\`\``;
-
-// ─── Hot state rendering ────────────────────────────────
-
-/**
- * Render the hot state using active runs with notes (from persisted run files).
- * Also includes recently completed/failed runs and blockers from pending entries.
- * Format: runId [STATUS duration] workflow — repo + notes
- */
-export async function renderHotStateWithRunNotes(
-  pendingEntries: LogBufferEntry[],
-): Promise<string> {
-  const lines: string[] = [];
-
-  const activeRunsWithNotes = await getActiveRunsWithNotes(3);
-  if (activeRunsWithNotes) {
-    lines.push("activeRuns:");
-    for (const line of activeRunsWithNotes.split("\n")) {
-      lines.push(`  ${line}`);
-    }
-  }
-
-  const recentCompleted = await getRecentCompletedRunsWithNotes();
-  if (recentCompleted) {
-    lines.push("recentlyCompleted:");
-    for (const line of recentCompleted.split("\n")) {
-      lines.push(`  ${line}`);
-    }
-  }
-
-  const blockers: string[] = [];
-  for (const entry of pendingEntries) {
-    if (entry.type === "blocker") {
-      blockers.push(entry.message);
-    }
-  }
-
-  if (blockers.length > 0) {
-    lines.push("blockers:");
-    for (const desc of blockers) {
-      lines.push(`  - [NEW] ${desc}`);
-    }
-  }
-
-  return lines.length > 0 ? lines.join("\n") : "No active runs or blockers.";
-}
+Use \`neo memory write\` for one-liner facts (write descriptive content for better semantic matching). Use \`notes/\` for multi-page documents.`;
 
 // ─── Section builders ───────────────────────────────────
 
 function buildContextSections(opts: PromptOptions): string[] {
   const parts: string[] = [];
 
-  // Config context
   if (opts.repos.length > 0) {
     const repoList = opts.repos.map((r) => `- ${r.path} (branch: ${r.defaultBranch})`).join("\n");
     parts.push(`Repositories:\n${repoList}`);
@@ -192,24 +126,65 @@ function buildContextSections(opts: PromptOptions): string[] {
   return parts;
 }
 
-function buildFocusSection(focusMd: string, supervisorDir: string): string {
-  const content =
-    focusMd.trim() ||
-    "(empty — this is a fresh start. Write your initial context here after processing your first events.)";
-  return `<focus>
-${content}
-</focus>
+function buildMemorySection(memories: MemoryEntry[], supervisorDir: string): string {
+  const focusEntries = memories.filter((m) => m.type === "focus");
+  const factEntries = memories.filter((m) => m.type === "fact");
+  const procedureEntries = memories.filter((m) => m.type === "procedure");
+  const feedbackEntries = memories.filter((m) => m.type === "feedback");
 
-Update your focus when important context changes:
+  const parts: string[] = [];
+
+  // Focus (working context)
+  if (focusEntries.length > 0) {
+    const lines = focusEntries.map((m) => `- ${m.content}`).join("\n");
+    parts.push(`<focus>\n${lines}\n</focus>`);
+  } else {
+    parts.push(
+      "<focus>\n(empty — use neo memory write --type focus to set working context)\n</focus>",
+    );
+  }
+
+  // Known facts
+  if (factEntries.length > 0) {
+    const lines = factEntries
+      .map((m) => {
+        const confidence = m.accessCount >= 3 ? "" : " (unconfirmed)";
+        return `- ${m.content}${confidence}`;
+      })
+      .join("\n");
+    parts.push(`Known facts:\n${lines}`);
+  }
+
+  // Procedures
+  if (procedureEntries.length > 0) {
+    const lines = procedureEntries.map((m) => `- ${m.content}`).join("\n");
+    parts.push(`Procedures:\n${lines}`);
+  }
+
+  // Recurring feedback
+  if (feedbackEntries.length > 0) {
+    const lines = feedbackEntries
+      .map((m) => `- [${m.category ?? "general"}] ${m.content}`)
+      .join("\n");
+    parts.push(`Recurring review issues:\n${lines}`);
+  }
+
+  // Instructions for updating
+  parts.push(`Update memory with structured commands:
 \`\`\`bash
-cat > ${supervisorDir}/focus.md << 'EOF'
-<your working context here>
-EOF
+neo memory write --type focus --expires 2h "Waiting on CI for PR #42"
+neo memory write --type fact --scope /path/to/repo "Uses Prisma with PostgreSQL"
+neo memory forget <id>
 \`\`\`
 
-**In focus:** key decisions, pending follow-ups, what you're waiting on, constraints you'd lose between heartbeats.
-**Not in focus:** stable facts (use knowledge), detailed plans (use notes/), raw progress (use \`neo log\`).
-Keep it short and high-signal. Rewrite fully when context changes.`;
+For detailed plans and checklists, use notes:
+\`\`\`bash
+cat > ${supervisorDir}/notes/plan-feature.md << 'EOF'
+<your detailed plan here>
+EOF
+\`\`\``);
+
+  return parts.join("\n\n");
 }
 
 function buildEventsSection(grouped: GroupedEvents): string {
@@ -253,51 +228,37 @@ function formatEvent(event: QueuedEvent): string {
  * Build the standard heartbeat prompt (4 out of 5 heartbeats).
  * Structure: <role> → <commands> → <context> → <instructions>
  */
-export async function buildStandardPrompt(opts: StandardPromptOptions): Promise<string> {
+export function buildStandardPrompt(opts: StandardPromptOptions): string {
   const sections: string[] = [];
 
-  // Role
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount}\n</role>`);
-
-  // Commands
   sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context — all variable data grouped together
+  // Context
   const contextParts: string[] = [];
   contextParts.push(...buildContextSections(opts));
-
-  const hotState = await renderHotStateWithRunNotes(opts.recentEntries);
-  contextParts.push(`Current state:\n${hotState}`);
 
   if (opts.activeRuns.length > 0) {
     contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
   }
 
-  contextParts.push(buildFocusSection(opts.focusMd, opts.supervisorDir));
-
-  const digest = buildAgentDigest(opts.recentEntries);
-  if (digest) {
-    contextParts.push(`Agent digest:\n${digest}`);
-  }
-
+  contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
   contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
-  // Instructions — all behavioral rules grouped together
+  // Instructions
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_VERTICALS);
+  instructionParts.push(MEMORY_RULES);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
   }
 
-  instructionParts.push(RUN_NOTES_INSTRUCTIONS);
-
   instructionParts.push(
-    "This is a standard heartbeat. Focus on processing events and dispatching work. Record observations about active runs using run-notes so consolidation heartbeats can integrate them.",
+    "This is a standard heartbeat. Focus on processing events and dispatching work.",
   );
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
@@ -305,60 +266,35 @@ export async function buildStandardPrompt(opts: StandardPromptOptions): Promise<
   return sections.join("\n\n");
 }
 
-// ─── Consolidation prompt (knowledge review) ────────────
+// ─── Consolidation prompt ────────────────────────────────
 
 /**
  * Build the consolidation heartbeat prompt (1 out of 5 heartbeats).
- * Structure: <role> → <commands> → <context> → <instructions>
  */
-export async function buildConsolidationPrompt(opts: ConsolidationPromptOptions): Promise<string> {
+export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): string {
   const sections: string[] = [];
 
-  // Role
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (CONSOLIDATION)\n</role>`);
-
-  // Commands
   sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context — all variable data grouped together (including knowledge)
+  // Context
   const contextParts: string[] = [];
   contextParts.push(...buildContextSections(opts));
-
-  const hotState = await renderHotStateWithRunNotes(opts.allUnconsolidatedEntries);
-  contextParts.push(`Current state:\n${hotState}`);
 
   if (opts.activeRuns.length > 0) {
     contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
   }
 
-  contextParts.push(buildFocusSection(opts.focusMd, opts.supervisorDir));
-
-  const digest = buildAgentDigest(opts.allUnconsolidatedEntries);
-  if (digest) {
-    contextParts.push(`Agent digest (accumulated):\n${digest}`);
-  }
-
+  contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
   contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
-
-  // Run history — full notes from runs since last consolidation
-  const runHistory = await getRecentRunHistory(opts.lastConsolidationTimestamp, 10);
-  if (runHistory) {
-    contextParts.push(`Run history (since last consolidation):\n${runHistory}`);
-  }
-
-  if (opts.knowledgeMd) {
-    contextParts.push(`Current knowledge.md:\n${opts.knowledgeMd}`);
-  } else {
-    contextParts.push("Current knowledge.md: (empty)");
-  }
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
-  // Instructions — consolidation workflow
+  // Instructions
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_VERTICALS);
+  instructionParts.push(MEMORY_RULES);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
@@ -368,28 +304,18 @@ export async function buildConsolidationPrompt(opts: ConsolidationPromptOptions)
     `### Consolidation
 This is a CONSOLIDATION heartbeat. Your job:
 
-1. **Review run history** — read all notes from runs since last consolidation (decisions, observations, blockers, outcomes). Extract stable facts worth remembering long-term.
-2. **Review agent digest** — check accumulated neo log entries for discoveries and decisions.
-3. **Rewrite knowledge.md** — integrate new learnings from runs. Remove outdated facts. Resolve contradictions (keep newer). Keep it concise and organized by repo/topic.
-4. **Update focus.md** — reflect the current state. Remove resolved items, add new context.
+1. **Review memory** — check facts and procedures for accuracy. Remove outdated entries. Resolve contradictions (keep newer).
+2. **Update focus** — reflect the current state. Remove resolved items, add new context.
+3. **Identify patterns** — if agents keep hitting the same issues, write a procedure or fact to prevent recurrence.
 
-Rewrite knowledge.md via Bash:
 \`\`\`bash
-cat > ${opts.supervisorDir}/knowledge.md << 'EOF'
-## Global
-- stable facts applicable everywhere
-
-## /repos/myapp
-- architecture decisions learned from runs
-- conventions, tech stack, recurring patterns
-EOF
+neo memory write --type fact --scope /repos/myapp "Uses Prisma with PostgreSQL"
+neo memory write --type focus --expires 4h "Waiting on CI for PR #42"
+neo memory forget <stale-id>
 \`\`\`
 
-What belongs in knowledge: architecture decisions, tech stack, conventions, API configs, recurring patterns — facts that help future agents work better on these repos.
-What does NOT belong: ephemeral status (use focus), detailed plans (use notes/), raw progress (use neo log).
-If nothing meaningful changed since last consolidation, skip the rewrite.`,
+If nothing meaningful changed since last consolidation, skip.`,
   );
-  instructionParts.push(RUN_NOTES_INSTRUCTIONS);
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
 
@@ -400,58 +326,45 @@ If nothing meaningful changed since last consolidation, skip the rewrite.`,
 
 /**
  * Build the compaction heartbeat prompt (every ~50 heartbeats).
- * Structure: <role> → <commands> → <context> → <instructions>
  */
-export async function buildCompactionPrompt(opts: ConsolidationPromptOptions): Promise<string> {
+export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string {
   const sections: string[] = [];
 
-  // Role
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (COMPACTION)\n</role>`);
-
-  // Commands
   sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context — knowledge for cleanup review
+  // Context — memory for cleanup review
   const contextParts: string[] = [];
   contextParts.push(...buildContextSections(opts));
-
-  contextParts.push(buildFocusSection(opts.focusMd, opts.supervisorDir));
-
-  if (opts.knowledgeMd) {
-    contextParts.push(`Reference knowledge:\n${opts.knowledgeMd}`);
-  }
+  contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
-  // Instructions — cleanup rules
+  // Instructions
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_VERTICALS);
+  instructionParts.push(MEMORY_RULES);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
   }
 
-  instructionParts.push(`### Compaction tasks
-This is a COMPACTION heartbeat. Review your ENTIRE knowledge and focus for cleanup.
+  instructionParts.push(`### Compaction
+This is a COMPACTION heartbeat. Review your ENTIRE memory for cleanup.
 
-1. Remove stale facts from knowledge (>7 days old with no recent reinforcement)
-2. Merge duplicate or similar facts within the same repo section
-3. Clean up focus — remove resolved items, prune stale context
+1. Remove stale facts (>7 days old with no recent reinforcement)
+2. Merge duplicate or similar facts within the same scope
+3. Clean up focus — forget resolved items
 4. Delete completed notes from notes/ directory
-5. Stay under 20 facts per repo in knowledge
+5. Stay under 20 facts per scope
 
 Flag contradictions: if two facts contradict, keep the newer one.
-Rewrite knowledge.md via Bash if changes are needed. If nothing to change, skip.
 
 \`\`\`bash
-cat > ${opts.supervisorDir}/knowledge.md << 'EOF'
-<cleaned up knowledge here>
-EOF
+neo memory forget <stale-id>
+neo memory list --type fact
 \`\`\``);
-
-  instructionParts.push(RUN_NOTES_INSTRUCTIONS);
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
 

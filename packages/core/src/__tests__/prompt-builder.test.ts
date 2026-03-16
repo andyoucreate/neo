@@ -1,21 +1,25 @@
 import { describe, expect, it } from "vitest";
 import type { GroupedEvents } from "@/supervisor/event-queue";
+import type { MemoryEntry } from "@/supervisor/memory/entry";
 import { buildConsolidationPrompt, buildStandardPrompt } from "@/supervisor/prompt-builder";
-import type { LogBufferEntry } from "@/supervisor/schemas";
-
-function makeEntry(overrides?: Partial<LogBufferEntry>): LogBufferEntry {
-  return {
-    id: `entry-${Math.random().toString(36).slice(2, 8)}`,
-    type: "progress",
-    message: "doing work",
-    target: "digest",
-    timestamp: new Date().toISOString(),
-    ...overrides,
-  };
-}
 
 function emptyGrouped(): GroupedEvents {
   return { messages: [], webhooks: [], runCompletions: [] };
+}
+
+function makeMemory(overrides?: Partial<MemoryEntry>): MemoryEntry {
+  return {
+    id: `mem-${Math.random().toString(36).slice(2, 8)}`,
+    type: "fact",
+    scope: "global",
+    content: "test memory",
+    source: "user",
+    tags: [],
+    createdAt: new Date().toISOString(),
+    lastAccessedAt: new Date().toISOString(),
+    accessCount: 0,
+    ...overrides,
+  };
 }
 
 function baseOpts() {
@@ -35,27 +39,21 @@ function baseOpts() {
     heartbeatCount: 10,
     mcpServerNames: [],
     supervisorDir: "/tmp/test-supervisor",
-    focusMd: "",
+    memories: [],
   };
 }
 
 // ─── buildStandardPrompt ────────────────────────────────
 
 describe("buildStandardPrompt", () => {
-  it("includes role and heartbeat number", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes role and heartbeat number", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("neo autonomous supervisor");
     expect(result).toContain("Heartbeat #10");
   });
 
-  it("uses XML tag structure", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("uses XML tag structure", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("<role>");
     expect(result).toContain("</role>");
     expect(result).toContain("<commands>");
@@ -66,106 +64,67 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("</instructions>");
   });
 
-  it("includes commands section", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes commands section", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("neo run <agent>");
     expect(result).toContain("neo runs --short");
   });
 
-  it("includes reporting rules with neo log discovery", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
-    expect(result).toContain("neo log discovery --knowledge");
-    expect(result).toContain('neo log discovery "..."');
+  it("includes reporting rules with neo memory write", () => {
+    const result = buildStandardPrompt(baseOpts());
+    expect(result).toContain("neo memory write");
+    expect(result).toContain("neo log");
   });
 
-  it("includes budget status", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes budget status", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("$5.00 / $50.00");
     expect(result).toContain("90% remaining");
   });
 
-  it("includes focus section with empty state", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes focus section with empty state", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("<focus>");
     expect(result).toContain("</focus>");
-    expect(result).toContain("update your focus");
+    expect(result).toContain("neo memory write");
   });
 
-  it("includes focus content when provided", async () => {
-    const result = await buildStandardPrompt({
+  it("includes focus content when provided via memories", () => {
+    const result = buildStandardPrompt({
       ...baseOpts(),
-      focusMd: "Working on auth deploy. Waiting for run abc123.",
-      recentEntries: [],
+      memories: [
+        makeMemory({ type: "focus", content: "Working on auth deploy." }),
+        makeMemory({ type: "focus", content: "Waiting for run abc123." }),
+      ],
     });
     expect(result).toContain("Working on auth deploy");
     expect(result).toContain("Waiting for run abc123");
   });
 
-  it("includes memory verticals guidance", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
-    expect(result).toContain("Memory verticals");
-    expect(result).toContain("Focus");
+  it("includes memory guidance", () => {
+    const result = buildStandardPrompt(baseOpts());
+    expect(result).toContain("Memory");
     expect(result).toContain("Notes");
-    expect(result).toContain("Knowledge");
+    expect(result).toContain("neo memory write");
   });
 
-  it("includes agent digest when entries exist", async () => {
-    const entries = [
-      makeEntry({ runId: "run-1", agent: "developer", type: "milestone", message: "PR created" }),
-    ];
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: entries,
-    });
-    expect(result).toContain("Agent digest");
-    expect(result).toContain("PR created");
-  });
-
-  it("includes standard heartbeat footer", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes standard heartbeat footer", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("standard heartbeat");
   });
 
-  it("does NOT include knowledge sections", async () => {
-    const result = await buildStandardPrompt({
+  it("includes custom instructions when provided", () => {
+    const result = buildStandardPrompt({
       ...baseOpts(),
-      recentEntries: [],
-    });
-    expect(result).not.toContain("Reference knowledge:");
-  });
-
-  it("includes custom instructions when provided", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
       customInstructions: "Always prioritize security tasks.",
     });
     expect(result).toContain("Custom instructions");
     expect(result).toContain("Always prioritize security tasks.");
   });
 
-  it("includes MCP integrations when configured", async () => {
-    const result = await buildStandardPrompt({
+  it("includes MCP integrations when configured", () => {
+    const result = buildStandardPrompt({
       ...baseOpts(),
-      recentEntries: [],
       mcpServerNames: ["linear", "github"],
     });
     expect(result).toContain("Integrations (MCP)");
@@ -173,80 +132,81 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("- github");
   });
 
-  it("includes repos list", async () => {
-    const result = await buildStandardPrompt({
-      ...baseOpts(),
-      recentEntries: [],
-    });
+  it("includes repos list", () => {
+    const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("Repositories:");
     expect(result).toContain("/repos/myapp (branch: main)");
+  });
+
+  it("shows facts with confidence indicator", () => {
+    const result = buildStandardPrompt({
+      ...baseOpts(),
+      memories: [
+        makeMemory({ type: "fact", content: "Uses Prisma", accessCount: 5 }),
+        makeMemory({ type: "fact", content: "New fact", accessCount: 1 }),
+      ],
+    });
+    expect(result).toContain("Uses Prisma");
+    expect(result).not.toContain("Uses Prisma (unconfirmed)");
+    expect(result).toContain("New fact (unconfirmed)");
+  });
+
+  it("shows procedures and feedback", () => {
+    const result = buildStandardPrompt({
+      ...baseOpts(),
+      memories: [
+        makeMemory({ type: "procedure", content: "Run pnpm test:e2e" }),
+        makeMemory({
+          type: "feedback",
+          content: "Missing validation",
+          category: "input_validation",
+        }),
+      ],
+    });
+    expect(result).toContain("Procedures:");
+    expect(result).toContain("Run pnpm test:e2e");
+    expect(result).toContain("Recurring review issues:");
+    expect(result).toContain("[input_validation] Missing validation");
   });
 });
 
 // ─── buildConsolidationPrompt ───────────────────────────
 
 describe("buildConsolidationPrompt", () => {
-  it("includes CONSOLIDATION label in header", async () => {
-    const result = await buildConsolidationPrompt({
-      ...baseOpts(),
-      knowledgeMd: "",
-      allUnconsolidatedEntries: [],
-    });
+  it("includes CONSOLIDATION label in header", () => {
+    const result = buildConsolidationPrompt(baseOpts());
     expect(result).toContain("(CONSOLIDATION)");
   });
 
-  it("includes full knowledge markdown", async () => {
-    const knowledgeMd = "## Global\n- API key is in vault\n";
-    const result = await buildConsolidationPrompt({
+  it("includes memory entries in context", () => {
+    const result = buildConsolidationPrompt({
       ...baseOpts(),
-      knowledgeMd,
-      allUnconsolidatedEntries: [],
+      memories: [makeMemory({ type: "fact", content: "API key is in vault", accessCount: 5 })],
     });
-    expect(result).toContain("Current knowledge.md:");
+    expect(result).toContain("Known facts:");
     expect(result).toContain("API key is in vault");
   });
 
-  it("includes knowledge rewrite instructions via Bash", async () => {
-    const result = await buildConsolidationPrompt({
-      ...baseOpts(),
-      knowledgeMd: "",
-      allUnconsolidatedEntries: [],
-    });
-    expect(result).toContain("knowledge.md");
-    expect(result).toContain("cat >");
+  it("includes neo memory write instructions", () => {
+    const result = buildConsolidationPrompt(baseOpts());
+    expect(result).toContain("neo memory write");
+    expect(result).toContain("neo memory forget");
   });
 
-  it("includes accumulated agent digest", async () => {
-    const entries = [
-      makeEntry({ runId: "run-1", agent: "dev", type: "decision", message: "chose approach A" }),
-      makeEntry({ runId: "run-1", agent: "dev", type: "milestone", message: "feature complete" }),
-    ];
-    const result = await buildConsolidationPrompt({
-      ...baseOpts(),
-      knowledgeMd: "",
-      allUnconsolidatedEntries: entries,
-    });
-    expect(result).toContain("Agent digest (accumulated)");
-    expect(result).toContain("chose approach A");
-    expect(result).toContain("feature complete");
-  });
-
-  it("does NOT include the standard no-ops footer", async () => {
-    const result = await buildConsolidationPrompt({
-      ...baseOpts(),
-      knowledgeMd: "",
-      allUnconsolidatedEntries: [],
-    });
+  it("does NOT include the standard heartbeat footer", () => {
+    const result = buildConsolidationPrompt(baseOpts());
     expect(result).not.toContain("This is a standard heartbeat");
   });
 
-  it("includes focus section", async () => {
-    const result = await buildConsolidationPrompt({
-      ...baseOpts(),
-      knowledgeMd: "",
-      allUnconsolidatedEntries: [],
-    });
+  it("includes focus section", () => {
+    const result = buildConsolidationPrompt(baseOpts());
     expect(result).toContain("<focus>");
     expect(result).toContain("</focus>");
+  });
+
+  it("includes consolidation instructions", () => {
+    const result = buildConsolidationPrompt(baseOpts());
+    expect(result).toContain("CONSOLIDATION heartbeat");
+    expect(result).toContain("Review memory");
   });
 });

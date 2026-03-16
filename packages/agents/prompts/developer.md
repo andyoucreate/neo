@@ -110,28 +110,20 @@ Output the PR URL on a dedicated line: `PR_URL: https://...`
 }
 ```
 
-## Reporting with neo log
+## Memory & Reporting
 
-Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
 
-Types:
-- `progress` — current status ("3/5 endpoints done")
-- `action` — completed action ("Pushed to branch")
-- `decision` — significant choice ("Chose JWT over sessions")
-- `blocker` — blocking issue ("Tests failing, missing dependency")
-- `milestone` — major achievement ("All tests passing, PR opened")
-- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
-
-Flags are auto-filled from environment: --agent, --run, --repo.
-Use --memory for facts the supervisor should remember in working memory.
-Use --knowledge for stable facts about the codebase.
-
-Examples:
+Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
 ```bash
-# Chain with commands — NEVER log separately
-git push origin feat/auth && neo log action "Pushed feat/auth"
+neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL for all database access"
+neo memory write --type procedure --scope $NEO_REPOSITORY "Run pnpm test:e2e for integration tests, requires DATABASE_URL"
+```
+
+Report progress to the supervisor (chain with commands, never standalone):
+```bash
 pnpm test && neo log milestone "All tests passing" || neo log blocker "Tests failing"
-ls src/db/migrations ; neo log discovery "Repo uses Prisma with PostgreSQL"
+git push origin HEAD && neo log action "Pushed to branch"
 ```
 
 ## Escalation

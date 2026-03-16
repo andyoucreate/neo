@@ -102,27 +102,19 @@ Split into atomic sub-tickets. Each MUST have:
 }
 ```
 
-## Reporting with neo log
+## Memory & Reporting
 
-Use `neo log` to report progress to the supervisor. ALWAYS chain neo log with the command that triggered it in the SAME Bash call — NEVER use a separate tool call just for logging.
+You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
 
-Types:
-- `progress` — current status ("3/5 endpoints done")
-- `action` — completed action ("Pushed to branch")
-- `decision` — significant choice ("Chose JWT over sessions")
-- `blocker` — blocking issue ("Tests failing, missing dependency")
-- `milestone` — major achievement ("All tests passing, PR opened")
-- `discovery` — learned fact about the codebase ("Repo uses Prisma + PostgreSQL")
-
-Flags are auto-filled from environment: --agent, --run, --repo.
-Use --memory for facts the supervisor should remember in working memory.
-Use --knowledge for stable facts about the codebase.
-
-Examples:
+Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
 ```bash
-# Chain with commands — NEVER log separately
+neo memory write --type fact --scope $NEO_REPOSITORY "Uses Drizzle ORM with PostgreSQL for database access"
+neo memory write --type fact --scope $NEO_REPOSITORY "Feature modules follow src/modules/<name>/ directory pattern"
+```
+
+Report progress to the supervisor (chain with commands, never standalone):
+```bash
 neo log milestone "Ticket decomposed into 4 sub-tickets"
-neo log discovery --knowledge "Repo uses Drizzle ORM with PostgreSQL"
 neo log decision "Decomposing ticket — score 2, vague scope"
 ```
 

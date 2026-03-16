@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Semaphore } from "@/concurrency/semaphore";
 import type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
@@ -18,7 +18,7 @@ import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
-import { loadKnowledge } from "@/supervisor/knowledge";
+import { formatMemoriesForPrompt, MemoryStore } from "@/supervisor/memory/index.js";
 import type {
   ActiveSession,
   CostEntry,
@@ -88,18 +88,6 @@ function buildGitStrategyInstructions(
   return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nCommit your changes. The branch will be pushed automatically.`;
 }
 
-// ─── Helpers ────────────────────────────────────────────
-
-function formatTimeAgo(ms: number): string {
-  if (ms < 0) return "just now";
-  const minutes = Math.floor(ms / 60_000);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
 // ─── Reporting instructions for agents ──────────────────
 
 function buildReportingInstructions(runId: string): string {
@@ -134,8 +122,7 @@ function buildFullPrompt(
   repoInstructions: string | undefined,
   gitInstructions: string | null,
   taskPrompt: string,
-  knowledgeContext?: string | undefined,
-  crossRunLessons?: string | undefined,
+  memoryContext?: string | undefined,
   cwdInstructions?: string | undefined,
   reportingInstructions?: string | undefined,
 ): string {
@@ -143,8 +130,7 @@ function buildFullPrompt(
 
   if (agentPrompt) sections.push(agentPrompt);
   if (cwdInstructions) sections.push(cwdInstructions);
-  if (knowledgeContext) sections.push(knowledgeContext);
-  if (crossRunLessons) sections.push(crossRunLessons);
+  if (memoryContext) sections.push(memoryContext);
   if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
   if (gitInstructions) sections.push(gitInstructions);
   if (reportingInstructions) sections.push(reportingInstructions);
@@ -202,6 +188,7 @@ export class Orchestrator extends NeoEventEmitter {
   private costJournal: CostJournal | null = null;
   private eventJournal: EventJournal | null = null;
   private webhookDispatcher: WebhookDispatcher | null = null;
+  private memoryStore: MemoryStore | null = null;
   private _paused = false;
   private _costToday = 0;
   private _startedAt = 0;
@@ -520,7 +507,7 @@ export class Orchestrator extends NeoEventEmitter {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.emitSessionFail(ctx, errorMsg);
 
-      return {
+      const failResult: StepResult = {
         status: "failure",
         sessionId,
         costUsd: 0,
@@ -531,6 +518,23 @@ export class Orchestrator extends NeoEventEmitter {
         error: errorMsg,
         attempt: 1,
       };
+
+      // Write episode to memory store
+      try {
+        const store = this.getMemoryStore();
+        await store.write({
+          type: "episode",
+          scope: input.repo,
+          content: `Run ${runId.slice(0, 8)} (${agent.name}): failed${failResult.error ? ` — ${failResult.error.slice(0, 150)}` : ""}`,
+          source: agent.name,
+          outcome: "failure",
+          runId,
+        });
+      } catch {
+        // Best-effort — don't fail the run if memory write fails
+      }
+
+      return failResult;
     } finally {
       // Auto-commit, push, and cleanup session clone
       if (sessionPath) {
@@ -620,11 +624,8 @@ export class Orchestrator extends NeoEventEmitter {
     );
     const taskPrompt = stepDef.prompt ?? input.prompt;
 
-    // Knowledge injection: load known facts about this repo
-    const knowledgeContext = await this.loadKnowledgeContext(input.repo);
-
-    // Cross-run learning: extract lessons from recent failed runs on this repo
-    const crossRunLessons = await this.loadCrossRunLessons(input.repo);
+    // Memory injection: load relevant memories for this repo
+    const memoryContext = this.loadMemoryContext(input.repo);
 
     // Inject working directory context so the agent knows where to operate.
     // Without this, Claude Code may resolve to the wrong directory.
@@ -639,8 +640,7 @@ export class Orchestrator extends NeoEventEmitter {
       repoInstructions,
       gitInstructions,
       taskPrompt,
-      knowledgeContext,
-      crossRunLessons,
+      memoryContext,
       cwdInstructions,
       reportingInstructions,
     );
@@ -708,6 +708,22 @@ export class Orchestrator extends NeoEventEmitter {
       result.prNumber = parsed.prNumber;
     }
 
+    // Write episode to memory store
+    try {
+      const store = this.getMemoryStore();
+      const isSuccess = result.status === "success";
+      await store.write({
+        type: "episode",
+        scope: input.repo,
+        content: `Run ${runId.slice(0, 8)} (${agent.name}): ${isSuccess ? "completed" : "failed"}${result.error ? ` — ${result.error.slice(0, 150)}` : ""}`,
+        source: agent.name,
+        outcome: isSuccess ? "success" : "failure",
+        runId,
+      });
+    } catch {
+      // Best-effort — don't fail the run if memory write fails
+    }
+
     return result;
   }
 
@@ -764,79 +780,28 @@ export class Orchestrator extends NeoEventEmitter {
     return taskResult;
   }
 
-  // ─── Private: Knowledge injection ─────────────────────
+  // ─── Private: Memory injection ──────────────────────────
 
-  /**
-   * Load knowledge relevant to the target repo from the default supervisor.
-   * Returns a formatted section or undefined if no knowledge exists.
-   */
-  private async loadKnowledgeContext(_repoPath: string): Promise<string | undefined> {
-    try {
+  private getMemoryStore(): MemoryStore {
+    if (!this.memoryStore) {
       const supervisorDir = path.join(getSupervisorsDir(), "supervisor");
-      const knowledge = await loadKnowledge(supervisorDir);
-      if (!knowledge.trim()) return undefined;
-
-      return `## Known facts\n${knowledge}`;
-    } catch {
-      return undefined;
+      this.memoryStore = new MemoryStore(path.join(supervisorDir, "memory.sqlite"));
     }
+    return this.memoryStore;
   }
 
-  /**
-   * Load lessons from recent failed runs on the same repo.
-   * Returns a formatted section or undefined if no lessons exist.
-   */
-  private async loadCrossRunLessons(repoPath: string): Promise<string | undefined> {
+  private loadMemoryContext(repoPath: string): string | undefined {
     try {
-      const repoSlug = toRepoSlug({ path: repoPath });
-      const repoRunsDir = getRepoRunsDir(repoSlug);
-      if (!existsSync(repoRunsDir)) return undefined;
-
-      const files = await readdir(repoRunsDir);
-      const jsonFiles = files.filter((f) => f.endsWith(".json") && !f.endsWith(".dispatch.json"));
-
-      // Read all run files and filter to recent failures
-      const failedRuns: Array<{
-        runId: string;
-        agent: string;
-        error: string;
-        completedAt: string;
-      }> = [];
-      for (const file of jsonFiles) {
-        try {
-          const raw = await readFile(path.join(repoRunsDir, file), "utf-8");
-          const run = JSON.parse(raw) as PersistedRun;
-          if (run.status !== "failed") continue;
-
-          // Extract error from failed steps
-          for (const step of Object.values(run.steps)) {
-            if (step.status === "failure" && step.error && step.completedAt) {
-              failedRuns.push({
-                runId: run.runId.slice(0, 8),
-                agent: step.agent,
-                error: step.error.slice(0, 200),
-                completedAt: step.completedAt,
-              });
-            }
-          }
-        } catch {
-          // Skip corrupted files
-        }
-      }
-
-      if (failedRuns.length === 0) return undefined;
-
-      // Sort by most recent, take last 5
-      failedRuns.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
-      const recent = failedRuns.slice(0, 5);
-
-      const now = Date.now();
-      const lines = recent.map((r) => {
-        const ago = formatTimeAgo(now - new Date(r.completedAt).getTime());
-        return `- Run ${r.runId} (${r.agent}, ${ago}): Failed — "${r.error}"`;
+      const store = this.getMemoryStore();
+      const memories = store.query({
+        scope: repoPath,
+        types: ["fact", "procedure", "feedback"],
+        limit: 25,
+        sortBy: "relevance",
       });
-
-      return `## Lessons from previous runs on this repository\n${lines.join("\n")}`;
+      if (memories.length === 0) return undefined;
+      store.markAccessed(memories.map((m) => m.id));
+      return formatMemoriesForPrompt(memories);
     } catch {
       return undefined;
     }

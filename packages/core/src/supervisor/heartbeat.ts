@@ -8,14 +8,9 @@ import { getDataDir, getRunsDir } from "@/paths";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
-import { loadFocus } from "./focus.js";
-import { loadKnowledge } from "./knowledge.js";
-import {
-  compactLogBuffer,
-  markConsolidated,
-  readLogBufferSince,
-  readUnconsolidated,
-} from "./log-buffer.js";
+import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
+import type { MemoryEntry } from "./memory/entry.js";
+import { MemoryStore } from "./memory/store.js";
 import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
@@ -99,6 +94,7 @@ export interface HeartbeatLoopOptions {
   activityLog: ActivityLog;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
+  memoryDbPath?: string | undefined;
 }
 
 /**
@@ -125,6 +121,8 @@ export class HeartbeatLoop {
 
   private customInstructions: string | undefined;
   private readonly defaultInstructionsPath: string | undefined;
+  private memoryStore: MemoryStore | null = null;
+  private readonly memoryDbPath: string | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -134,6 +132,18 @@ export class HeartbeatLoop {
     this.eventQueue = options.eventQueue;
     this.activityLog = options.activityLog;
     this.defaultInstructionsPath = options.defaultInstructionsPath;
+    this.memoryDbPath = options.memoryDbPath;
+  }
+
+  private getMemoryStore(): MemoryStore | null {
+    if (!this.memoryStore && this.memoryDbPath) {
+      try {
+        this.memoryStore = new MemoryStore(this.memoryDbPath);
+      } catch {
+        // Memory store unavailable — continue without it
+      }
+    }
+    return this.memoryStore;
   }
 
   async start(): Promise<void> {
@@ -421,8 +431,8 @@ export class HeartbeatLoop {
     lastConsolidationTimestamp: string | undefined;
   }): Promise<{ prompt: string; modeLabel: string }> {
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
-    const knowledge = await loadKnowledge(this.supervisorDir);
-    const focusMd = await loadFocus(this.supervisorDir);
+    const store = this.getMemoryStore();
+    const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
     const sharedOpts = {
       repos: this.config.repos,
       grouped: opts.grouped,
@@ -439,15 +449,13 @@ export class HeartbeatLoop {
       mcpServerNames,
       customInstructions: this.customInstructions,
       supervisorDir: this.supervisorDir,
-      focusMd,
+      memories,
     };
 
     if (opts.isCompaction) {
       return {
-        prompt: await buildCompactionPrompt({
+        prompt: buildCompactionPrompt({
           ...sharedOpts,
-          knowledgeMd: knowledge,
-          allUnconsolidatedEntries: opts.unconsolidated,
           lastConsolidationTimestamp: opts.lastConsolidationTimestamp,
         }),
         modeLabel: "compaction",
@@ -456,10 +464,8 @@ export class HeartbeatLoop {
 
     if (opts.isConsolidation) {
       return {
-        prompt: await buildConsolidationPrompt({
+        prompt: buildConsolidationPrompt({
           ...sharedOpts,
-          knowledgeMd: knowledge,
-          allUnconsolidatedEntries: opts.unconsolidated,
           lastConsolidationTimestamp: opts.lastConsolidationTimestamp,
         }),
         modeLabel: "consolidation",
@@ -467,13 +473,7 @@ export class HeartbeatLoop {
     }
 
     return {
-      prompt: await buildStandardPrompt({
-        ...sharedOpts,
-        recentEntries: await readLogBufferSince(
-          this.supervisorDir,
-          opts.lastHeartbeat ?? new Date(0).toISOString(),
-        ),
-      }),
+      prompt: buildStandardPrompt(sharedOpts),
       modeLabel: "standard",
     };
   }

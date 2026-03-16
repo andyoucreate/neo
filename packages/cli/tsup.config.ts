@@ -10,7 +10,7 @@ export default defineConfig({
   target: "es2022",
   clean: true,
   sourcemap: true,
-  external: ["@neotx/core"],
+  external: ["@neotx/core", "better-sqlite3", "sqlite-vec", "@huggingface/transformers"],
   esbuildOptions(options) {
     options.banner = {
       // Only add shebang to the CLI entry, not the worker

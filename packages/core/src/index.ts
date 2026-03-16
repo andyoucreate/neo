@@ -106,7 +106,6 @@ export type {
   HeartbeatLoopOptions,
   InboxMessage,
   QueuedEvent,
-  RunNote,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
   WebhookIncomingEvent,
@@ -116,21 +115,24 @@ export {
   ActivityLog,
   activityEntrySchema,
   appendLogBuffer,
-  appendRunNote,
   EventQueue,
-  findRepoSlugForRun,
-  getActiveRunsWithNotes,
-  getRecentCompletedRunsWithNotes,
   HeartbeatLoop,
   inboxMessageSchema,
-  loadFocus,
-  loadKnowledge,
-  readRunNotes,
   SupervisorDaemon,
   supervisorDaemonStateSchema,
   WebhookServer,
   webhookIncomingEventSchema,
 } from "@/supervisor/index";
+export type {
+  Embedder,
+  MemoryEntry,
+  MemoryQuery,
+  MemoryStats,
+  MemoryType,
+  MemoryWriteInput,
+} from "@/supervisor/memory/index";
+// ─── Memory ───────────────────────────────────────────
+export { LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
 export * from "@/types";
 // ─── Workflows ─────────────────────────────────────────
 export { loadWorkflow, workflowGateDefSchema, workflowStepDefSchema } from "@/workflows/loader";

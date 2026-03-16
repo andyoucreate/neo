@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
-import { appendLogBuffer, getSupervisorDir } from "@neotx/core";
+import path from "node:path";
+import { appendLogBuffer, getSupervisorDir, MemoryStore } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess } from "../output.js";
 
@@ -69,6 +70,11 @@ export default defineCommand({
       type: "string",
       description: "Repository path",
     },
+    procedure: {
+      type: "boolean",
+      description: "Also write as a procedure memory entry",
+      default: false,
+    },
   },
   async run({ args }) {
     const type = args.type as string;
@@ -113,7 +119,24 @@ export default defineCommand({
       timestamp: now,
     });
 
-    // 3. If blocker: also append to inbox.jsonl (wake up heartbeat)
+    // 3. Write to memory store for knowledge/procedure entries
+    if (target === "knowledge" || args.procedure) {
+      try {
+        const store = new MemoryStore(path.join(dir, "memory.sqlite"));
+        await store.write({
+          type: args.procedure ? "procedure" : "fact",
+          scope: repo ?? "global",
+          content: args.message,
+          source: agent ?? "user",
+          runId,
+        });
+        store.close();
+      } catch {
+        // Best-effort — don't crash CLI if store write fails
+      }
+    }
+
+    // 4. If blocker: also append to inbox.jsonl (wake up heartbeat)
     if (type === "blocker") {
       const inboxMessage = {
         id: randomUUID(),

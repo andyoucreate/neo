@@ -31,8 +31,8 @@ describe("shouldCompact", () => {
 // ─── buildCompactionPrompt ──────────────────────────────
 
 describe("buildCompactionPrompt", () => {
-  it("includes COMPACTION label in the prompt", async () => {
-    const prompt = await buildCompactionPrompt({
+  it("includes COMPACTION label in the prompt", () => {
+    const prompt = buildCompactionPrompt({
       repos: [],
       grouped: { messages: [], webhooks: [], runCompletions: [] },
       budgetStatus: { todayUsd: 1, capUsd: 50, remainingPct: 98 },
@@ -40,34 +40,29 @@ describe("buildCompactionPrompt", () => {
       heartbeatCount: 50,
       mcpServerNames: [],
       supervisorDir: "/tmp/test-supervisor",
-      focusMd: "",
-      knowledgeMd: "## Global\n- test\n",
-      allUnconsolidatedEntries: [],
+      memories: [],
     });
 
     expect(prompt).toContain("COMPACTION");
     expect(prompt).toContain("Remove stale facts");
     expect(prompt).toContain("Merge duplicate");
-    expect(prompt).toContain("20 facts per repo");
+    expect(prompt).toContain("20 facts per scope");
   });
 });
 
-// ─── Agent prompt neo log instructions ──────────────────
+// ─── Agent prompt structure ─────────────────────────────
 
 const AGENTS_DIR = path.resolve(import.meta.dirname, "../../..", "agents");
 
-describe("agent prompts contain neo log instructions", () => {
+describe("agent prompts contain memory and reporting instructions", () => {
   const promptFiles = ["developer.md", "reviewer.md", "fixer.md", "architect.md", "refiner.md"];
 
   for (const file of promptFiles) {
-    it(`${file} contains neo log section`, async () => {
+    it(`${file} contains memory & reporting section`, async () => {
       const content = await readFile(path.join(AGENTS_DIR, "prompts", file), "utf-8");
-      expect(content).toContain("## Reporting with neo log");
+      expect(content).toContain("## Memory & Reporting");
+      expect(content).toContain("neo memory write");
       expect(content).toContain("neo log");
-      expect(content).toContain("progress");
-      expect(content).toContain("milestone");
-      expect(content).toContain("discovery");
-      expect(content).toContain("blocker");
     });
   }
 
