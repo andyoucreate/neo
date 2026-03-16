@@ -636,6 +636,9 @@ ${JSON.stringify(event.data.payload ?? {}, null, 2)}
 
     case "run_complete":
       return `**Run completed**: ${event.runId} (check with \`neo runs\`)`;
+
+    case "internal":
+      return `**Internal event**: ${event.eventKind}`;
   }
 }
 
