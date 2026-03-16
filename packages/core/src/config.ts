@@ -91,10 +91,13 @@ export const globalConfigSchema = z.object({
     .object({
       port: z.number().default(7777),
       secret: z.string().optional(),
-      /** @deprecated Use event-driven approach instead. Will be removed in a future version. */
-      idleIntervalMs: z.number().default(60_000),
       /** @deprecated Will be removed after T4 migrates heartbeat.ts */
-      idleSkipMax: z.number().default(5),
+      idleIntervalMs: z.number().default(60_000),
+      /**
+       * @deprecated Will be removed after T4 migrates heartbeat.ts
+       * Default 20 allows ~20 min idle tolerance at 60s interval before escalating.
+       */
+      idleSkipMax: z.number().default(20),
       /** @deprecated Will be removed after T4 migrates heartbeat.ts */
       activeWorkSkipMax: z.number().default(3),
       heartbeatTimeoutMs: z.number().default(300_000),
@@ -114,7 +117,7 @@ export const globalConfigSchema = z.object({
     .default({
       port: 7777,
       idleIntervalMs: 60_000,
-      idleSkipMax: 5,
+      idleSkipMax: 20,
       activeWorkSkipMax: 3,
       heartbeatTimeoutMs: 300_000,
       maxConsecutiveFailures: 3,
