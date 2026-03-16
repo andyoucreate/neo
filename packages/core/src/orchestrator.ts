@@ -90,26 +90,22 @@ function buildGitStrategyInstructions(
 
 // ─── Reporting instructions for agents ──────────────────
 
-function buildReportingInstructions(runId: string): string {
-  const shortId = runId.slice(0, 8);
+function buildReportingInstructions(_runId: string): string {
   return `## Reporting
 
 Report progress so the supervisor can track your work. Environment is pre-configured.
 
 \`\`\`bash
 neo log decision "chose X because Y"       # key decisions
-neo log action "opened PR #42"              # actions taken
-neo log blocker "missing API key in vault"  # blocked (wakes supervisor)
-neo log milestone "all tests passing"       # major milestone
-neo log discovery --knowledge "repo uses Prisma ORM"  # stable fact
+neo log action "opened PR #42"             # actions taken
+neo log blocker "missing API key in vault" # blocked (wakes supervisor)
+neo log milestone "all tests passing"      # major milestone
 \`\`\`
 
-Track your run narrative:
+Write stable discoveries to memory so future agents benefit:
 \`\`\`bash
-neo notes ${shortId} observation "tests passing, 2 warnings"
-neo notes ${shortId} decision "split migration into 2 PRs"
-neo notes ${shortId} blocker "CI failing — missing env var"
-neo notes ${shortId} resolution "env var added, CI green"
+neo memory write --type fact --scope $NEO_REPOSITORY "repo uses Prisma ORM"
+neo memory write --type procedure --scope $NEO_REPOSITORY "run pnpm test:e2e for integration"
 \`\`\`
 
 Log at key moments: after decisions, on blockers, and before finishing.`;
@@ -662,7 +658,7 @@ export class Orchestrator extends NeoEventEmitter {
     const recoveryOpts = stepDef.recovery;
     const mcpServers = this.resolveMcpServers(stepDef, agent);
 
-    // Inject env vars so agents can use `neo log` and `neo notes` for reporting
+    // Inject env vars so agents can use `neo log` and `neo memory` for reporting
     const agentEnv: Record<string, string> = {
       NEO_RUN_ID: runId,
       NEO_AGENT_NAME: agent.name,
