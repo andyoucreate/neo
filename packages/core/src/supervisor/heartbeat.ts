@@ -177,12 +177,7 @@ export class HeartbeatLoop {
     const today = new Date().toISOString().slice(0, 10);
     const todayCost = state?.costResetDate === today ? (state.todayCostUsd ?? 0) : 0;
 
-    if (todayCost >= this.config.supervisor.dailyCapUsd) {
-      await this.activityLog.log(
-        "error",
-        `Supervisor daily budget exceeded ($${todayCost.toFixed(2)} / $${this.config.supervisor.dailyCapUsd}). Skipping heartbeat.`,
-      );
-      await this.sleep(this.config.supervisor.idleIntervalMs);
+    if (await this.shouldSkipDueToBudget(todayCost)) {
       return;
     }
 
@@ -193,16 +188,98 @@ export class HeartbeatLoop {
 
     // Check for active runs (more reliable than string-parsing memory)
     const activeRuns = await this.getActiveRuns();
-    const hasActiveWork = activeRuns.length > 0;
     const earlyMemory = await loadMemory(this.supervisorDir);
 
     // Skip logic: two separate counters for idle vs active-work scenarios
+    const skipResult = await this.handleSkipLogic(state, totalEventCount, activeRuns);
+    if (skipResult.shouldSkip) {
+      return;
+    }
+
+    // Determine heartbeat mode and build prompt
+    const modeResult = await this.determineHeartbeatMode(state, earlyMemory);
+    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
+      earlyMemory,
+      grouped,
+      todayCost,
+      heartbeatCount: modeResult.heartbeatCount,
+      unconsolidated: modeResult.unconsolidated,
+      isCompaction: modeResult.isCompaction,
+      isConsolidation: modeResult.isConsolidation,
+      lastHeartbeat: state?.lastHeartbeat,
+    });
+
+    await this.logHeartbeatStart(
+      heartbeatId,
+      modeResult.heartbeatCount,
+      modeLabel,
+      totalEventCount,
+      grouped,
+      modeResult.isConsolidation,
+    );
+
+    // Call SDK with timeout + shutdown abort
+    const { output, costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+
+    // Extract and persist run notes from output (all modes)
+    await persistExtendedRunNotes(output, findRepoSlugForRun);
+
+    // Post-response: extract and apply ops based on mode
+    if (modeResult.isConsolidation) {
+      const knowledgeMd = await loadKnowledge(this.supervisorDir);
+      await this.handleConsolidation(
+        output,
+        modeResult.heartbeatCount,
+        modeResult.unconsolidated,
+        earlyMemory,
+        knowledgeMd,
+      );
+    }
+
+    // Update state and log completion
+    const durationMs = Date.now() - startTime;
+    await this.updateHeartbeatState(state, today, todayCost, costUsd, modeResult);
+    await this.logHeartbeatComplete(
+      heartbeatId,
+      modeResult.heartbeatCount,
+      modeLabel,
+      costUsd,
+      durationMs,
+      turnCount,
+      modeResult.isConsolidation,
+    );
+  }
+
+  /**
+   * Check if heartbeat should be skipped due to daily budget being exceeded.
+   */
+  private async shouldSkipDueToBudget(todayCost: number): Promise<boolean> {
+    if (todayCost >= this.config.supervisor.dailyCapUsd) {
+      await this.activityLog.log(
+        "error",
+        `Supervisor daily budget exceeded ($${todayCost.toFixed(2)} / $${this.config.supervisor.dailyCapUsd}). Skipping heartbeat.`,
+      );
+      await this.sleep(this.config.supervisor.idleIntervalMs);
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Handle skip logic for idle and active-work scenarios.
+   * Returns whether the heartbeat should be skipped.
+   */
+  private async handleSkipLogic(
+    state: SupervisorDaemonState | null,
+    totalEventCount: number,
+    activeRuns: string[],
+  ): Promise<{ shouldSkip: boolean }> {
     const idleSkipCount = state?.idleSkipCount ?? 0;
     const activeWorkSkipCount = state?.activeWorkSkipCount ?? 0;
+    const hasActiveWork = activeRuns.length > 0;
 
     if (totalEventCount === 0) {
       if (hasActiveWork) {
-        // Active work but no events: allow limited skips to reduce cost
         if (activeWorkSkipCount < this.config.supervisor.activeWorkSkipMax) {
           await this.updateState({
             activeWorkSkipCount: activeWorkSkipCount + 1,
@@ -212,20 +289,17 @@ export class HeartbeatLoop {
             "heartbeat",
             `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${activeRuns.length} runs active, no events`,
           );
-          return;
+          return { shouldSkip: true };
         }
-        // Max active-work skips reached — proceed with heartbeat
       } else {
-        // No active work and no events: allow more skips
         if (idleSkipCount < this.config.supervisor.idleSkipMax) {
           await this.updateState({
             idleSkipCount: idleSkipCount + 1,
             activeWorkSkipCount: 0,
           });
           await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
-          return;
+          return { shouldSkip: true };
         }
-        // Max idle skips reached — proceed with heartbeat
       }
     }
 
@@ -234,14 +308,27 @@ export class HeartbeatLoop {
       await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
     }
 
-    // Determine heartbeat mode: compaction > consolidation > standard
+    return { shouldSkip: false };
+  }
+
+  /**
+   * Determine heartbeat mode (compaction, consolidation, or standard).
+   */
+  private async determineHeartbeatMode(
+    state: SupervisorDaemonState | null,
+    _earlyMemory: string,
+  ): Promise<{
+    heartbeatCount: number;
+    unconsolidated: LogBufferEntry[];
+    isCompaction: boolean;
+    isConsolidation: boolean;
+  }> {
     const heartbeatCount = state?.heartbeatCount ?? 0;
     const lastConsolidation = state?.lastConsolidationHeartbeat ?? 0;
     const lastCompaction = state?.lastCompactionHeartbeat ?? 0;
     const lastConsolidationTs = state?.lastConsolidationTimestamp;
     const unconsolidated = await readUnconsolidated(this.supervisorDir);
 
-    // Check if there are new entries since last consolidation
     const hasNewEntriesSinceLastConsolidation = lastConsolidationTs
       ? unconsolidated.some((e) => e.timestamp > lastConsolidationTs)
       : unconsolidated.length > 0;
@@ -251,8 +338,6 @@ export class HeartbeatLoop {
     );
     const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
 
-    // Skip consolidation if no new entries since last consolidation
-    // (unless compaction is due, which always runs)
     const wouldConsolidate = shouldConsolidate(
       heartbeatCount,
       lastConsolidation,
@@ -262,17 +347,48 @@ export class HeartbeatLoop {
     const isConsolidation =
       isCompaction || (wouldConsolidate && hasNewEntriesSinceLastConsolidation);
 
-    // Build prompt based on mode
-    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
-      earlyMemory,
-      grouped,
-      todayCost,
-      heartbeatCount,
-      unconsolidated,
-      isCompaction,
-      isConsolidation,
-      lastHeartbeat: state?.lastHeartbeat,
-    });
+    return { heartbeatCount, unconsolidated, isCompaction, isConsolidation };
+  }
+
+  /**
+   * Update state after a heartbeat completes.
+   */
+  private async updateHeartbeatState(
+    state: SupervisorDaemonState | null,
+    today: string,
+    todayCost: number,
+    costUsd: number,
+    modeResult: { heartbeatCount: number; isCompaction: boolean; isConsolidation: boolean },
+  ): Promise<void> {
+    const stateUpdate: Partial<SupervisorDaemonState> = {
+      sessionId: this.sessionId,
+      lastHeartbeat: new Date().toISOString(),
+      heartbeatCount: modeResult.heartbeatCount + 1,
+      totalCostUsd: (state?.totalCostUsd ?? 0) + costUsd,
+      todayCostUsd: todayCost + costUsd,
+      costResetDate: today,
+    };
+    if (modeResult.isConsolidation) {
+      stateUpdate.lastConsolidationHeartbeat = modeResult.heartbeatCount + 1;
+      stateUpdate.lastConsolidationTimestamp = new Date().toISOString();
+    }
+    if (modeResult.isCompaction) {
+      stateUpdate.lastCompactionHeartbeat = modeResult.heartbeatCount + 1;
+    }
+    await this.updateState(stateUpdate);
+  }
+
+  /**
+   * Log heartbeat start event.
+   */
+  private async logHeartbeatStart(
+    heartbeatId: string,
+    heartbeatCount: number,
+    modeLabel: string,
+    totalEventCount: number,
+    grouped: ReturnType<EventQueue["drainAndGroup"]>,
+    isConsolidation: boolean,
+  ): Promise<void> {
     await this.activityLog.log(
       "heartbeat",
       `Heartbeat #${heartbeatCount} starting (${modeLabel})`,
@@ -285,44 +401,20 @@ export class HeartbeatLoop {
         isConsolidation,
       },
     );
+  }
 
-    // Call SDK with timeout + shutdown abort
-    const { output, costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
-
-    // Extract and persist run notes from output (all modes)
-    await persistExtendedRunNotes(output, findRepoSlugForRun);
-
-    // Post-response: extract and apply ops based on mode
-    if (isConsolidation) {
-      const knowledgeMd = await loadKnowledge(this.supervisorDir);
-      await this.handleConsolidation(
-        output,
-        heartbeatCount,
-        unconsolidated,
-        earlyMemory,
-        knowledgeMd,
-      );
-    }
-
-    // Update state
-    const durationMs = Date.now() - startTime;
-    const stateUpdate: Partial<SupervisorDaemonState> = {
-      sessionId: this.sessionId,
-      lastHeartbeat: new Date().toISOString(),
-      heartbeatCount: heartbeatCount + 1,
-      totalCostUsd: (state?.totalCostUsd ?? 0) + costUsd,
-      todayCostUsd: todayCost + costUsd,
-      costResetDate: today,
-    };
-    if (isConsolidation) {
-      stateUpdate.lastConsolidationHeartbeat = heartbeatCount + 1;
-      stateUpdate.lastConsolidationTimestamp = new Date().toISOString();
-    }
-    if (isCompaction) {
-      stateUpdate.lastCompactionHeartbeat = heartbeatCount + 1;
-    }
-    await this.updateState(stateUpdate);
-
+  /**
+   * Log heartbeat completion event.
+   */
+  private async logHeartbeatComplete(
+    heartbeatId: string,
+    heartbeatCount: number,
+    modeLabel: string,
+    costUsd: number,
+    durationMs: number,
+    turnCount: number,
+    isConsolidation: boolean,
+  ): Promise<void> {
     await this.activityLog.log(
       "heartbeat",
       `Heartbeat #${heartbeatCount + 1} complete (${modeLabel})`,
