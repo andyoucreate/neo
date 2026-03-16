@@ -101,8 +101,8 @@ export default defineCommand({
     all: {
       type: "boolean",
       alias: "a",
-      description: "Show runs from all repos (default behavior, included for discoverability)",
-      default: false,
+      description: "Show runs from all repos (always true, flag exists for CLI discoverability)",
+      default: true,
     },
     repo: {
       type: "string",
