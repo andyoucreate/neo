@@ -1,4 +1,4 @@
-import path from "node:path";
+import nodePath from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // Mock @neotx/core
@@ -6,11 +6,24 @@ vi.mock("@neotx/core", () => ({
   getRunsDir: () => "/mock/runs",
   listReposFromGlobalConfig: vi.fn(),
   toRepoSlug: (repo: { name?: string; path: string }) =>
-    repo.name ?? path.basename(repo.path).toLowerCase(),
+    repo.name ?? nodePath.basename(repo.path).toLowerCase(),
 }));
 
+import type { RepoConfig } from "@neotx/core";
 import { listReposFromGlobalConfig } from "@neotx/core";
 import { resolveRepoFilter } from "../repo-filter.js";
+
+/** Helper to create a minimal RepoConfig with defaults */
+function makeRepo(overrides: { path: string; name?: string }): RepoConfig {
+  return {
+    path: overrides.path,
+    name: overrides.name,
+    defaultBranch: "main",
+    branchPrefix: "feat",
+    pushRemote: "origin",
+    gitStrategy: "branch",
+  };
+}
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -34,7 +47,7 @@ describe("resolveRepoFilter", () => {
   describe("--repo with path", () => {
     it("matches registered repo by absolute path", async () => {
       vi.mocked(listReposFromGlobalConfig).mockResolvedValue([
-        { path: "/home/user/projects/myrepo" },
+        makeRepo({ path: "/home/user/projects/myrepo" }),
       ]);
 
       const result = await resolveRepoFilter({ repo: "/home/user/projects/myrepo" });
@@ -45,8 +58,8 @@ describe("resolveRepoFilter", () => {
     });
 
     it("matches registered repo by relative path resolved to absolute", async () => {
-      const absPath = path.resolve("./myrepo");
-      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([{ path: absPath }]);
+      const absPath = nodePath.resolve("./myrepo");
+      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([makeRepo({ path: absPath })]);
 
       const result = await resolveRepoFilter({ repo: "./myrepo" });
 
@@ -59,7 +72,7 @@ describe("resolveRepoFilter", () => {
   describe("--repo with slug", () => {
     it("matches registered repo by slug/name", async () => {
       vi.mocked(listReposFromGlobalConfig).mockResolvedValue([
-        { name: "my-project", path: "/some/path/my-project" },
+        makeRepo({ name: "my-project", path: "/some/path/my-project" }),
       ]);
 
       const result = await resolveRepoFilter({ repo: "my-project" });
@@ -70,7 +83,9 @@ describe("resolveRepoFilter", () => {
     });
 
     it("matches repo by derived slug when no name set", async () => {
-      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([{ path: "/home/user/projects/neo" }]);
+      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([
+        makeRepo({ path: "/home/user/projects/neo" }),
+      ]);
 
       const result = await resolveRepoFilter({ repo: "neo" });
 
@@ -92,7 +107,9 @@ describe("resolveRepoFilter", () => {
     });
 
     it("treats unregistered slug as path and derives slug", async () => {
-      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([{ path: "/some/other/repo" }]);
+      vi.mocked(listReposFromGlobalConfig).mockResolvedValue([
+        makeRepo({ path: "/some/other/repo" }),
+      ]);
 
       const result = await resolveRepoFilter({ repo: "unregistered-repo" });
 
