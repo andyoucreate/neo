@@ -30,32 +30,51 @@ interface SDKStreamMessage {
 
 /**
  * Determine whether this heartbeat should be a consolidation cycle.
- * Consolidation runs every `consolidationInterval` heartbeats,
- * or earlier if there are pending unconsolidated entries (after at least 2 heartbeats).
+ * Consolidation runs when `consolidationIntervalMs` has elapsed since the last consolidation,
+ * or earlier if there are pending unconsolidated entries (after a minimum grace period).
  */
 export function shouldConsolidate(
-  heartbeatCount: number,
-  lastConsolidationHeartbeat: number,
-  consolidationInterval: number,
+  lastConsolidationTimestamp: string | undefined,
+  consolidationIntervalMs: number,
   hasPendingEntries: boolean,
 ): boolean {
-  const since = heartbeatCount - lastConsolidationHeartbeat;
-  if (since >= consolidationInterval) return true;
-  if (hasPendingEntries && since >= 2) return true;
+  const now = Date.now();
+
+  if (!lastConsolidationTimestamp) {
+    // First consolidation: run immediately if there are pending entries
+    return hasPendingEntries;
+  }
+
+  const lastConsolidation = new Date(lastConsolidationTimestamp).getTime();
+  const elapsed = now - lastConsolidation;
+
+  if (elapsed >= consolidationIntervalMs) return true;
+
+  // Run early if pending entries and at least 30s have passed (minimum grace period)
+  const MIN_GRACE_MS = 30_000;
+  if (hasPendingEntries && elapsed >= MIN_GRACE_MS) return true;
+
   return false;
 }
 
 /**
  * Determine whether this heartbeat should run compaction.
- * Compaction is a deep cleanup pass that runs every ~50 heartbeats.
+ * Compaction is a deep cleanup pass that runs every `compactionIntervalMs`.
  */
 export function shouldCompact(
-  heartbeatCount: number,
-  lastCompactionHeartbeat: number,
-  compactionInterval = 50,
+  lastCompactionTimestamp: string | undefined,
+  compactionIntervalMs: number,
 ): boolean {
-  const since = heartbeatCount - lastCompactionHeartbeat;
-  return since >= compactionInterval;
+  if (!lastCompactionTimestamp) {
+    // First compaction: don't run immediately, wait for the interval
+    return false;
+  }
+
+  const now = Date.now();
+  const lastCompaction = new Date(lastCompactionTimestamp).getTime();
+  const elapsed = now - lastCompaction;
+
+  return elapsed >= compactionIntervalMs;
 }
 
 // ─── Helper types for runHeartbeat refactoring ───────────
@@ -65,18 +84,13 @@ interface BudgetCheckResult {
   exceeded: boolean;
 }
 
-interface SkipLogicResult {
-  shouldSkip: boolean;
-  resetCounters: boolean;
-}
-
 interface HeartbeatModeResult {
   isConsolidation: boolean;
   isCompaction: boolean;
   unconsolidated: LogBufferEntry[];
   heartbeatCount: number;
-  lastConsolidation: number;
   lastConsolidationTs: string | undefined;
+  lastCompactionTs: string | undefined;
 }
 
 interface StateUpdateResult {
@@ -162,7 +176,7 @@ export class HeartbeatLoop {
         // Circuit breaker: exponential backoff after consecutive failures
         if (this.consecutiveFailures >= this.config.supervisor.maxConsecutiveFailures) {
           const backoffMs = Math.min(
-            this.config.supervisor.idleIntervalMs *
+            this.config.supervisor.eventTimeoutMs *
               2 ** (this.consecutiveFailures - this.config.supervisor.maxConsecutiveFailures),
             15 * 60 * 1000, // max 15 minutes
           );
@@ -177,8 +191,8 @@ export class HeartbeatLoop {
 
       if (this.stopping) break;
 
-      // Wait for next event or idle timeout
-      await this.eventQueue.waitForEvent(this.config.supervisor.idleIntervalMs);
+      // Wait for next event or timeout
+      await this.eventQueue.waitForEvent(this.config.supervisor.eventTimeoutMs);
     }
 
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop stopped");
@@ -202,25 +216,14 @@ export class HeartbeatLoop {
 
     // Drain events and check for active work
     const grouped = this.eventQueue.drainAndGroup();
-    const totalEventCount =
-      grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
-
-    // Handle skip logic for idle/active-work scenarios
-    const skipResult = await this.handleSkipLogic({
-      state,
-      totalEventCount,
-      activeRuns,
-    });
-    if (skipResult.shouldSkip) return;
-    if (skipResult.resetCounters) {
-      await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
-    }
 
     // Determine heartbeat mode
     const modeResult = await this.determineHeartbeatMode(state);
 
     // Build prompt and log start
+    const totalEventCount =
+      grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
       grouped,
       todayCost: budgetCheck.todayCost,
@@ -297,53 +300,11 @@ export class HeartbeatLoop {
         "error",
         `Supervisor daily budget exceeded ($${todayCost.toFixed(2)} / $${this.config.supervisor.dailyCapUsd}). Skipping heartbeat.`,
       );
-      await this.sleep(this.config.supervisor.idleIntervalMs);
+      await this.sleep(this.config.supervisor.eventTimeoutMs);
       return { todayCost, exceeded: true };
     }
 
     return { todayCost, exceeded: false };
-  }
-
-  /**
-   * Handle skip logic for idle and active-work scenarios.
-   */
-  private async handleSkipLogic(opts: {
-    state: SupervisorDaemonState | null;
-    totalEventCount: number;
-    activeRuns: string[];
-  }): Promise<SkipLogicResult> {
-    const { state, totalEventCount, activeRuns } = opts;
-    const idleSkipCount = state?.idleSkipCount ?? 0;
-    const activeWorkSkipCount = state?.activeWorkSkipCount ?? 0;
-    const hasActiveWork = activeRuns.length > 0;
-
-    if (totalEventCount === 0) {
-      if (hasActiveWork) {
-        if (activeWorkSkipCount < this.config.supervisor.activeWorkSkipMax) {
-          await this.updateState({
-            activeWorkSkipCount: activeWorkSkipCount + 1,
-            idleSkipCount: 0,
-          });
-          await this.activityLog.log(
-            "heartbeat",
-            `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${activeRuns.length} runs active, no events`,
-          );
-          return { shouldSkip: true, resetCounters: false };
-        }
-      } else {
-        if (idleSkipCount < this.config.supervisor.idleSkipMax) {
-          await this.updateState({
-            idleSkipCount: idleSkipCount + 1,
-            activeWorkSkipCount: 0,
-          });
-          await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
-          return { shouldSkip: true, resetCounters: false };
-        }
-      }
-    }
-
-    const needsReset = idleSkipCount > 0 || activeWorkSkipCount > 0;
-    return { shouldSkip: false, resetCounters: needsReset };
   }
 
   /**
@@ -353,9 +314,8 @@ export class HeartbeatLoop {
     state: SupervisorDaemonState | null,
   ): Promise<HeartbeatModeResult> {
     const heartbeatCount = state?.heartbeatCount ?? 0;
-    const lastConsolidation = state?.lastConsolidationHeartbeat ?? 0;
-    const lastCompaction = state?.lastCompactionHeartbeat ?? 0;
     const lastConsolidationTs = state?.lastConsolidationTimestamp;
+    const lastCompactionTs = state?.lastCompactionTimestamp;
     const unconsolidated = await readUnconsolidated(this.supervisorDir);
 
     const hasNewEntriesSinceLastConsolidation = lastConsolidationTs
@@ -363,11 +323,13 @@ export class HeartbeatLoop {
       : unconsolidated.length > 0;
 
     const hasPendingEntries = unconsolidated.length > 0;
-    const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
+    const isCompaction = shouldCompact(
+      lastCompactionTs,
+      this.config.supervisor.compactionIntervalMs,
+    );
     const wouldConsolidate = shouldConsolidate(
-      heartbeatCount,
-      lastConsolidation,
-      this.config.supervisor.consolidationInterval,
+      lastConsolidationTs,
+      this.config.supervisor.consolidationIntervalMs,
       hasPendingEntries,
     );
     const isConsolidation =
@@ -378,8 +340,8 @@ export class HeartbeatLoop {
       isCompaction,
       unconsolidated,
       heartbeatCount,
-      lastConsolidation,
       lastConsolidationTs,
+      lastCompactionTs,
     };
   }
 
@@ -405,12 +367,11 @@ export class HeartbeatLoop {
     };
 
     if (opts.isConsolidation) {
-      stateUpdate.lastConsolidationHeartbeat = opts.heartbeatCount + 1;
       stateUpdate.lastConsolidationTimestamp = new Date().toISOString();
     }
 
     if (opts.isCompaction) {
-      stateUpdate.lastCompactionHeartbeat = opts.heartbeatCount + 1;
+      stateUpdate.lastCompactionTimestamp = new Date().toISOString();
     }
 
     return { stateUpdate };

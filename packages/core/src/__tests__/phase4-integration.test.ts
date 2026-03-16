@@ -1,30 +1,37 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { shouldCompact } from "@/supervisor/heartbeat";
 import { buildCompactionPrompt } from "@/supervisor/prompt-builder";
 
 // ─── shouldCompact ──────────────────────────────────────
+// Note: shouldCompact now uses time-based intervals (lastCompactionTimestamp, compactionIntervalMs)
+// See heartbeat-consolidation.test.ts for comprehensive time-based tests
 
-describe("shouldCompact", () => {
-  it("returns true when heartbeats since last compaction >= default interval (50)", () => {
-    expect(shouldCompact(50, 0)).toBe(true);
-    expect(shouldCompact(100, 50)).toBe(true);
+describe("shouldCompact (integration)", () => {
+  const ONE_HOUR_MS = 3_600_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-15T12:00:00.000Z"));
   });
 
-  it("returns false when heartbeats since last compaction < interval", () => {
-    expect(shouldCompact(30, 0)).toBe(false);
-    expect(shouldCompact(60, 50)).toBe(false);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("respects custom compaction interval", () => {
-    expect(shouldCompact(10, 0, 10)).toBe(true);
-    expect(shouldCompact(9, 0, 10)).toBe(false);
+  it("returns true when interval has elapsed", () => {
+    const lastCompaction = new Date(Date.now() - ONE_HOUR_MS).toISOString();
+    expect(shouldCompact(lastCompaction, ONE_HOUR_MS)).toBe(true);
   });
 
-  it("handles lastCompactionHeartbeat of 0 (first run)", () => {
-    expect(shouldCompact(49, 0)).toBe(false);
-    expect(shouldCompact(50, 0)).toBe(true);
+  it("returns false when interval has not elapsed", () => {
+    const lastCompaction = new Date(Date.now() - 1_800_000).toISOString(); // 30 min ago
+    expect(shouldCompact(lastCompaction, ONE_HOUR_MS)).toBe(false);
+  });
+
+  it("returns false on first run (no last compaction timestamp)", () => {
+    expect(shouldCompact(undefined, ONE_HOUR_MS)).toBe(false);
   });
 });
 

@@ -19,12 +19,17 @@ export const supervisorDaemonStateSchema = z.object({
   totalCostUsd: z.number().default(0),
   todayCostUsd: z.number().default(0),
   costResetDate: z.string().optional(),
+  /** @deprecated Kept for backwards compatibility with existing state files */
   idleSkipCount: z.number().default(0),
+  /** @deprecated Kept for backwards compatibility with existing state files */
   activeWorkSkipCount: z.number().default(0),
   status: z.enum(["running", "draining", "stopped"]).default("running"),
+  /** @deprecated Use lastConsolidationTimestamp instead */
   lastConsolidationHeartbeat: z.number().default(0),
+  /** @deprecated Use lastCompactionTimestamp instead */
   lastCompactionHeartbeat: z.number().default(0),
   lastConsolidationTimestamp: z.string().optional(),
+  lastCompactionTimestamp: z.string().optional(),
   wakeReason: wakeReasonSchema.optional(),
 });
 

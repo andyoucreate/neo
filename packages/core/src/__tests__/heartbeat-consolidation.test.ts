@@ -1,51 +1,96 @@
-import { describe, expect, it } from "vitest";
-import { shouldConsolidate } from "@/supervisor/heartbeat";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { shouldCompact, shouldConsolidate } from "@/supervisor/heartbeat";
 
 describe("shouldConsolidate", () => {
-  const interval = 5;
+  const FIVE_MINUTES_MS = 300_000;
+  const MIN_GRACE_MS = 30_000;
 
-  it("returns true when heartbeats since last consolidation >= interval", () => {
-    expect(shouldConsolidate(10, 5, interval, false)).toBe(true);
-    expect(shouldConsolidate(15, 10, interval, false)).toBe(true);
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-15T12:00:00.000Z"));
   });
 
-  it("returns false when heartbeats since last consolidation < interval and no pending entries", () => {
-    expect(shouldConsolidate(7, 5, interval, false)).toBe(false);
-    expect(shouldConsolidate(6, 5, interval, false)).toBe(false);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it("returns true when pending memory entries exist and since >= 2", () => {
-    expect(shouldConsolidate(7, 5, interval, true)).toBe(true);
-    expect(shouldConsolidate(3, 1, interval, true)).toBe(true);
+  it("returns true when interval has elapsed", () => {
+    const lastConsolidation = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
+    expect(shouldConsolidate(lastConsolidation, FIVE_MINUTES_MS, false)).toBe(true);
   });
 
-  it("returns false when pending memory entries exist but since < 2", () => {
-    expect(shouldConsolidate(6, 5, interval, true)).toBe(false);
-    expect(shouldConsolidate(1, 1, interval, true)).toBe(false);
+  it("returns false when interval has not elapsed and no pending entries", () => {
+    const lastConsolidation = new Date(Date.now() - 60_000).toISOString(); // 1 minute ago
+    expect(shouldConsolidate(lastConsolidation, FIVE_MINUTES_MS, false)).toBe(false);
+  });
+
+  it("returns true when pending entries exist and grace period has passed", () => {
+    const lastConsolidation = new Date(Date.now() - MIN_GRACE_MS).toISOString();
+    expect(shouldConsolidate(lastConsolidation, FIVE_MINUTES_MS, true)).toBe(true);
+  });
+
+  it("returns false when pending entries exist but grace period has not passed", () => {
+    const lastConsolidation = new Date(Date.now() - 10_000).toISOString(); // 10s ago
+    expect(shouldConsolidate(lastConsolidation, FIVE_MINUTES_MS, true)).toBe(false);
+  });
+
+  it("handles first run (no last consolidation timestamp)", () => {
+    // First run with no pending entries → false (nothing to consolidate)
+    expect(shouldConsolidate(undefined, FIVE_MINUTES_MS, false)).toBe(false);
+    // First run with pending entries → true
+    expect(shouldConsolidate(undefined, FIVE_MINUTES_MS, true)).toBe(true);
   });
 
   it("returns true at exact interval boundary", () => {
-    expect(shouldConsolidate(5, 0, interval, false)).toBe(true);
+    const lastConsolidation = new Date(Date.now() - FIVE_MINUTES_MS).toISOString();
+    expect(shouldConsolidate(lastConsolidation, FIVE_MINUTES_MS, false)).toBe(true);
   });
 
-  it("handles lastConsolidationHeartbeat of 0 (first run)", () => {
-    // 3 heartbeats since 0, interval=5, no pending → false
-    expect(shouldConsolidate(3, 0, interval, false)).toBe(false);
-    // 5 heartbeats since 0, interval=5 → true
-    expect(shouldConsolidate(5, 0, interval, false)).toBe(true);
-    // 2 heartbeats since 0, pending → true
-    expect(shouldConsolidate(2, 0, interval, true)).toBe(true);
+  it("works with short interval", () => {
+    const ONE_MINUTE_MS = 60_000;
+    const lastConsolidation = new Date(Date.now() - ONE_MINUTE_MS).toISOString();
+    expect(shouldConsolidate(lastConsolidation, ONE_MINUTE_MS, false)).toBe(true);
   });
 
-  it("works with consolidationInterval of 1", () => {
-    expect(shouldConsolidate(1, 0, 1, false)).toBe(true);
-    expect(shouldConsolidate(5, 4, 1, false)).toBe(true);
+  it("works with large interval", () => {
+    const ONE_HOUR_MS = 3_600_000;
+    // 30 minutes ago → not enough time elapsed
+    const lastConsolidation = new Date(Date.now() - 1_800_000).toISOString();
+    expect(shouldConsolidate(lastConsolidation, ONE_HOUR_MS, false)).toBe(false);
+    // But with pending entries and grace period passed → true
+    expect(shouldConsolidate(lastConsolidation, ONE_HOUR_MS, true)).toBe(true);
+  });
+});
+
+describe("shouldCompact", () => {
+  const ONE_HOUR_MS = 3_600_000;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2024-01-15T12:00:00.000Z"));
   });
 
-  it("works with large consolidationInterval", () => {
-    expect(shouldConsolidate(50, 0, 100, false)).toBe(false);
-    expect(shouldConsolidate(100, 0, 100, false)).toBe(true);
-    // Pending entries still trigger early at since >= 2
-    expect(shouldConsolidate(2, 0, 100, true)).toBe(true);
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns true when interval has elapsed", () => {
+    const lastCompaction = new Date(Date.now() - ONE_HOUR_MS).toISOString();
+    expect(shouldCompact(lastCompaction, ONE_HOUR_MS)).toBe(true);
+  });
+
+  it("returns false when interval has not elapsed", () => {
+    const lastCompaction = new Date(Date.now() - 1_800_000).toISOString(); // 30 min ago
+    expect(shouldCompact(lastCompaction, ONE_HOUR_MS)).toBe(false);
+  });
+
+  it("returns false on first run (no last compaction timestamp)", () => {
+    // First compaction should wait for the interval
+    expect(shouldCompact(undefined, ONE_HOUR_MS)).toBe(false);
+  });
+
+  it("returns true at exact interval boundary", () => {
+    const lastCompaction = new Date(Date.now() - ONE_HOUR_MS).toISOString();
+    expect(shouldCompact(lastCompaction, ONE_HOUR_MS)).toBe(true);
   });
 });
