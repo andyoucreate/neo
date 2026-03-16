@@ -101,6 +101,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
       port: 7777,
       idleIntervalMs: 60_000,
       idleSkipMax: 20,
+      activeWorkSkipMax: 3,
       heartbeatTimeoutMs: 300_000,
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,
