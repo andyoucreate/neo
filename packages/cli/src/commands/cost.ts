@@ -43,11 +43,6 @@ export default defineCommand({
     description: "Show cost breakdown from journals (today, by agent, by run)",
   },
   args: {
-    all: {
-      type: "boolean",
-      description: "Show costs from all repos",
-      default: false,
-    },
     repo: {
       type: "string",
       description: "Filter by repo name or path",
@@ -73,8 +68,8 @@ export default defineCommand({
       return;
     }
 
-    // Filter by repo unless --all (--short implies --all for supervisor use)
-    const filter = await resolveRepoFilter({ all: args.all || args.short, repo: args.repo });
+    // Filter by repo if specified
+    const filter = await resolveRepoFilter({ repo: args.repo });
     if (filter.mode !== "all") {
       const slug = filter.repoSlug;
       entries = entries.filter((e) => {
