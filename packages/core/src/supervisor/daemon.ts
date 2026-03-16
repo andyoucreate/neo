@@ -100,6 +100,7 @@ export class SupervisorDaemon {
     await this.webhookServer.start();
 
     // Write initial state
+    const now = Date.now();
     await this.writeState({
       pid: process.pid,
       sessionId: this.sessionId,
@@ -111,12 +112,16 @@ export class SupervisorDaemon {
       totalCostUsd: existingState?.totalCostUsd ?? 0,
       todayCostUsd: existingState?.todayCostUsd ?? 0,
       costResetDate: existingState?.costResetDate,
-      idleSkipCount: existingState?.idleSkipCount ?? 0,
-      activeWorkSkipCount: existingState?.activeWorkSkipCount ?? 0,
+      // Deprecated fields — kept for backwards compatibility
+      idleSkipCount: 0,
+      activeWorkSkipCount: 0,
       status: "running",
       lastConsolidationHeartbeat: existingState?.lastConsolidationHeartbeat ?? 0,
       lastCompactionHeartbeat: existingState?.lastCompactionHeartbeat ?? 0,
       lastConsolidationTimestamp: existingState?.lastConsolidationTimestamp,
+      // New time-based tracking fields
+      lastConsolidationTime: existingState?.lastConsolidationTime ?? now,
+      lastActiveWorkCheck: existingState?.lastActiveWorkCheck ?? now,
     });
 
     // Install signal handlers
