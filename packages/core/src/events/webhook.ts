@@ -6,7 +6,8 @@ type WebhookConfig = NeoConfig["webhooks"][number];
 
 interface WebhookPayload {
   version: 1;
-  event: Record<string, unknown>;
+  event: string;
+  payload: Record<string, unknown>;
   source: "neo";
   deliveredAt: string;
 }
@@ -35,7 +36,8 @@ export class WebhookDispatcher {
 
       const payload: WebhookPayload = {
         version: 1,
-        event: toSerializable(event),
+        event: event.type,
+        payload: toSerializable(event),
         source: "neo",
         deliveredAt: new Date().toISOString(),
       };

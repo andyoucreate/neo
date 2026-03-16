@@ -70,7 +70,8 @@ describe("WebhookDispatcher", () => {
     expect(body).toMatchObject({
       version: 1,
       source: "neo",
-      event: expect.objectContaining({
+      event: "session:start",
+      payload: expect.objectContaining({
         type: "session:start",
         runId: "run-1",
       }),
@@ -184,8 +185,8 @@ describe("WebhookDispatcher", () => {
     dispatcher.dispatch(event);
 
     const [, opts] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    const body = JSON.parse(opts.body as string) as { event: Record<string, unknown> };
-    expect(body.event.someCallback).toBeUndefined();
-    expect(body.event.type).toBe("session:start");
+    const body = JSON.parse(opts.body as string) as { payload: Record<string, unknown> };
+    expect(body.payload.someCallback).toBeUndefined();
+    expect(body.payload.type).toBe("session:start");
   });
 });

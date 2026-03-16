@@ -1,4 +1,4 @@
-import { timingSafeEqual } from "node:crypto";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { WebhookIncomingEvent } from "./schemas.js";
@@ -81,27 +81,28 @@ export class WebhookServer {
   }
 
   private async handleWebhook(req: IncomingMessage, res: ServerResponse): Promise<void> {
-    // Validate secret if configured
-    if (this.secret) {
-      const provided = req.headers["x-neo-secret"] as string | undefined;
-      if (!provided) {
-        this.sendJson(res, 401, { error: "Missing X-Neo-Secret header" });
-        return;
-      }
-
-      const expected = Buffer.from(this.secret, "utf-8");
-      const actual = Buffer.from(provided, "utf-8");
-      if (expected.length !== actual.length || !timingSafeEqual(expected, actual)) {
-        this.sendJson(res, 403, { error: "Invalid secret" });
-        return;
-      }
-    }
-
-    // Read body with size limit
+    // Read body first (needed for both parsing and HMAC verification)
     const body = await this.readBody(req);
     if (body === null) {
       this.sendJson(res, 413, { error: "Payload too large (max 1MB)" });
       return;
+    }
+
+    // Validate HMAC signature if secret is configured
+    if (this.secret) {
+      const signature = req.headers["x-neo-signature"] as string | undefined;
+      if (!signature) {
+        this.sendJson(res, 401, { error: "Missing X-Neo-Signature header" });
+        return;
+      }
+
+      const expected = createHmac("sha256", this.secret).update(body).digest("hex");
+      const expectedBuf = Buffer.from(expected, "utf-8");
+      const actualBuf = Buffer.from(signature, "utf-8");
+      if (expectedBuf.length !== actualBuf.length || !timingSafeEqual(expectedBuf, actualBuf)) {
+        this.sendJson(res, 403, { error: "Invalid signature" });
+        return;
+      }
     }
 
     // Parse JSON
