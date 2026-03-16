@@ -117,4 +117,3 @@ export const runNoteSchema = z.object({
 });
 
 export type RunNote = z.infer<typeof runNoteSchema>;
-
