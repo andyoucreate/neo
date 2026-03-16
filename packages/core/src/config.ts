@@ -93,10 +93,16 @@ export const globalConfigSchema = z.object({
       secret: z.string().optional(),
       /** @deprecated Use event-driven approach instead. Will be removed in a future version. */
       idleIntervalMs: z.number().default(60_000),
+      /** @deprecated Will be removed after T4 migrates heartbeat.ts */
+      idleSkipMax: z.number().default(5),
+      /** @deprecated Will be removed after T4 migrates heartbeat.ts */
+      activeWorkSkipMax: z.number().default(3),
       heartbeatTimeoutMs: z.number().default(300_000),
       maxConsecutiveFailures: z.number().default(3),
       maxEventsPerSec: z.number().default(10),
       dailyCapUsd: z.number().default(50),
+      /** @deprecated Will be removed after T4 migrates heartbeat.ts */
+      consolidationInterval: z.number().default(5),
       /** How often consolidation runs (ms) */
       consolidationIntervalMs: z.number().default(300_000),
       /** How often compaction runs (ms) */
@@ -108,10 +114,13 @@ export const globalConfigSchema = z.object({
     .default({
       port: 7777,
       idleIntervalMs: 60_000,
+      idleSkipMax: 5,
+      activeWorkSkipMax: 3,
       heartbeatTimeoutMs: 300_000,
       maxConsecutiveFailures: 3,
       maxEventsPerSec: 10,
       dailyCapUsd: 50,
+      consolidationInterval: 5,
       consolidationIntervalMs: 300_000,
       compactionIntervalMs: 3_600_000,
       eventTimeoutMs: 300_000,
