@@ -5,11 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
-import {
-  createSessionClone,
-  listSessionClones,
-  removeSessionClone,
-} from "@/isolation/clone";
+import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
 import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import type { ResolvedAgent } from "@/types";
@@ -106,7 +102,6 @@ describe("session clone lifecycle", () => {
     const list = await listSessionClones(path.join(TMP_DIR, "nonexistent"));
     expect(list).toEqual([]);
   });
-
 });
 
 // ─── Git Operations ─────────────────────────────────────
