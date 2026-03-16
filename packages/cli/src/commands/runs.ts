@@ -98,12 +98,6 @@ export default defineCommand({
       description: "Run ID to show details (omit to list all runs)",
       required: false,
     },
-    all: {
-      type: "boolean",
-      alias: "a",
-      description: "Show runs from all repos (always true, flag exists for CLI discoverability)",
-      default: true,
-    },
     repo: {
       type: "string",
       description: "Filter by repo name or path",
