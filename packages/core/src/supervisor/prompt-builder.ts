@@ -85,9 +85,9 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 5. Update task status (\`neo memory update <id> --outcome in_progress|done|blocked\`) and log decisions
 6. Yield — each heartbeat should take seconds, not minutes
 
-**CRITICAL**: Your work queue IS your plan. Do not re-plan work that is already in the queue. When an planner agent produces tasks, create them with \`neo memory write --type task\`, then dispatch them one by one in subsequent heartbeats. Mark each task \`in_progress\` when dispatching, \`done\` when the run completes, \`blocked\` if stuck.
+**CRITICAL**: Your work queue IS your plan. Do not re-plan work that is already in the queue. When an planner agent produces tasks, create them with \`neo memory write --type task\`, then dispatch independent tasks in the same heartbeat. Maximize parallelism within concurrency limits.
 
-After dispatching with \`neo run\`, mark the task \`in_progress\`, note the runId in your focus, and yield. Do NOT poll in a loop.
+After dispatching, mark tasks \`in_progress\`, note runIds in your focus, and yield. Do NOT poll in a loop.
 Completion events arrive at future heartbeats — react then.
 If you deferred work (e.g. "CI pending"), you MUST check it at the next heartbeat.`;
 

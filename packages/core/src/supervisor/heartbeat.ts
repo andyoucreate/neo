@@ -522,7 +522,6 @@ export class HeartbeatLoop {
 
       const queryOptions: Record<string, unknown> = {
         cwd: homedir(),
-        maxTurns: 15,
         allowedTools,
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
