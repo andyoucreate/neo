@@ -35,7 +35,7 @@ export interface SDKResultMessage extends SDKStreamMessage {
 }
 
 /**
- * Content block in assistant messages.
+ * Content block in an assistant message.
  */
 export interface SDKContentBlock {
   type: string;
@@ -45,11 +45,9 @@ export interface SDKContentBlock {
 
 /**
  * Assistant message with content blocks.
- * Used when subtype is not present (plain assistant message).
  */
-export interface SDKAssistantMessage {
+export interface SDKAssistantMessage extends SDKStreamMessage {
   type: "assistant";
-  subtype?: string;
   message?: {
     content?: SDKContentBlock[];
   };
@@ -58,17 +56,17 @@ export interface SDKAssistantMessage {
 /**
  * Tool use message from the assistant.
  */
-export interface SDKToolUseMessage {
+export interface SDKToolUseMessage extends SDKStreamMessage {
   type: "assistant";
   subtype: "tool_use";
-  tool?: string;
+  tool: string;
   input?: unknown;
 }
 
 /**
  * Tool result message.
  */
-export interface SDKToolResultMessage {
+export interface SDKToolResultMessage extends SDKStreamMessage {
   type: "assistant";
   subtype: "tool_result";
   result?: string;
@@ -77,15 +75,36 @@ export interface SDKToolResultMessage {
 // ─── Type Guards ─────────────────────────────────────────
 
 /**
- * Check if a message is an init message.
+ * Check if a message is an init message (session started).
  */
 export function isInitMessage(msg: SDKStreamMessage): msg is SDKInitMessage {
   return msg.type === "system" && msg.subtype === "init";
 }
 
 /**
- * Check if a message is a result message.
+ * Check if a message is a result message (session completed).
  */
 export function isResultMessage(msg: SDKStreamMessage): msg is SDKResultMessage {
   return msg.type === "result";
+}
+
+/**
+ * Check if a message is an assistant message with content.
+ */
+export function isAssistantMessage(msg: SDKStreamMessage): msg is SDKAssistantMessage {
+  return msg.type === "assistant" && !msg.subtype;
+}
+
+/**
+ * Check if a message is a tool use message.
+ */
+export function isToolUseMessage(msg: SDKStreamMessage): msg is SDKToolUseMessage {
+  return msg.type === "assistant" && msg.subtype === "tool_use";
+}
+
+/**
+ * Check if a message is a tool result message.
+ */
+export function isToolResultMessage(msg: SDKStreamMessage): msg is SDKToolResultMessage {
+  return msg.type === "assistant" && msg.subtype === "tool_result";
 }
