@@ -59,9 +59,7 @@ async function handleStatus(name: string): Promise<void> {
   console.log(`  Port:       ${state.port}`);
   console.log(`  Session:    ${state.sessionId}`);
   console.log(`  Started:    ${state.startedAt}`);
-  console.log(
-    `  Interval:   ${config.supervisor.idleIntervalMs / 1000}s (skip up to ${config.supervisor.idleSkipMax} idle)`,
-  );
+  console.log(`  Timeout:    ${config.supervisor.eventTimeoutMs / 1000}s`);
   console.log(`  Heartbeats: ${state.heartbeatCount}`);
   if (state.lastHeartbeat) {
     console.log(`  Last beat:  ${state.lastHeartbeat}`);
