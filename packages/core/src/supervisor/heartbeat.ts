@@ -5,6 +5,14 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getDataDir, getRunsDir } from "@/paths";
+import {
+  isInitMessage,
+  isResultMessage,
+  type SDKAssistantMessage,
+  type SDKStreamMessage,
+  type SDKToolResultMessage,
+  type SDKToolUseMessage,
+} from "@/sdk-types";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
@@ -17,14 +25,6 @@ import {
   buildStandardPrompt,
 } from "./prompt-builder.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
-
-// ─── SDK message shapes (same as runner/session.ts) ──────
-
-interface SDKStreamMessage {
-  type: string;
-  subtype?: string;
-  [key: string]: unknown;
-}
 
 // ─── Default values for deprecated config fields ─────────
 // These maintain backward compatibility while allowing config removal.
@@ -536,14 +536,14 @@ export class HeartbeatLoop {
 
         const msg = message as SDKStreamMessage;
 
-        if (msg.type === "system" && msg.subtype === "init") {
-          this.sessionId = msg.session_id as string;
+        if (isInitMessage(msg)) {
+          this.sessionId = msg.session_id;
         }
 
-        if (msg.type === "result") {
-          output = (msg.result as string) ?? "";
-          costUsd = (msg.total_cost_usd as number) ?? 0;
-          turnCount = (msg.num_turns as number) ?? 0;
+        if (isResultMessage(msg)) {
+          output = msg.result ?? "";
+          costUsd = msg.total_cost_usd ?? 0;
+          turnCount = msg.num_turns ?? 0;
         }
 
         await this.logStreamMessage(msg, heartbeatId);
@@ -660,11 +660,8 @@ export class HeartbeatLoop {
 
   /** Log thinking and plan blocks from assistant content — no truncation. */
   private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const content = (
-      msg.message as
-        | { content?: Array<{ type: string; thinking?: string; text?: string }> }
-        | undefined
-    )?.content;
+    const assistantMsg = msg as SDKAssistantMessage;
+    const content = assistantMsg.message?.content;
     if (!content) return;
 
     for (const block of content) {
@@ -680,18 +677,20 @@ export class HeartbeatLoop {
 
   /** Log tool use events — distinguish MCP tools from built-in tools. */
   private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const toolName = String(msg.tool ?? "unknown");
+    const toolUseMsg = msg as SDKToolUseMessage;
+    const toolName = String(toolUseMsg.tool ?? "unknown");
     const isMcp = toolName.startsWith("mcp__");
     await this.activityLog.log(
       isMcp ? "tool_use" : "action",
       isMcp ? toolName : `Tool use: ${toolName}`,
-      { heartbeatId, tool: toolName, input: msg.input },
+      { heartbeatId, tool: toolName, input: toolUseMsg.input },
     );
   }
 
   /** Detect agent dispatches from bash tool results. */
   private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const result = String(msg.result ?? "");
+    const toolResultMsg = msg as SDKToolResultMessage;
+    const result = String(toolResultMsg.result ?? "");
     const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
     if (runMatch) {
       await this.activityLog.log("dispatch", `Agent dispatched: ${runMatch[1]}`, {
