@@ -87,6 +87,15 @@ export {
   getSupervisorsDir,
   toRepoSlug,
 } from "@/paths";
+// ─── Prompt Builder ─────────────────────────────────────
+export type { FullPromptInput, GitInstructionsInput } from "@/prompt-builder";
+export {
+  buildCwdInstructions,
+  buildFullPrompt,
+  buildGitStrategyInstructions,
+  buildReportingInstructions,
+  loadRepoInstructions,
+} from "@/prompt-builder";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";

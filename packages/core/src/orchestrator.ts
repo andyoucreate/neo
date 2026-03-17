@@ -16,6 +16,13 @@ import { budgetGuard } from "@/middleware/budget-guard";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
+import {
+  buildCwdInstructions,
+  buildFullPrompt,
+  buildGitStrategyInstructions,
+  buildReportingInstructions,
+  loadRepoInstructions,
+} from "@/prompt-builder";
 import { parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import { isProcessAlive } from "@/shared/process";
@@ -42,104 +49,7 @@ import { WorkflowRegistry } from "@/workflows/registry";
 const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-// Session clones are stored in the configured sessions.dir (default: /tmp/neo-sessions)
-const INSTRUCTIONS_PATH = ".neo/INSTRUCTIONS.md";
 const textEncoder = new TextEncoder();
-
-// ─── Repo instructions loader ──────────────────────────
-
-async function loadRepoInstructions(repoPath: string): Promise<string | undefined> {
-  const filePath = path.join(repoPath, INSTRUCTIONS_PATH);
-  try {
-    return await readFile(filePath, "utf-8");
-  } catch {
-    return undefined;
-  }
-}
-
-// ─── Git strategy prompt builder ───────────────────────
-
-function buildGitStrategyInstructions(
-  strategy: GitStrategy,
-  agent: ResolvedAgent,
-  branch: string,
-  baseBranch: string,
-  remote: string,
-  metadata?: Record<string, unknown>,
-): string | null {
-  const prNumber = metadata?.prNumber as number | undefined;
-
-  // Readonly agents: only inject PR comment instruction if a PR exists
-  if (agent.sandbox !== "writable") {
-    if (prNumber) {
-      return `## Pull Request\n\nPR #${String(prNumber)} is open for this task. After your review, leave your findings as a comment: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
-    }
-    return null;
-  }
-
-  // Writable agents: inject git workflow context
-  if (strategy === "pr") {
-    if (prNumber) {
-      return `## Git workflow\n\nYou are on branch \`${branch}\`.\nAn open PR exists: #${String(prNumber)}.\nAfter committing, push your changes to the branch. The PR will be updated automatically.\nLeave a review comment on the PR summarizing what you did: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
-    }
-    return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nAfter committing:\n1. Push: \`git push -u ${remote} ${branch}\`\n2. Create a PR against \`${baseBranch}\` — choose a title and description that reflect the work you completed. End the PR body with: \`🤖 Generated with [neo](https://neotx.dev)\`\n3. Output the PR URL on a dedicated line: \`PR_URL: <url>\``;
-  }
-
-  // strategy === "branch"
-  return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nCommit your changes. The branch will be pushed automatically.`;
-}
-
-// ─── Reporting instructions for agents ──────────────────
-
-function buildReportingInstructions(_runId: string): string {
-  return `## Reporting & Memory
-
-### Progress reporting (real-time, visible in TUI)
-Chain \`neo log\` with the command that triggered it — never standalone:
-\`\`\`bash
-pnpm test && neo log milestone "all tests passing" || neo log blocker "tests failing"
-git push origin HEAD && neo log action "pushed to branch"
-neo log decision "chose JWT over sessions — simpler for MVP"
-\`\`\`
-
-### Memory (persistent, injected into future agent prompts)
-Write discoveries so the next agent on this repo starts smarter:
-\`\`\`bash
-# Stable facts — describe clearly for semantic search
-neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
-neo memory write --type fact --scope $NEO_REPOSITORY "Biome for lint+format, config in biome.json"
-
-# How-to procedures — non-obvious workflows
-neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var"
-neo memory write --type procedure --scope $NEO_REPOSITORY "Always run pnpm build before push — CI doesn't rebuild"
-\`\`\`
-
-Write at key moments: after discovering conventions, after resolving a non-obvious issue, before finishing.`;
-}
-
-// ─── Full prompt assembler ─────────────────────────────
-
-function buildFullPrompt(
-  agentPrompt: string | undefined,
-  repoInstructions: string | undefined,
-  gitInstructions: string | null,
-  taskPrompt: string,
-  memoryContext?: string | undefined,
-  cwdInstructions?: string | undefined,
-  reportingInstructions?: string | undefined,
-): string {
-  const sections: string[] = [];
-
-  if (agentPrompt) sections.push(agentPrompt);
-  if (cwdInstructions) sections.push(cwdInstructions);
-  if (memoryContext) sections.push(memoryContext);
-  if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
-  if (gitInstructions) sections.push(gitInstructions);
-  if (reportingInstructions) sections.push(reportingInstructions);
-  sections.push(`## Task\n\n${taskPrompt}`);
-
-  return sections.join("\n\n---\n\n");
-}
 
 // ─── Options ───────────────────────────────────────────
 
@@ -630,14 +540,14 @@ export class Orchestrator extends NeoEventEmitter {
       );
     }
     const branch = agent.sandbox === "writable" ? (input.branch as string) : "";
-    const gitInstructions = buildGitStrategyInstructions(
+    const gitInstructions = buildGitStrategyInstructions({
       strategy,
       agent,
       branch,
-      ctx.repoConfig.defaultBranch,
-      ctx.repoConfig.pushRemote ?? "origin",
-      input.metadata,
-    );
+      baseBranch: ctx.repoConfig.defaultBranch,
+      remote: ctx.repoConfig.pushRemote ?? "origin",
+      metadata: input.metadata,
+    });
     const taskPrompt = stepDef.prompt ?? input.prompt;
 
     // Memory injection: load relevant memories for this repo
@@ -645,21 +555,19 @@ export class Orchestrator extends NeoEventEmitter {
 
     // Inject working directory context so the agent knows where to operate.
     // Without this, Claude Code may resolve to the wrong directory.
-    const cwdInstructions = sessionPath
-      ? `## Working directory\n\nYou are working in an isolated clone at: \`${sessionPath}\`\nALWAYS run commands from this directory. NEVER cd to or operate on any other repository.`
-      : undefined;
+    const cwdInstructions = sessionPath ? buildCwdInstructions(sessionPath) : undefined;
 
     const reportingInstructions = buildReportingInstructions(runId);
 
-    const fullPrompt = buildFullPrompt(
-      agent.definition.prompt,
+    const fullPrompt = buildFullPrompt({
+      agentPrompt: agent.definition.prompt,
       repoInstructions,
       gitInstructions,
       taskPrompt,
       memoryContext,
       cwdInstructions,
       reportingInstructions,
-    );
+    });
 
     const recoveryOpts = stepDef.recovery;
     const mcpServers = this.resolveMcpServers(stepDef, agent);
