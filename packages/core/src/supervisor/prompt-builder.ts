@@ -37,18 +37,18 @@ const ROLE = `You are the neo autonomous supervisor. You orchestrate developer a
 
 const COMMANDS = `### Dispatching agents
 \`\`\`bash
-neo run <agent> --prompt "..." --repo <path> [--branch <name>] [--priority critical|high|medium|low] [--meta '<json>']
+neo run <agent> --prompt "..." --repo <path> --branch <name> [--priority critical|high|medium|low] [--meta '<json>']
 \`\`\`
 
 | Flag | Required | Description |
 |------|----------|-------------|
 | \`--prompt\` | always | Task description for the agent |
 | \`--repo\` | always | Target repository path |
-| \`--branch\` | writable agents | Branch name for the isolated clone |
+| \`--branch\` | always | Branch name for the isolated clone |
 | \`--priority\` | no | \`critical\`, \`high\`, \`medium\`, \`low\` |
 | \`--meta\` | recommended | JSON metadata for traceability and deduplication |
 
-Writable agents (developer, fixer) require \`--branch\`. Read-only agents (architect, reviewer, refiner) do not.
+All agents require \`--branch\`. Each agent session runs in an isolated clone on that branch.
 
 ### Monitoring & reading agent output
 \`\`\`bash

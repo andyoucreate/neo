@@ -49,10 +49,10 @@ export const globalConfigSchema = z.object({
   concurrency: z
     .object({
       maxSessions: z.number().default(5),
-      maxPerRepo: z.number().default(2),
+      maxPerRepo: z.number().default(4),
       queueMax: z.number().default(50),
     })
-    .default({ maxSessions: 5, maxPerRepo: 2, queueMax: 50 }),
+    .default({ maxSessions: 5, maxPerRepo: 4, queueMax: 50 }),
 
   budget: z
     .object({
@@ -150,7 +150,7 @@ const DEFAULT_GLOBAL_CONFIG = {
   repos: [],
   concurrency: {
     maxSessions: 5,
-    maxPerRepo: 2,
+    maxPerRepo: 4,
     queueMax: 50,
   },
   budget: {

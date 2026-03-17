@@ -123,7 +123,7 @@ repos:
     expect(config.repos[0]?.gitStrategy).toBe("branch");
 
     expect(config.concurrency.maxSessions).toBe(5);
-    expect(config.concurrency.maxPerRepo).toBe(2);
+    expect(config.concurrency.maxPerRepo).toBe(4);
     expect(config.concurrency.queueMax).toBe(50);
 
     expect(config.budget.dailyCapUsd).toBe(500);
@@ -251,7 +251,7 @@ repos:
 
     // Concurrency defaults
     expect(config.concurrency.maxSessions).toBe(5);
-    expect(config.concurrency.maxPerRepo).toBe(2);
+    expect(config.concurrency.maxPerRepo).toBe(4);
     expect(config.concurrency.queueMax).toBe(50);
 
     // Budget defaults

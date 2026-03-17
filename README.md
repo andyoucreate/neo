@@ -363,7 +363,7 @@ repos:
 
 concurrency:
   maxSessions: 5              # Total concurrent agent sessions
-  maxPerRepo: 2               # Max sessions per repository
+  maxPerRepo: 4               # Max sessions per repository
   queueMax: 50                # Max queued dispatches
 
 budget:

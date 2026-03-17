@@ -382,7 +382,7 @@ import { Semaphore } from "@neotx/core";
 const semaphore = new Semaphore(
   {
     maxSessions: 5,   // Total concurrent sessions
-    maxPerRepo: 2,    // Max sessions per repository
+    maxPerRepo: 4,    // Max sessions per repository
     queueMax: 50,     // Max queued dispatches
   },
   {
@@ -454,7 +454,7 @@ repos:
 
 concurrency:
   maxSessions: 5
-  maxPerRepo: 2
+  maxPerRepo: 4
   queueMax: 50
 
 budget:

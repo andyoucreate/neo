@@ -664,13 +664,13 @@ describe("input validation", () => {
     expect(result.status).toBe("success");
   });
 
-  it("rejects writable agent without explicit branch", async () => {
+  it("rejects dispatch without explicit branch", async () => {
     const orchestrator = createOrchestrator();
 
     const result = await orchestrator.dispatch(makeInput({ branch: undefined }));
     expect(result.status).toBe("failure");
     const stepError = Object.values(result.steps)[0]?.error;
-    expect(stepError).toContain("--branch is required for writable agents");
+    expect(stepError).toContain("--branch is required");
   });
 
   it("accepts gitStrategy 'pr' with explicit branch", async () => {
@@ -959,11 +959,11 @@ describe("MCP server resolution", () => {
   });
 });
 
-// ─── Readonly agent (no clone) ──────────────────────────
+// ─── Readonly agent (with isolated clone) ───────────────
 
 describe("readonly agent", () => {
-  it("dispatches without creating a clone", async () => {
-    await import("@/isolation/clone");
+  it("dispatches with an isolated clone on the base branch", async () => {
+    const cloneMod = await import("@/isolation/clone");
 
     const orchestrator = new Orchestrator(makeConfig());
     orchestrator.registerWorkflow(
@@ -988,10 +988,17 @@ describe("readonly agent", () => {
       }),
     );
 
+    const createSpy = vi.spyOn(cloneMod, "createSessionClone");
+
     const result = await orchestrator.dispatch(makeInput({ workflow: "hotfix" }));
 
-    // createWorktree should not have been called for readonly agent
-    // (it may have been called previously by other tests, so just check result)
     expect(result.status).toBe("success");
+    // All agents get an isolated clone on the requested branch
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        branch: "feat/test-branch",
+        baseBranch: "main",
+      }),
+    );
   });
 });

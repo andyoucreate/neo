@@ -13,12 +13,6 @@ import { pushSessionBranch } from "@/isolation/git";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { loopDetection } from "@/middleware/loop-detection";
-import {
-  buildFullPrompt,
-  buildGitStrategyInstructions,
-  buildReportingInstructions,
-  loadRepoInstructions,
-} from "@/orchestrator/prompt-builder";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { SessionExecutor } from "@/runner/session-executor";
 import { isProcessAlive } from "@/shared/process";
@@ -406,19 +400,18 @@ export class Orchestrator extends NeoEventEmitter {
     });
 
     try {
-      // Create isolated clone if writable agent
-      if (agent.sandbox === "writable") {
-        const branchName = input.branch as string;
-        const sessionDir = path.join(this.config.sessions.dir, runId);
-        const info = await createSessionClone({
-          repoPath: input.repo,
-          branch: branchName,
-          baseBranch: repoConfig.defaultBranch,
-          sessionDir,
-        });
-        sessionPath = info.path;
-        activeSession.sessionPath = sessionPath;
-      }
+      // Create isolated clone for ALL agents.
+      // Uses the explicit branch if provided, otherwise falls back to the base branch.
+      const branchName = (input.branch as string) || repoConfig.defaultBranch;
+      const sessionDir = path.join(this.config.sessions.dir, runId);
+      const info = await createSessionClone({
+        repoPath: input.repo,
+        branch: branchName,
+        baseBranch: repoConfig.defaultBranch,
+        sessionDir,
+      });
+      sessionPath = info.path;
+      activeSession.sessionPath = sessionPath;
 
       const stepResult = await this.runAgentSession(ctx, sessionPath);
       this.emitCostEvents(sessionId, stepResult.costUsd, ctx);
@@ -474,20 +467,21 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   /**
-   * Push the branch, then remove the session clone.
+   * Push the branch (writable only), then remove the session clone.
    * Runs in `finally` so it executes on both success and failure.
    */
   private async finalizeSession(sessionPath: string, ctx: DispatchContext): Promise<void> {
-    const { repoConfig } = ctx;
-    const branch = ctx.input.branch as string;
-    const remote = repoConfig.pushRemote ?? "origin";
-
-    try {
-      await pushSessionBranch(sessionPath, branch, remote).catch(() => {
-        // Push may fail (no remote, auth, etc.) — not critical
-      });
-    } catch {
-      // Best-effort — don't let finalization errors mask the real result
+    // Only push for writable agents — readonly agents have no changes to push
+    if (ctx.agent.sandbox === "writable") {
+      const branch = ctx.input.branch as string;
+      const remote = ctx.repoConfig.pushRemote ?? "origin";
+      try {
+        await pushSessionBranch(sessionPath, branch, remote).catch(() => {
+          // Push may fail (no remote, auth, etc.) — not critical
+        });
+      } catch {
+        // Best-effort — don't let finalization errors mask the real result
+      }
     }
 
     try {

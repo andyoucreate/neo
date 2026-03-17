@@ -127,7 +127,7 @@ Copy types EXACTLY from the data model document. Do not invent new fields.
 - Uses `zod` to validate and apply defaults
 - Zod schema must match `NeoConfig` interface exactly
 - Sensible defaults for ALL optional fields:
-  - `concurrency.maxSessions: 5`, `maxPerRepo: 2`, `queueMax: 50`
+  - `concurrency.maxSessions: 5`, `maxPerRepo: 4`, `queueMax: 50`
   - `budget.dailyCapUsd: 500`, `alertThresholdPct: 80`
   - `recovery.maxRetries: 3`, `backoffBaseMs: 30_000`
   - `sessions.initTimeoutMs: 120_000`, `maxDurationMs: 3_600_000`
@@ -818,7 +818,7 @@ Read these documents before starting:
 2. Idempotency check — deduplicate if same metadata/prompt within TTL
 3. If paused → reject
 4. Acquire semaphore (blocks if at capacity, enqueue with priority)
-5. Create or reuse worktree (writable agents only)
+5. Create isolated session clone (all agents)
 6. Build middleware hooks → SDK hooks
 7. Run session via `runWithRecovery()`
 8. Parse structured output if schema provided

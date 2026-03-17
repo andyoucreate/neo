@@ -888,7 +888,7 @@ describe("e2e: budget alerts", () => {
 // ─── Readonly agent dispatch ─────────────────────────────
 
 describe("e2e: readonly agent", () => {
-  it("dispatches with readonly agent (no clone)", async () => {
+  it("dispatches with readonly agent in isolated clone", async () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
@@ -917,10 +917,10 @@ describe("e2e: readonly agent", () => {
       workflow: "review",
       repo: REPO_DIR,
       prompt: "Review the codebase",
+      branch: "feat/test-review",
     });
 
     expect(result.status).toBe("success");
-    expect(result.branch).toBeUndefined();
 
     await orchestrator.shutdown();
   });

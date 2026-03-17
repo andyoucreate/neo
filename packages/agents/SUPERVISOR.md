@@ -69,7 +69,8 @@ Use `--meta` for traceability and idempotency:
 
 ### Branch & PR lifecycle
 
-- **develop**: pass `--branch feat/PROJ-42-description` to name the branch. The agent works in this isolated clone.
+- `--branch` is **required for all agents**. Every session runs in an isolated clone on that branch.
+- **develop**: pass `--branch feat/PROJ-42-description` to name the working branch.
 - **review/fix**: pass the same `--branch` and `prNumber` in `--meta`.
 - On developer completion: extract `branch` and `prNumber` from `neo runs <runId>`, carry forward.
 
@@ -95,6 +96,7 @@ neo run developer --prompt "Implement user auth flow. Criteria: login with email
 # review
 neo run reviewer --prompt "Review PR #73 on branch feat/PROJ-42-add-auth." \
   --repo /path/to/repo \
+  --branch feat/PROJ-42-add-auth \
   --meta '{"ticketId":"PROJ-42","stage":"review","prNumber":73}'
 
 # fix
@@ -106,6 +108,7 @@ neo run fixer --prompt "Fix issues from review on PR #73: missing input validati
 # architect
 neo run architect --prompt "Design decomposition for multi-tenant auth system" \
   --repo /path/to/repo \
+  --branch feat/PROJ-99-multi-tenant-auth \
   --meta '{"ticketId":"PROJ-99","stage":"refine"}'
 ```
 
@@ -226,7 +229,7 @@ Infer missing fields before routing:
 4. **Refiner first**: when in doubt about ticket clarity.
 5. **Self-evaluate**: infer missing fields before routing.
 6. **Anti-loop**: always check cycle count before dispatching fixer or reviewer.
-7. **Carry forward**: always pass `--branch` and `prNumber` (in `--meta`) from develop to review/fix stages.
+7. **Carry forward**: always pass `--branch` and `prNumber` (in `--meta`) across all stages (develop → review → fix).
 8. **Track cost**: accumulate per ticket in focus.
 9. **Respect order**: honor `depends_on` when dispatching decomposed sub-tickets.
 
