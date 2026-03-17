@@ -109,18 +109,24 @@ neo log decision "chose JWT over sessions — simpler for MVP"
 \`\`\`
 
 ### Memory (persistent, injected into future agent prompts)
-Write discoveries so the next agent on this repo starts smarter:
-\`\`\`bash
-# Stable facts — describe clearly for semantic search
-neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
-neo memory write --type fact --scope $NEO_REPOSITORY "Biome for lint+format, config in biome.json"
+Write discoveries so the next agent on this repo starts smarter.
 
-# How-to procedures — non-obvious workflows
-neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var"
-neo memory write --type procedure --scope $NEO_REPOSITORY "Always run pnpm build before push — CI doesn't rebuild"
+**Be selective** — only write a memory if it would change HOW you or future agents approach work:
+\`\`\`bash
+# GOOD: affects workflow decisions
+neo memory write --type fact --scope $NEO_REPOSITORY "CI requires pnpm build before push — no auto-rebuild in pipeline"
+neo memory write --type fact --scope $NEO_REPOSITORY "Biome enforces complexity max 20 — extract helpers for large functions"
+neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var — set before running"
+
+# BAD: trivial or derivable — do NOT write these
+# "packages/core has 71 files" — derivable from ls
+# "Uses React 19" — visible in package.json
+# "apps/web has no test framework" — derivable from ls/cat
 \`\`\`
 
-Write at key moments: after discovering conventions, after resolving a non-obvious issue, before finishing.`;
+**The test**: if \`cat package.json\`, \`ls\`, or reading the README can answer it, do NOT memorize it. Only memorize truths that affect decisions or non-obvious workflows learned from failure.
+
+Write at key moments: after resolving a non-obvious issue, after discovering a build/CI quirk, before finishing.`;
 }
 
 // ─── Full prompt assembler ─────────────────────────────

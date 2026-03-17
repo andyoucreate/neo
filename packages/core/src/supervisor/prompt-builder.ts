@@ -101,26 +101,47 @@ const MEMORY_RULES = `### Memory — types and when to use each
 
 | Type | What | When | TTL |
 |------|------|------|-----|
-| \`fact\` | Stable truth about a repo | After discovering architecture, stack, conventions | Permanent (decays if unused) |
-| \`procedure\` | How-to recipe | After learning a non-obvious workflow | Permanent (decays if unused) |
-| \`focus\` | Current working context | After dispatching, deferring work, or changing priorities | Expires (set --expires) |
-| \`feedback\` | Recurring review issue | After seeing the same reviewer complaint 3+ times | Permanent |
+| \`fact\` | Stable truth that affects decisions | After discovering something that changes how you dispatch or review | Permanent (decays if unused) |
+| \`procedure\` | How-to recipe learned from failure | After the same issue occurs 3+ times | Permanent (decays if unused) |
+| \`focus\` | Structured working context | After every dispatch, deferral, or priority change | Expires (always set --expires) |
+| \`feedback\` | Recurring review pattern | After seeing the same reviewer complaint 3+ times | Permanent |
 | \`episode\` | Run outcome | Auto-created on run completion — do NOT write manually | Permanent |
 
+#### What to store
+- Architectural truths that affect future dispatch decisions (CI config, build requirements, tooling)
+- Procedures learned from repeated failures (3+ occurrences of the same issue)
+- Active working context in structured focus format (see below)
+
+#### What NOT to store
+- File counts, line numbers, or structural details derivable from code (\`ls\` or \`cat package.json\` can answer it)
+- Completed work details — once a PR is merged, forget the related facts unless they are reusable
+- Agent output details already available via \`neo runs <id>\`
+- Facts about repos where no work is currently planned
+
+#### Focus format (MANDATORY)
+Focus entries MUST use this structured format — no free-form paragraphs:
+\`\`\`
+ACTIVE: <runId> <agent> "<task>" branch:<name>
+PENDING: <taskId> "<description>" depends:<taskId>
+WAITING: <what> since:HB<N>
+PROCESSED: <runId> → <outcome> PR#<N>
+\`\`\`
+
 \`\`\`bash
-# Focus: what you're working on RIGHT NOW (always set --expires)
-neo memory write --type focus --expires 2h "Waiting on CI for PR #42 on myapp"
-neo memory write --type focus --expires 4h "3 tickets in progress: PROJ-10, PROJ-11, PROJ-12"
+# Focus: structured working context (always set --expires)
+neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1: schema+store' branch:feat/task-queue
+PENDING: T2 'CLI --outcome flag' depends:T1
+PENDING: T3+T4 'prompt injection' depends:T1"
 
-# Facts: stable truths about repos (be descriptive for semantic search)
-neo memory write --type fact --scope /path/to/repo "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
-neo memory write --type fact --scope /path/to/repo "CI pipeline: GitHub Actions, ~8min, flaky test in auth.spec.ts"
+# Facts: truths that change how you work (NOT trivia)
+neo memory write --type fact --scope /path/to/repo "CI requires pnpm build before push — no auto-rebuild in pipeline"
+neo memory write --type fact --scope /path/to/repo "Biome enforces complexity max 20 — extract helpers for large functions"
 
-# Procedures: how-to recipes agents should follow
-neo memory write --type procedure --scope /path/to/repo "Run pnpm test:e2e with DATABASE_URL set for integration tests"
-neo memory write --type procedure --scope /path/to/repo "Always run pnpm build before pushing — CI doesn't rebuild"
+# Procedures: recipes learned from failure (write after 3+ occurrences)
+neo memory write --type procedure --scope /path/to/repo "Before re-dispatching after orphan failure, check if PR already merged with gh pr view"
+neo memory write --type procedure --scope /path/to/repo "Integration tests require DATABASE_URL env var — agent must set it"
 
-# Feedback: patterns from reviewer that keep recurring
+# Feedback: recurring reviewer complaints
 neo memory write --type feedback --scope /path/to/repo --category input_validation "Always validate user input at controller boundaries"
 
 # Forget stale entries
@@ -130,9 +151,13 @@ neo memory forget <id>
 neo memory search "database setup"
 \`\`\`
 
-**Focus is critical** — always update your focus after dispatching or deferring work. Without focus, you lose context between heartbeats.
+#### Pattern escalation
+When you encounter the same failure or issue 3+ times, ALWAYS write a \`procedure\` memory so you handle it automatically next time. Do not re-discover the same problem repeatedly.
 
-**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans, analysis, and checklists that span multiple heartbeats. Delete when done.`;
+#### Event deduplication
+After processing a run completion, record the runId as PROCESSED in your focus. If the same runId appears in future events, skip it — do not re-analyze.
+
+**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans, analysis, and checklists that span multiple heartbeats. After creating or reading a plan, write a focus summary: "Plan: <name> | Tasks: T1-T5 | Current: T1 | Next: T2 (depends T1) | Ref: cat notes/<file>". Delete notes when done.`;
 
 // ─── Section builders ───────────────────────────────────
 
@@ -174,15 +199,32 @@ function buildMemorySection(memories: MemoryEntry[], supervisorDir: string): str
     );
   }
 
-  // Known facts
+  // Known facts — grouped by scope with staleness signal
   if (factEntries.length > 0) {
-    const lines = factEntries
-      .map((m) => {
-        const confidence = m.accessCount >= 3 ? "" : " (unconfirmed)";
-        return `- ${m.content}${confidence}`;
-      })
-      .join("\n");
-    parts.push(`Known facts:\n${lines}`);
+    const byScope = new Map<string, MemoryEntry[]>();
+    for (const m of factEntries) {
+      const scope = m.scope === "global" ? "global" : (m.scope.split("/").pop() ?? m.scope);
+      const group = byScope.get(scope) ?? [];
+      group.push(m);
+      byScope.set(scope, group);
+    }
+
+    const scopeSections: string[] = [];
+    for (const [scope, entries] of byScope) {
+      const oldestAccess = Math.min(
+        ...entries.map((m) => Date.now() - new Date(m.lastAccessedAt).getTime()),
+      );
+      const daysAgo = Math.floor(oldestAccess / 86_400_000);
+      const staleHint = daysAgo >= 5 ? ` (last accessed ${daysAgo}d ago)` : "";
+      const lines = entries
+        .map((m) => {
+          const confidence = m.accessCount >= 3 ? "" : " (unconfirmed)";
+          return `  - ${m.content}${confidence}`;
+        })
+        .join("\n");
+      scopeSections.push(`  [${scope}]${staleHint} (${entries.length})\n${lines}`);
+    }
+    parts.push(`Known facts:\n${scopeSections.join("\n")}`);
   }
 
   // Procedures
@@ -364,19 +406,23 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
 
   instructionParts.push(
     `### Consolidation
-This is a CONSOLIDATION heartbeat. Your job:
+This is a CONSOLIDATION heartbeat.
 
-1. **Review memory** — check facts and procedures for accuracy. Remove outdated entries. Resolve contradictions (keep newer).
-2. **Update focus** — reflect the current state. Remove resolved items, add new context.
-3. **Identify patterns** — if agents keep hitting the same issues, write a procedure or fact to prevent recurrence.
+**Idle guard**: if there are NO active runs AND no new events since last consolidation, log "idle, no changes" and yield immediately. Do NOT re-validate facts you already reviewed.
+
+If there IS active work, your job:
+
+1. **Review memory** — check facts and procedures for accuracy. Remove outdated entries. Resolve contradictions (keep newer). Remove facts about completed work (merged PRs, finished initiatives).
+2. **Update focus** — rewrite focus using the MANDATORY structured format (ACTIVE/PENDING/WAITING/PROCESSED). Remove resolved items. Add new context.
+3. **Pattern escalation** — if agents hit the same issue 3+ times (check recent actions), write a \`procedure\` to prevent recurrence.
+4. **Prune completed work** — if a PR is merged or an initiative is done, forget related facts that are no longer actionable. Keep only reusable architectural truths.
 
 \`\`\`bash
-neo memory write --type fact --scope /repos/myapp "Uses Prisma with PostgreSQL"
-neo memory write --type focus --expires 4h "Waiting on CI for PR #42"
+neo memory write --type procedure --scope /repo "Before re-dispatching after orphan, check gh pr view first"
+neo memory write --type focus --expires 4h "ACTIVE: abc123 developer 'T3: prompt injection' branch:feat/task-queue
+PROCESSED: 5900a64a → PR#70 APPROVED"
 neo memory forget <stale-id>
-\`\`\`
-
-If nothing meaningful changed since last consolidation, skip.`,
+\`\`\``,
   );
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
@@ -413,19 +459,21 @@ export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string 
   }
 
   instructionParts.push(`### Compaction
-This is a COMPACTION heartbeat. Review your ENTIRE memory for cleanup.
+This is a COMPACTION heartbeat. Deep-clean your ENTIRE memory.
 
-1. Remove stale facts (>7 days old with no recent reinforcement)
-2. Merge duplicate or similar facts within the same scope
-3. Clean up focus — forget resolved items
-4. Delete completed notes from notes/ directory
-5. Stay under 20 facts per scope
+1. **Remove stale facts** — facts >7 days old with no recent reinforcement. Check the "(last accessed Xd ago)" hints in the facts section.
+2. **Remove completed-work facts** — if all PRs for a repo initiative are merged/closed, forget related facts. Keep only reusable architectural truths (build system, CI config, tooling).
+3. **Remove trivial facts** — file counts, line numbers, structural details that \`ls\` or \`cat package.json\` can answer. These waste context.
+4. **Merge duplicates** — combine similar facts within the same scope into one.
+5. **Clean up focus** — forget resolved items, rewrite remaining in structured format.
+6. **Delete completed notes** from notes/ directory.
+7. **Stay under 15 facts per scope** — prioritize facts that affect dispatch decisions.
 
 Flag contradictions: if two facts contradict, keep the newer one.
 
 \`\`\`bash
-neo memory forget <stale-id>
 neo memory list --type fact
+neo memory forget <stale-id>
 \`\`\``);
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);

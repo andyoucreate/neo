@@ -47,7 +47,7 @@ describe("buildCompactionPrompt", () => {
     expect(prompt).toContain("COMPACTION");
     expect(prompt).toContain("Remove stale facts");
     expect(prompt).toContain("Merge duplicate");
-    expect(prompt).toContain("20 facts per scope");
+    expect(prompt).toContain("15 facts per scope");
   });
 });
 
