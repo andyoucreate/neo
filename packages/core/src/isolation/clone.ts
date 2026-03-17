@@ -47,31 +47,34 @@ export async function createSessionClone(options: {
     timeout: GIT_TIMEOUT,
   });
 
-  // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
-  const branchExists = await execFileAsync(
-    "git",
-    ["ls-remote", "--heads", "origin", options.branch],
-    { cwd: sessionDir, timeout: GIT_TIMEOUT },
-  )
-    .then(({ stdout }) => stdout.trim().length > 0)
-    .catch(() => false);
+  // If branch === baseBranch, we're already on it after clone — nothing to do
+  if (options.branch !== options.baseBranch) {
+    // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
+    const branchExists = await execFileAsync(
+      "git",
+      ["ls-remote", "--heads", "origin", options.branch],
+      { cwd: sessionDir, timeout: GIT_TIMEOUT },
+    )
+      .then(({ stdout }) => stdout.trim().length > 0)
+      .catch(() => false);
 
-  if (branchExists) {
-    // Fetch and checkout the existing branch
-    await execFileAsync("git", ["fetch", "origin", options.branch], {
-      cwd: sessionDir,
-      timeout: GIT_TIMEOUT,
-    });
-    await execFileAsync("git", ["checkout", "-b", options.branch, `origin/${options.branch}`], {
-      cwd: sessionDir,
-      timeout: GIT_TIMEOUT,
-    });
-  } else if (options.branch !== options.baseBranch) {
-    // Create a new branch from baseBranch
-    await execFileAsync("git", ["checkout", "-b", options.branch], {
-      cwd: sessionDir,
-      timeout: GIT_TIMEOUT,
-    });
+    if (branchExists) {
+      // Fetch and checkout the existing branch
+      await execFileAsync("git", ["fetch", "origin", options.branch], {
+        cwd: sessionDir,
+        timeout: GIT_TIMEOUT,
+      });
+      await execFileAsync("git", ["checkout", "-b", options.branch, `origin/${options.branch}`], {
+        cwd: sessionDir,
+        timeout: GIT_TIMEOUT,
+      });
+    } else {
+      // Create a new branch from baseBranch
+      await execFileAsync("git", ["checkout", "-b", options.branch], {
+        cwd: sessionDir,
+        timeout: GIT_TIMEOUT,
+      });
+    }
   }
 
   return { path: sessionDir, branch: options.branch, repoPath };
