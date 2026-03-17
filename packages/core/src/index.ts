@@ -38,10 +38,13 @@ export {
 } from "@/config";
 // ─── Cost ──────────────────────────────────────────────
 export { CostJournal } from "@/cost/journal";
-export { NeoEventEmitter } from "@/events";
 // ─── Events ────────────────────────────────────────────
-export { EventJournal } from "@/events/journal";
-export { matchesFilter, WebhookDispatcher } from "@/events/webhook";
+export {
+  EventJournal,
+  matchesFilter,
+  NeoEventEmitter,
+  WebhookDispatcher,
+} from "@/events";
 export type { SessionCloneInfo } from "@/isolation/clone";
 // ─── Isolation ──────────────────────────────────────────
 export {
