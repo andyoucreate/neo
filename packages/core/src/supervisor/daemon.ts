@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getSupervisorDir } from "@/paths";
+import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
@@ -48,7 +49,7 @@ export class SupervisorDaemon {
     const lockPath = path.join(this.dir, "daemon.lock");
     if (existsSync(lockPath)) {
       const lockPid = await this.readLockPid(lockPath);
-      if (lockPid && this.isProcessAlive(lockPid)) {
+      if (lockPid && isProcessAlive(lockPid)) {
         throw new Error(
           `Supervisor "${this.name}" already running (PID ${lockPid}). Use --kill first.`,
         );
@@ -220,15 +221,6 @@ export class SupervisorDaemon {
       return Number.isNaN(pid) ? null : pid;
     } catch {
       return null;
-    }
-  }
-
-  private isProcessAlive(pid: number): boolean {
-    try {
-      process.kill(pid, 0);
-      return true;
-    } catch {
-      return false;
     }
   }
 }
