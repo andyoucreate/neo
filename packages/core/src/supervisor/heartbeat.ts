@@ -26,6 +26,18 @@ interface SDKStreamMessage {
   [key: string]: unknown;
 }
 
+// ─── Default values for deprecated config fields ─────────
+// These maintain backward compatibility while allowing config removal.
+
+/** Max idle heartbeats to skip before forcing a heartbeat (no events, no active work) */
+const DEFAULT_IDLE_SKIP_MAX = 20;
+
+/** Max heartbeats to skip when there's active work but no events */
+const DEFAULT_ACTIVE_WORK_SKIP_MAX = 3;
+
+/** Consolidation runs every N heartbeats */
+const DEFAULT_CONSOLIDATION_INTERVAL = 5;
+
 // ─── Consolidation logic ────────────────────────────────
 
 /**
@@ -162,7 +174,7 @@ export class HeartbeatLoop {
         // Circuit breaker: exponential backoff after consecutive failures
         if (this.consecutiveFailures >= this.config.supervisor.maxConsecutiveFailures) {
           const backoffMs = Math.min(
-            this.config.supervisor.idleIntervalMs *
+            this.config.supervisor.eventTimeoutMs *
               2 ** (this.consecutiveFailures - this.config.supervisor.maxConsecutiveFailures),
             15 * 60 * 1000, // max 15 minutes
           );
@@ -178,7 +190,7 @@ export class HeartbeatLoop {
       if (this.stopping) break;
 
       // Wait for next event or idle timeout
-      await this.eventQueue.waitForEvent(this.config.supervisor.idleIntervalMs);
+      await this.eventQueue.waitForEvent(this.config.supervisor.eventTimeoutMs);
     }
 
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop stopped");
@@ -297,7 +309,7 @@ export class HeartbeatLoop {
         "error",
         `Supervisor daily budget exceeded ($${todayCost.toFixed(2)} / $${this.config.supervisor.dailyCapUsd}). Skipping heartbeat.`,
       );
-      await this.sleep(this.config.supervisor.idleIntervalMs);
+      await this.sleep(this.config.supervisor.eventTimeoutMs);
       return { todayCost, exceeded: true };
     }
 
@@ -319,19 +331,19 @@ export class HeartbeatLoop {
 
     if (totalEventCount === 0) {
       if (hasActiveWork) {
-        if (activeWorkSkipCount < this.config.supervisor.activeWorkSkipMax) {
+        if (activeWorkSkipCount < DEFAULT_ACTIVE_WORK_SKIP_MAX) {
           await this.updateState({
             activeWorkSkipCount: activeWorkSkipCount + 1,
             idleSkipCount: 0,
           });
           await this.activityLog.log(
             "heartbeat",
-            `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${activeRuns.length} runs active, no events`,
+            `Active-work skip #${activeWorkSkipCount + 1}/${DEFAULT_ACTIVE_WORK_SKIP_MAX} — ${activeRuns.length} runs active, no events`,
           );
           return { shouldSkip: true, resetCounters: false };
         }
       } else {
-        if (idleSkipCount < this.config.supervisor.idleSkipMax) {
+        if (idleSkipCount < DEFAULT_IDLE_SKIP_MAX) {
           await this.updateState({
             idleSkipCount: idleSkipCount + 1,
             activeWorkSkipCount: 0,
@@ -367,7 +379,7 @@ export class HeartbeatLoop {
     const wouldConsolidate = shouldConsolidate(
       heartbeatCount,
       lastConsolidation,
-      this.config.supervisor.consolidationInterval,
+      DEFAULT_CONSOLIDATION_INTERVAL,
       hasPendingEntries,
     );
     const isConsolidation =

@@ -288,7 +288,7 @@ repos:
     await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
   });
 
-  it("applies supervisor timer defaults including deprecated fields", async () => {
+  it("applies supervisor timer defaults", async () => {
     await writeConfig(`
 repos:
   - path: /my/repo
@@ -296,13 +296,7 @@ repos:
 
     const config = await loadConfig(CONFIG_PATH);
 
-    // Deprecated fields (will be removed after T4 migrates heartbeat.ts)
-    expect(config.supervisor.idleIntervalMs).toBe(60_000);
-    expect(config.supervisor.idleSkipMax).toBe(20);
-    expect(config.supervisor.activeWorkSkipMax).toBe(3);
-    expect(config.supervisor.consolidationInterval).toBe(5);
-
-    // New timer configuration fields
+    // Timer configuration fields
     expect(config.supervisor.consolidationIntervalMs).toBe(300_000);
     expect(config.supervisor.compactionIntervalMs).toBe(3_600_000);
     expect(config.supervisor.eventTimeoutMs).toBe(300_000);
