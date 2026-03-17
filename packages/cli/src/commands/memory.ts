@@ -4,7 +4,7 @@ import { getSupervisorDir, LocalEmbedder, MemoryStore } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess, printTable } from "../output.js";
 
-const VALID_TYPES = ["fact", "procedure", "episode", "focus", "feedback"] as const;
+const VALID_TYPES = ["fact", "procedure", "episode", "focus", "feedback", "task"] as const;
 
 interface ParsedArgs {
   value: string | undefined;
@@ -222,7 +222,7 @@ export default defineCommand({
     },
     type: {
       type: "string",
-      description: "Memory type: fact, procedure, episode, focus, feedback",
+      description: "Memory type: fact, procedure, episode, focus, feedback, task",
     },
     scope: {
       type: "string",
