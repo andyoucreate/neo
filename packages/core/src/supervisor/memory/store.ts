@@ -58,6 +58,9 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_mem_created ON memories(created_at);
     `);
 
+    // Migrate CHECK constraint if table predates 'task' type
+    this.migrateCheckConstraint();
+
     // FTS5 for full-text search
     this.db.exec(`
       CREATE VIRTUAL TABLE IF NOT EXISTS memories_fts USING fts5(
@@ -99,6 +102,42 @@ export class MemoryStore {
         this.hasVec = false;
       }
     }
+  }
+
+  /**
+   * Migrate existing tables whose CHECK constraint predates the 'task' type.
+   * SQLite doesn't allow ALTER CHECK, so we recreate the table if needed.
+   */
+  private migrateCheckConstraint(): void {
+    const tableInfo = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
+      .get() as { sql: string } | undefined;
+    if (!tableInfo || tableInfo.sql.includes("'task'")) return;
+
+    this.db.exec(`
+      ALTER TABLE memories RENAME TO memories_old;
+
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL CHECK(type IN ('fact','procedure','episode','focus','feedback','task')),
+        scope TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source TEXT NOT NULL,
+        tags TEXT DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        last_accessed_at TEXT NOT NULL,
+        access_count INTEGER DEFAULT 0,
+        expires_at TEXT,
+        outcome TEXT,
+        run_id TEXT,
+        category TEXT,
+        severity TEXT,
+        supersedes TEXT
+      );
+
+      INSERT INTO memories SELECT * FROM memories_old;
+      DROP TABLE memories_old;
+    `);
   }
 
   // ─── Write ───────────────────────────────────────────
