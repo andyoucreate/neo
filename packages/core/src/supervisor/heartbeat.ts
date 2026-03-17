@@ -6,6 +6,17 @@ import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getDataDir, getRunsDir } from "@/paths";
 import type { PersistedRun } from "@/types";
+import {
+  isAssistantContentMessage,
+  isInitMessage,
+  isResultMessage,
+  isToolResultMessage,
+  isToolUseMessage,
+  type SDKAssistantContentMessage,
+  type SDKStreamMessage,
+  type SDKToolResultMessage,
+  type SDKToolUseMessage,
+} from "../sdk-types.js";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
@@ -17,14 +28,6 @@ import {
   buildStandardPrompt,
 } from "./prompt-builder.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
-
-// ─── SDK message shapes (same as runner/session.ts) ──────
-
-interface SDKStreamMessage {
-  type: string;
-  subtype?: string;
-  [key: string]: unknown;
-}
 
 // ─── Default values for deprecated config fields ─────────
 // These maintain backward compatibility while allowing config removal.
@@ -536,14 +539,14 @@ export class HeartbeatLoop {
 
         const msg = message as SDKStreamMessage;
 
-        if (msg.type === "system" && msg.subtype === "init") {
-          this.sessionId = msg.session_id as string;
+        if (isInitMessage(msg)) {
+          this.sessionId = msg.session_id;
         }
 
-        if (msg.type === "result") {
-          output = (msg.result as string) ?? "";
-          costUsd = (msg.total_cost_usd as number) ?? 0;
-          turnCount = (msg.num_turns as number) ?? 0;
+        if (isResultMessage(msg)) {
+          output = msg.result ?? "";
+          costUsd = msg.total_cost_usd ?? 0;
+          turnCount = msg.num_turns ?? 0;
         }
 
         await this.logStreamMessage(msg, heartbeatId);
@@ -647,24 +650,21 @@ export class HeartbeatLoop {
 
   /** Route a single SDK stream message to the appropriate log handler. */
   private async logStreamMessage(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (msg.type !== "assistant") return;
-
-    if (!msg.subtype) {
+    if (isAssistantContentMessage(msg)) {
       await this.logContentBlocks(msg, heartbeatId);
-    } else if (msg.subtype === "tool_use") {
+    } else if (isToolUseMessage(msg)) {
       await this.logToolUse(msg, heartbeatId);
-    } else if (msg.subtype === "tool_result") {
+    } else if (isToolResultMessage(msg)) {
       await this.logToolResult(msg, heartbeatId);
     }
   }
 
   /** Log thinking and plan blocks from assistant content — no truncation. */
-  private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const content = (
-      msg.message as
-        | { content?: Array<{ type: string; thinking?: string; text?: string }> }
-        | undefined
-    )?.content;
+  private async logContentBlocks(
+    msg: SDKAssistantContentMessage,
+    heartbeatId: string,
+  ): Promise<void> {
+    const content = msg.message.content;
     if (!content) return;
 
     for (const block of content) {
@@ -679,8 +679,8 @@ export class HeartbeatLoop {
   }
 
   /** Log tool use events — distinguish MCP tools from built-in tools. */
-  private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const toolName = String(msg.tool ?? "unknown");
+  private async logToolUse(msg: SDKToolUseMessage, heartbeatId: string): Promise<void> {
+    const toolName = msg.tool;
     const isMcp = toolName.startsWith("mcp__");
     await this.activityLog.log(
       isMcp ? "tool_use" : "action",
@@ -690,8 +690,8 @@ export class HeartbeatLoop {
   }
 
   /** Detect agent dispatches from bash tool results. */
-  private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const result = String(msg.result ?? "");
+  private async logToolResult(msg: SDKToolResultMessage, heartbeatId: string): Promise<void> {
+    const result = msg.result;
     const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
     if (runMatch) {
       await this.activityLog.log("dispatch", `Agent dispatched: ${runMatch[1]}`, {
