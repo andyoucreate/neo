@@ -1,5 +1,6 @@
 import type { McpServerConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
+import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
 import type { ResolvedAgent } from "@/types";
 
 // ─── Types ──────────────────────────────────────────────
@@ -31,36 +32,6 @@ export type SessionEvent =
   | { type: "session:start"; sessionId: string }
   | { type: "session:complete"; sessionId: string; result: SessionResult }
   | { type: "session:fail"; sessionId: string; error: string };
-
-// ─── SDK stream message shapes ──────────────────────────
-
-interface SDKInitMessage {
-  type: "system";
-  subtype: "init";
-  session_id: string;
-}
-
-interface SDKResultMessage {
-  type: "result";
-  subtype: "success" | string;
-  session_id: string;
-  result: string;
-  total_cost_usd: number;
-  num_turns: number;
-}
-
-interface SDKStreamMessage {
-  type: string;
-  subtype?: string;
-}
-
-function isInitMessage(msg: SDKStreamMessage): msg is SDKInitMessage {
-  return msg.type === "system" && msg.subtype === "init";
-}
-
-function isResultMessage(msg: SDKStreamMessage): msg is SDKResultMessage {
-  return msg.type === "result";
-}
 
 // ─── Helpers ────────────────────────────────────────────
 
