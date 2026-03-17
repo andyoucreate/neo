@@ -2,7 +2,14 @@ import { z } from "zod";
 
 // ─── Memory types ────────────────────────────────────────
 
-export const memoryTypeSchema = z.enum(["fact", "procedure", "episode", "focus", "feedback"]);
+export const memoryTypeSchema = z.enum([
+  "fact",
+  "procedure",
+  "episode",
+  "focus",
+  "feedback",
+  "task",
+]);
 
 export type MemoryType = z.infer<typeof memoryTypeSchema>;
 

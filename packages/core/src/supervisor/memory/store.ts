@@ -38,7 +38,7 @@ export class MemoryStore {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
-        type TEXT NOT NULL CHECK(type IN ('fact','procedure','episode','focus','feedback')),
+        type TEXT NOT NULL CHECK(type IN ('fact','procedure','episode','focus','feedback','task')),
         scope TEXT NOT NULL,
         content TEXT NOT NULL,
         source TEXT NOT NULL,
@@ -164,6 +164,28 @@ export class MemoryStore {
         this.db.prepare("DELETE FROM memories_vec WHERE rowid = ?").run(row.rowid);
       }
     }
+  }
+
+  // ─── Update fields ───────────────────────────────────
+
+  updateFields(id: string, fields: { content?: string; outcome?: string; runId?: string }): void {
+    const sets: string[] = [];
+    const params: unknown[] = [];
+    if (fields.content !== undefined) {
+      sets.push("content = ?");
+      params.push(fields.content);
+    }
+    if (fields.outcome !== undefined) {
+      sets.push("outcome = ?");
+      params.push(fields.outcome);
+    }
+    if (fields.runId !== undefined) {
+      sets.push("run_id = ?");
+      params.push(fields.runId);
+    }
+    if (sets.length === 0) return;
+    params.push(id);
+    this.db.prepare(`UPDATE memories SET ${sets.join(", ")} WHERE id = ?`).run(...params);
   }
 
   // ─── Forget ──────────────────────────────────────────
@@ -324,15 +346,27 @@ export class MemoryStore {
   }
 
   decay(maxAgeDays = 30, minAccessCount = 3): number {
-    const result = this.db
+    // Delete stale low-access memories
+    const staleResult = this.db
       .prepare(
         `DELETE FROM memories
        WHERE access_count < ?
          AND julianday('now') - julianday(last_accessed_at) > ?
-         AND type NOT IN ('focus')`,
+         AND type NOT IN ('focus', 'task')`,
       )
       .run(minAccessCount, maxAgeDays);
-    return result.changes;
+
+    // Delete completed tasks older than 7 days
+    const taskResult = this.db
+      .prepare(
+        `DELETE FROM memories
+       WHERE type = 'task'
+         AND outcome = 'done'
+         AND julianday('now') - julianday(last_accessed_at) > 7`,
+      )
+      .run();
+
+    return staleResult.changes + taskResult.changes;
   }
 
   expireEphemeral(): number {

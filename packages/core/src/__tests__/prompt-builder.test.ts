@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { GroupedEvents } from "@/supervisor/event-queue";
 import type { MemoryEntry } from "@/supervisor/memory/entry";
-import { buildConsolidationPrompt, buildStandardPrompt } from "@/supervisor/prompt-builder";
+import {
+  buildConsolidationPrompt,
+  buildStandardPrompt,
+  buildWorkQueueSection,
+} from "@/supervisor/prompt-builder";
 
 function emptyGrouped(): GroupedEvents {
   return { messages: [], webhooks: [], runCompletions: [] };
@@ -168,6 +172,185 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("Run pnpm test:e2e");
     expect(result).toContain("Recurring review issues:");
     expect(result).toContain("[input_validation] Missing validation");
+  });
+});
+
+// ─── buildConsolidationPrompt ───────────────────────────
+
+// ─── buildWorkQueueSection ──────────────────────────────
+
+describe("buildWorkQueueSection", () => {
+  it("returns empty string for empty task list", () => {
+    const result = buildWorkQueueSection([]);
+    expect(result).toBe("");
+  });
+
+  it("returns empty string when no active tasks exist", () => {
+    const memories = [
+      makeMemory({ type: "fact", content: "Some fact" }),
+      makeMemory({ type: "procedure", content: "Some procedure" }),
+    ];
+    const result = buildWorkQueueSection(memories);
+    expect(result).toBe("");
+  });
+
+  it("renders mix of pending/active/blocked tasks with correct markers", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "T1: Setup auth",
+        outcome: "pending",
+      }),
+      makeMemory({
+        type: "task",
+        content: "T2: Implement login",
+        outcome: "in_progress",
+      }),
+      makeMemory({
+        type: "task",
+        content: "T3: Add tests",
+        outcome: "blocked",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+
+    // Check header
+    expect(result).toContain("Work queue (3 remaining, 0 done):");
+
+    // Check markers
+    expect(result).toContain("○ T1: Setup auth"); // pending uses ○
+    expect(result).toContain("[ACTIVE] T2: Implement login"); // in_progress uses [ACTIVE]
+    expect(result).toContain("[BLOCKED] T3: Add tests"); // blocked uses [BLOCKED]
+  });
+
+  it("groups tasks by initiative tag", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "T1: Auth middleware",
+        outcome: "pending",
+        tags: ["initiative:auth-v2"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "T2: JWT validation",
+        outcome: "pending",
+        tags: ["initiative:auth-v2"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "T3: Unrelated task",
+        outcome: "pending",
+        tags: [],
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+
+    // Should have initiative header
+    expect(result).toContain("[auth-v2]");
+    expect(result).toContain("T1: Auth middleware");
+    expect(result).toContain("T2: JWT validation");
+    expect(result).toContain("T3: Unrelated task");
+  });
+
+  it("caps at 15 tasks and shows overflow indicator", () => {
+    const memories: MemoryEntry[] = [];
+    for (let i = 1; i <= 20; i++) {
+      memories.push(
+        makeMemory({
+          type: "task",
+          content: `Task ${i}`,
+          outcome: "pending",
+        }),
+      );
+    }
+
+    const result = buildWorkQueueSection(memories);
+
+    // Should show 15 tasks max
+    expect(result).toContain("Task 1");
+    expect(result).toContain("Task 15");
+
+    // Should NOT show task 16-20 directly
+    expect(result).not.toContain("○ Task 16");
+    expect(result).not.toContain("○ Task 20");
+
+    // Should show overflow indicator
+    expect(result).toContain("... and 5 more pending");
+  });
+
+  it("excludes done and abandoned tasks from active count", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "T1: Done task",
+        outcome: "done",
+      }),
+      makeMemory({
+        type: "task",
+        content: "T2: Abandoned task",
+        outcome: "abandoned",
+      }),
+      makeMemory({
+        type: "task",
+        content: "T3: Pending task",
+        outcome: "pending",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+
+    // Header should show 1 remaining (pending), 2 done
+    expect(result).toContain("Work queue (1 remaining, 2 done):");
+
+    // Should only render the pending task
+    expect(result).toContain("T3: Pending task");
+    expect(result).not.toContain("T1: Done task");
+    expect(result).not.toContain("T2: Abandoned task");
+  });
+
+  it("shows scope basename for non-global tasks", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Repo-specific task",
+        outcome: "pending",
+        scope: "/repos/myapp",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("(myapp)");
+  });
+
+  it("shows run reference when runId is present", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Task with run",
+        outcome: "in_progress",
+        runId: "run_abc123456789",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("[run run_abc1]"); // first 8 chars
+  });
+
+  it("shows severity when present", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "High priority task",
+        outcome: "pending",
+        severity: "high",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("[high]");
   });
 });
 

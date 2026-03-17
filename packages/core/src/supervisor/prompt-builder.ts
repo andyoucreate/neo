@@ -106,6 +106,7 @@ const MEMORY_RULES = `### Memory — types and when to use each
 | \`focus\` | Structured working context | After every dispatch, deferral, or priority change | Expires (always set --expires) |
 | \`feedback\` | Recurring review pattern | After seeing the same reviewer complaint 3+ times | Permanent |
 | \`episode\` | Run outcome | Auto-created on run completion — do NOT write manually | Permanent |
+| \`task\` | Planned work item | After architect output or decomposition | Until done/abandoned |
 
 #### What to store
 - Architectural truths that affect future dispatch decisions (CI config, build requirements, tooling)
@@ -143,6 +144,10 @@ neo memory write --type procedure --scope /path/to/repo "Integration tests requi
 
 # Feedback: recurring reviewer complaints
 neo memory write --type feedback --scope /path/to/repo --category input_validation "Always validate user input at controller boundaries"
+
+# Tasks: work queue items from architect output or manual decomposition
+neo memory write --type task --scope /path/to/repo --severity high "T1: Implement auth middleware"
+neo memory write --type task --scope /path/to/repo --tags 'initiative:auth-v2' "T2: Add JWT validation"
 
 # Forget stale entries
 neo memory forget <id>
@@ -252,6 +257,105 @@ EOF
   return parts.join("\n\n");
 }
 
+// ─── Work queue (tasks) ─────────────────────────────────
+
+const DONE_OUTCOMES = new Set(["done", "abandoned"]);
+const MAX_TASKS = 15;
+
+interface TaskGroup {
+  initiative: string | null;
+  tasks: MemoryEntry[];
+}
+
+export function buildWorkQueueSection(memories: MemoryEntry[]): string {
+  // Filter task memories that are not done/abandoned
+  const tasks = memories.filter((m) => m.type === "task" && !DONE_OUTCOMES.has(m.outcome ?? ""));
+
+  if (tasks.length === 0) return "";
+
+  // Count done tasks for the counter
+  const doneCount = memories.filter(
+    (m) => m.type === "task" && DONE_OUTCOMES.has(m.outcome ?? ""),
+  ).length;
+
+  // Group by initiative tag
+  const groups: TaskGroup[] = [];
+  const initiativeMap = new Map<string, MemoryEntry[]>();
+  const noInitiative: MemoryEntry[] = [];
+
+  for (const task of tasks) {
+    const initiativeTag = task.tags.find((t) => t.startsWith("initiative:"));
+    if (initiativeTag) {
+      const initiative = initiativeTag.slice("initiative:".length);
+      const group = initiativeMap.get(initiative) ?? [];
+      group.push(task);
+      initiativeMap.set(initiative, group);
+    } else {
+      noInitiative.push(task);
+    }
+  }
+
+  // Build groups array
+  for (const [initiative, taskList] of initiativeMap) {
+    groups.push({ initiative, tasks: taskList });
+  }
+  if (noInitiative.length > 0) {
+    groups.push({ initiative: null, tasks: noInitiative });
+  }
+
+  // Render tasks with cap
+  const lines: string[] = [];
+  let rendered = 0;
+  const remaining = tasks.length;
+
+  for (const group of groups) {
+    if (rendered >= MAX_TASKS) break;
+
+    // Add initiative header if multiple initiatives exist
+    if (group.initiative && initiativeMap.size > 0) {
+      lines.push(`  [${group.initiative}]`);
+    }
+
+    for (const task of group.tasks) {
+      if (rendered >= MAX_TASKS) break;
+
+      const marker = formatTaskMarker(task.outcome);
+      const severity = task.severity ? `[${task.severity}] ` : "";
+      const scopeBasename = task.scope !== "global" ? ` (${getBasename(task.scope)})` : "";
+      const runRef = task.runId ? ` [run ${task.runId.slice(0, 8)}]` : "";
+      const categoryRef = task.category ? ` → ${task.category}` : "";
+
+      lines.push(`  ${marker} ${severity}${task.content}${scopeBasename}${runRef}${categoryRef}`);
+      rendered++;
+    }
+  }
+
+  // Add overflow notice if capped
+  if (remaining > MAX_TASKS) {
+    const overflow = remaining - MAX_TASKS;
+    lines.push(`  ... and ${overflow} more pending`);
+  }
+
+  const header = `Work queue (${remaining} remaining, ${doneCount} done):`;
+  return `${header}\n${lines.join("\n")}`;
+}
+
+function formatTaskMarker(outcome: string | undefined): string {
+  switch (outcome) {
+    case "in_progress":
+      return "[ACTIVE]";
+    case "blocked":
+      return "[BLOCKED]";
+    default:
+      return "○";
+  }
+}
+
+function getBasename(scopePath: string): string {
+  const parts = scopePath.split("/");
+  return parts[parts.length - 1] || scopePath;
+}
+
 // ─── Recent actions ─────────────────────────────────────
 
 const SIGNIFICANT_TYPES = new Set(["decision", "action", "dispatch", "error", "plan"]);
@@ -336,6 +440,11 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
 
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
 
+  const workQueue = buildWorkQueueSection(opts.memories);
+  if (workQueue) {
+    contextParts.push(workQueue);
+  }
+
   const recentActions = buildRecentActionsSection(opts.recentActions);
   if (recentActions) {
     contextParts.push(recentActions);
@@ -384,6 +493,11 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
   }
 
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
+
+  const workQueueConsolidation = buildWorkQueueSection(opts.memories);
+  if (workQueueConsolidation) {
+    contextParts.push(workQueueConsolidation);
+  }
 
   const recentActions = buildRecentActionsSection(opts.recentActions);
   if (recentActions) {
@@ -445,6 +559,11 @@ export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string 
   const contextParts: string[] = [];
   contextParts.push(...buildContextSections(opts));
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
+
+  const workQueueCompaction = buildWorkQueueSection(opts.memories);
+  if (workQueueCompaction) {
+    contextParts.push(workQueueCompaction);
+  }
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
