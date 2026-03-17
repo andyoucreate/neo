@@ -24,6 +24,17 @@ function repoName(run: PersistedRun): string {
   return run.repo.split("/").pop() ?? run.repo;
 }
 
+function agentName(run: PersistedRun): string {
+  // First try the step's agent field (available after step starts)
+  const stepAgent = Object.values(run.steps)[0]?.agent;
+  if (stepAgent) return stepAgent;
+
+  // Fall back to extracting from workflow name (e.g. "_run_reviewer" → "reviewer")
+  if (run.workflow.startsWith("_run_")) return run.workflow.slice(5);
+
+  return run.workflow;
+}
+
 function showRunDetail(match: PersistedRun, short: boolean): void {
   if (short) {
     console.log(`${match.runId} ${match.status} $${totalCost(match).toFixed(4)}`);
@@ -79,7 +90,7 @@ function listRuns(runs: PersistedRun[], short: boolean): void {
       shortId(r.runId),
       r.status,
       repoName(r),
-      Object.values(r.steps)[0]?.agent ?? "unknown",
+      agentName(r),
       `$${totalCost(r).toFixed(4)}`,
       formatDuration(totalDuration(r)),
       r.branch?.replace("feat/run-", "").slice(0, 8) ?? "-",
@@ -169,7 +180,7 @@ export default defineCommand({
           runId: r.runId,
           status: r.status,
           repo: r.repo,
-          agent: Object.values(r.steps)[0]?.agent ?? "unknown",
+          agent: agentName(r),
           costUsd: totalCost(r),
           durationMs: totalDuration(r),
           branch: r.branch,

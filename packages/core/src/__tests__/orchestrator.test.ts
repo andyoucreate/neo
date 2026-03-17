@@ -223,6 +223,7 @@ describe("dispatch", () => {
     const persisted = JSON.parse(await readFile(runFile, "utf-8"));
     expect(persisted.status).toBe("completed");
     expect(persisted.workflow).toBe("hotfix");
+    expect(persisted.pid).toBe(process.pid);
   });
 
   it("persists run with running status before session starts", async () => {
@@ -583,6 +584,66 @@ describe("start", () => {
       await readFile(path.join(runsDir, "completed-run-1.json"), "utf-8"),
     );
     expect(unchanged.status).toBe("completed");
+  });
+
+  it("does not mark a concurrent worker's run as orphaned when PID is present and alive", async () => {
+    const runsDir = GLOBAL_RUNS_DIR;
+    mkdirSync(runsDir, { recursive: true });
+
+    // Simulate another worker's run that has been running for > 30s (past grace period)
+    // but whose process is still alive (use current PID as a proxy for "alive")
+    const staleDate = new Date(Date.now() - 120_000).toISOString();
+    const otherWorkerRun = {
+      version: 1,
+      runId: "concurrent-run-1",
+      workflow: "hotfix",
+      repo: TMP_DIR,
+      prompt: "Fix something",
+      status: "running",
+      pid: process.pid, // alive PID — must NOT be marked orphaned
+      steps: {},
+      createdAt: staleDate,
+      updatedAt: staleDate,
+    };
+    writeFileSync(path.join(runsDir, "concurrent-run-1.json"), JSON.stringify(otherWorkerRun));
+
+    // A new orchestrator starting up should NOT touch this run
+    const orchestrator = createOrchestrator();
+    await orchestrator.start();
+
+    const stillRunning = JSON.parse(
+      await readFile(path.join(runsDir, "concurrent-run-1.json"), "utf-8"),
+    );
+    expect(stillRunning.status).toBe("running");
+  });
+
+  it("marks a stale run without PID as orphaned (the pre-fix bug scenario)", async () => {
+    const runsDir = GLOBAL_RUNS_DIR;
+    mkdirSync(runsDir, { recursive: true });
+
+    // This is the exact scenario that caused the bug: run has no PID field
+    // (because persistRun() used to omit it) and is older than grace period
+    const staleDate = new Date(Date.now() - 120_000).toISOString();
+    const noPidRun = {
+      version: 1,
+      runId: "no-pid-run-1",
+      workflow: "hotfix",
+      repo: TMP_DIR,
+      prompt: "Fix something",
+      status: "running",
+      // no pid field — this used to cause false orphan detection
+      steps: {},
+      createdAt: staleDate,
+      updatedAt: staleDate,
+    };
+    writeFileSync(path.join(runsDir, "no-pid-run-1.json"), JSON.stringify(noPidRun));
+
+    const orchestrator = createOrchestrator();
+    await orchestrator.start();
+
+    // Without PID, the run should still be marked as orphaned (the process is truly unknown)
+    const recovered = JSON.parse(await readFile(path.join(runsDir, "no-pid-run-1.json"), "utf-8"));
+    expect(recovered.status).toBe("failed");
   });
 });
 

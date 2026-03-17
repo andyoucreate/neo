@@ -99,6 +99,10 @@ export class RunStore {
     const run = JSON.parse(content) as PersistedRun;
 
     if (run.status !== "running") return null;
+
+    // Never mark our own process's runs as orphaned
+    if (run.pid && run.pid === process.pid) return null;
+
     // If the run has a PID and the process is still alive, skip it
     if (run.pid && isProcessAlive(run.pid)) return null;
 
