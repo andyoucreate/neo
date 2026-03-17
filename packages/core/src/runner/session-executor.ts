@@ -32,6 +32,10 @@ export interface SessionExecutionInput {
   sessionPath?: string | undefined;
   metadata?: Record<string, unknown> | undefined;
   startedAt: string;
+  /** Workflow name for middleware context. Use "direct" for non-workflow runs. */
+  workflow: string;
+  /** Step name for middleware context. Use "execute" for single-step runs. */
+  stepName: string;
 }
 
 export interface SessionExecutionConfig {
@@ -48,7 +52,19 @@ export interface SessionExecutionDeps {
   onAttempt?: (attempt: number, strategy: string) => void;
 }
 
+/**
+ * Result of a session execution, extending StepResult with parsed output.
+ *
+ * **Relationship to StepResult:**
+ * - `StepResult` is the generic step result used in workflow persistence and task results
+ * - `SessionExecutionResult` extends it with the `parsed` field containing structured output
+ * - The executor returns this richer type; callers can upcast to `StepResult` for storage
+ *
+ * All StepResult fields are present: status, sessionId, output, rawOutput, prUrl, prNumber,
+ * costUsd, durationMs, agent, startedAt, completedAt, error, attempt.
+ */
 export interface SessionExecutionResult extends StepResult {
+  /** Parsed output including extracted JSON, PR URL, and any parse errors */
   parsed: ParsedOutput;
 }
 
@@ -97,7 +113,7 @@ function buildGitStrategyInstructions(
 
 // ─── Reporting instructions for agents ──────────────────
 
-function buildReportingInstructions(_runId: string): string {
+function buildReportingInstructions(): string {
   return `## Reporting & Memory
 
 ### Progress reporting (real-time, visible in TUI)
@@ -207,6 +223,8 @@ export class SessionExecutor {
       sessionPath,
       metadata,
       startedAt,
+      workflow,
+      stepName,
     } = input;
 
     const { middleware, mcpServers, memoryContext, onAttempt } = deps;
@@ -227,8 +245,8 @@ export class SessionExecutor {
     const chain = buildMiddlewareChain(middleware);
     const middlewareContext = buildMiddlewareContext(
       runId,
-      stepDef.prompt ? "workflow" : "direct",
-      "execute",
+      workflow,
+      stepName,
       agent.name,
       repoPath,
       this.getContextValue,
@@ -250,7 +268,7 @@ export class SessionExecutor {
       ? `## Working directory\n\nYou are working in an isolated clone at: \`${sessionPath}\`\nALWAYS run commands from this directory. NEVER cd to or operate on any other repository.`
       : undefined;
 
-    const reportingInstructions = buildReportingInstructions(runId);
+    const reportingInstructions = buildReportingInstructions();
 
     const fullPrompt = buildFullPrompt(
       agent.definition.prompt,
@@ -290,8 +308,8 @@ export class SessionExecutor {
     // Parse output
     const parsed = parseOutput(sessionResult.output);
 
-    // Build result
-    const result: SessionExecutionResult = {
+    // Build result with conditionally spread PR fields
+    return {
       status: "success",
       sessionId: sessionResult.sessionId,
       output: parsed.output ?? parsed.rawOutput,
@@ -303,16 +321,9 @@ export class SessionExecutor {
       completedAt: new Date().toISOString(),
       attempt: 1,
       parsed,
-    };
-
-    if (parsed.prUrl) {
-      result.prUrl = parsed.prUrl;
-    }
-    if (parsed.prNumber !== undefined) {
-      result.prNumber = parsed.prNumber;
-    }
-
-    return result;
+      ...(parsed.prUrl ? { prUrl: parsed.prUrl } : {}),
+      ...(parsed.prNumber !== undefined ? { prNumber: parsed.prNumber } : {}),
+    } satisfies SessionExecutionResult;
   }
 }
 

@@ -544,6 +544,8 @@ export class Orchestrator extends NeoEventEmitter {
         sessionPath,
         metadata: input.metadata,
         startedAt: activeSession.startedAt,
+        workflow: input.workflow,
+        stepName,
       },
       {
         middleware: this.userMiddleware,
