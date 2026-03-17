@@ -66,16 +66,16 @@ neo log decision "chose JWT over sessions — simpler for MVP"
 ### Memory (persistent, injected into future agent prompts)
 Write discoveries so the next agent on this repo starts smarter:
 \`\`\`bash
-# Stable facts — describe clearly for semantic search
-neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
-neo memory write --type fact --scope $NEO_REPOSITORY "Biome for lint+format, config in biome.json"
+# Stable facts — things the next agent shouldn't have to rediscover
+neo memory write --type fact --scope $NEO_REPOSITORY "Monorepo uses pnpm workspaces — run commands from package dir, not root"
+neo memory write --type fact --scope $NEO_REPOSITORY "Auth tokens stored in HTTP-only cookies, not localStorage — see src/auth/session.ts"
 
-# How-to procedures — non-obvious workflows
-neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var"
-neo memory write --type procedure --scope $NEO_REPOSITORY "Always run pnpm build before push — CI doesn't rebuild"
+# How-to procedures — non-obvious workflows that failed before being understood
+neo memory write --type procedure --scope $NEO_REPOSITORY "Run pnpm db:generate after any schema.prisma change — TypeScript types won't update otherwise"
+neo memory write --type procedure --scope $NEO_REPOSITORY "E2E tests need STRIPE_TEST_KEY in .env.test — tests hang silently without it"
 \`\`\`
 
-Write at key moments: after discovering conventions, after resolving a non-obvious issue, before finishing.`;
+Write at key moments: after discovering a convention not in docs, after resolving a non-obvious issue, before finishing.`;
 }
 
 // ─── Full prompt assembler ─────────────────────────────
