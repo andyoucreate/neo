@@ -44,7 +44,9 @@ export type {
 export {
   buildCompactionPrompt,
   buildConsolidationPrompt,
+  buildIdlePrompt,
   buildStandardPrompt,
+  isIdleHeartbeat,
 } from "./prompt-builder.js";
 export type {
   ActivityEntry,

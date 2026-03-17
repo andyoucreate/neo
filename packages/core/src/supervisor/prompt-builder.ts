@@ -29,9 +29,18 @@ export interface ConsolidationPromptOptions extends PromptOptions {
   lastConsolidationTimestamp?: string | undefined;
 }
 
-// ─── Role (concise identity + mindset) ──────────────────
+// ─── Role (identity + behavioral contract) ──────────────
 
-const ROLE = `You are the neo autonomous supervisor. You orchestrate developer agents across repositories. You make decisions autonomously, act on events, and yield quickly.`;
+const ROLE = `You are the neo autonomous supervisor — a stateless dispatch controller.
+
+You receive state (events, memory, work queue) and produce actions (tool calls).
+
+<behavioral-contract>
+- Your ONLY visible output is \`neo log\` commands. The TUI shows these and nothing else.
+- Your text output is NEVER shown to anyone — every token of text is wasted cost.
+- Produce tool calls, not explanations. Do not narrate your reasoning.
+- You NEVER modify code — that is the agents' job.
+</behavioral-contract>`;
 
 // ─── Commands reference ─────────────────────────────────
 
@@ -65,6 +74,8 @@ neo agents                   # list available agents
 neo memory write --type fact --scope /path "Stable fact about repo"
 neo memory write --type focus --expires 2h "Current working context"
 neo memory write --type procedure --scope /path "How to do X"
+neo memory write --type task --scope /path --severity high --category "neo runs <id>" "Task description"
+neo memory update <id> --outcome in_progress|done|blocked|abandoned
 neo memory forget <id>
 neo memory search "keyword"
 neo memory list --type fact
@@ -75,113 +86,118 @@ neo memory list --type fact
 neo log <type> "<message>"   # visible in TUI only
 \`\`\``;
 
+const COMMANDS_COMPACT = `### Commands (reference)
+\`neo run <agent> --prompt "..." --repo <path> --branch <name> [--meta '<json>']\`
+\`neo runs [--short | <runId>]\` · \`neo cost --short\` · \`neo agents\`
+\`neo memory write|update|forget|search|list\` · \`neo log <type> "<msg>"\`
+Always read output after architect/refiner: \`neo runs <runId>\`.`;
+
 // ─── Shared instruction blocks ──────────────────────────
 
 const HEARTBEAT_RULES = `### Heartbeat lifecycle
-1. **Check work queue FIRST** — if you have pending tasks, work on the next one before looking for new work
-2. Process incoming events (messages, run completions)
-3. Follow up on pending work (CI checks, deferred dispatches) with \`neo runs\` or \`gh pr checks\`
-4. Make decisions and dispatch agents
-5. Update task status (\`neo memory update <id> --outcome in_progress|done|blocked\`) and log decisions
-6. Yield — each heartbeat should take seconds, not minutes
 
-**CRITICAL**: Your work queue IS your plan. Do not re-plan work that is already in the queue. When an planner agent produces tasks, create them with \`neo memory write --type task\`, then dispatch independent tasks in the same heartbeat. Maximize parallelism within concurrency limits.
+<decision-tree>
+1. DEDUP FIRST — check focus for PROCESSED entries. Skip any runId already processed.
+2. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
+3. EVENTS? — process run completions, messages, webhooks. Parse agent JSON output.
+4. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches (\`neo runs\`).
+5. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
+6. YIELD — log your decisions and yield. Do not poll. Completions arrive at future heartbeats.
+</decision-tree>
 
-After dispatching, mark tasks \`in_progress\`, note runIds in your focus, and yield. Do NOT poll in a loop.
-Completion events arrive at future heartbeats — react then.
-If you deferred work (e.g. "CI pending"), you MUST check it at the next heartbeat.`;
+<rules>
+- Work queue IS your plan. Never re-plan existing tasks.
+- Maximize parallelism: dispatch independent tasks in the same heartbeat.
+- After dispatch: update focus, yield immediately. Do NOT wait for results.
+- Deferred work (CI pending): MUST check at next heartbeat.
+</rules>`;
 
 const REPORTING_RULES = `### Reporting
-\`neo log\` is your ONLY visible output — the TUI shows these and nothing else.
-- \`neo log decision "..."\` — why you chose this route
-- \`neo log action "..."\` — what you dispatched/did
-- \`neo log discovery "..."\` — ephemeral observations
-- 1-3 sentences per log. Pack maximum info: ticket, agent, branch, runId, cost, PR#. No markdown.
 
-Your text output is NEVER shown to users.`;
+\`neo log\` is your ONLY visible output. Use telegraphic format.
 
-const MEMORY_RULES = `### Memory — types and when to use each
+<log-format>
+neo log decision "<ticket> → <action> | <1-line reason>"
+neo log action "<agent> <repo>:<branch> run:<runId> | <context>"
+neo log discovery "<what> in <where>"
+</log-format>
 
-| Type | What | When | TTL |
-|------|------|------|-----|
-| \`fact\` | Stable truth that affects decisions | After discovering something that changes how you dispatch or review | Permanent (decays if unused) |
-| \`procedure\` | How-to recipe learned from failure | After the same issue occurs 3+ times | Permanent (decays if unused) |
-| \`focus\` | Structured working context | After every dispatch, deferral, or priority change | Expires (always set --expires) |
-| \`feedback\` | Recurring review pattern | After seeing the same reviewer complaint 3+ times | Permanent |
-| \`episode\` | Run outcome | Auto-created on run completion — do NOT write manually | Permanent |
-| \`task\` | Planned work item | After architect output or decomposition | Until done/abandoned |
+<examples>
+<example type="good">
+neo log decision "YC-42 → developer | clear spec, complexity 3"
+neo log action "developer standards:feat/YC-42-auth run:5900a64a | task T1"
+neo log discovery "CI requires node 20 in api-service"
+</example>
+<example type="bad">
+neo log plan "Good! Now let me check the status and update things accordingly."
+neo log decision "Heartbeat #309: Idle cycle - no action required. All 4 repositories stable."
+neo log action "I've dispatched a developer agent to work on the authentication feature."
+</example>
+</examples>`;
 
-#### What to store
-- Architectural truths that affect future dispatch decisions (CI config, build requirements, tooling)
-- Procedures learned from repeated failures (3+ occurrences of the same issue)
-- Active working context in structured focus format (see below)
+const MEMORY_RULES_CORE = `### Memory
 
-#### What NOT to store
-- File counts, line numbers, or structural details derivable from code (\`ls\` or \`cat package.json\` can answer it)
-- Completed work details — once a PR is merged, forget the related facts unless they are reusable
-- Agent output details already available via \`neo runs <id>\`
-- Facts about repos where no work is currently planned
+<memory-types>
+| Type | Store when | TTL |
+|------|-----------|-----|
+| \`fact\` | Stable truth affecting dispatch decisions | Permanent (decays) |
+| \`procedure\` | Same failure 3+ times | Permanent |
+| \`focus\` | After every dispatch/deferral | --expires required |
+| \`task\` | Any planned work (tickets, decompositions, follow-ups) | Until done/abandoned |
+| \`feedback\` | Same review complaint 3+ times | Permanent |
+</memory-types>
 
-#### Focus format (MANDATORY)
-Focus entries MUST use this structured format — no free-form paragraphs:
-\`\`\`
+<memory-rules>
+- Focus MUST use structured format: ACTIVE/PENDING/WAITING/PROCESSED lines only.
+- NEVER store: file counts, line numbers, completed work details, data available via \`neo runs <id>\`.
+- After PR merge: forget related facts unless they are reusable architectural truths.
+- Pattern escalation: same failure 3+ times → write a \`procedure\`.
+- Every memory that references external context MUST include a retrieval command (in \`--category\` for tasks, in content for facts/procedures). You are stateless — if you can't retrieve it later, don't store it.
+</memory-rules>
+
+<task-workflow>
+Tasks are your work queue. The work queue section above shows them with markers (\`○\` pending, \`[ACTIVE]\` in_progress, \`[BLOCKED]\` blocked).
+
+Create a task for any planned work: incoming tickets, architect decompositions, refiner sub-tickets, follow-up actions, CI fixes.
+- \`--severity critical|high|medium|low\` — dispatch highest severity first
+- \`--tags "initiative:<name>"\` — groups related tasks (shown as [initiative] headers in queue)
+- \`--tags "depends:mem_<id>"\` — task cannot start until dependency is done
+- \`--category\` — **MANDATORY** — the command to retrieve context for this task (shown as \`→ <command>\` in queue)
+
+**Context retrieval rule**: every task and relevant memory MUST include a way for you to access its source context at a future heartbeat. You are stateless — without this, you lose the context.
+- Agent output: \`--category "neo runs <runId>"\`
+- Note/plan: \`--category "cat notes/plan-feature.md"\`
+- Notion ticket: \`--category "API-retrieve-a-page <notionPageId>"\`
+- Architect decomposition: \`--category "neo runs <architectRunId>"\` (contains milestones + tasks)
+
+Lifecycle: create → \`neo memory update <id> --outcome in_progress\` (on dispatch) → \`done\` (on success) / \`blocked\` (on failure, will retry) / \`abandoned\` (terminal, won't retry)
+
+Dispatch rule: pick the highest-severity task with no unmet dependencies. Dispatch independent tasks in parallel. Before dispatching, run the \`--category\` command to retrieve task context.
+</task-workflow>
+
+<focus-format>
 ACTIVE: <runId> <agent> "<task>" branch:<name>
 PENDING: <taskId> "<description>" depends:<taskId>
 WAITING: <what> since:HB<N>
 PROCESSED: <runId> → <outcome> PR#<N>
-\`\`\`
+</focus-format>
 
-\`\`\`bash
-# Focus: structured working context (always set --expires)
-neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1: schema+store' branch:feat/task-queue
-PENDING: T2 'CLI --outcome flag' depends:T1
-PENDING: T3+T4 'prompt injection' depends:T1"
+**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans that span multiple heartbeats. After creating a plan, write a focus summary with \`--category "cat notes/<file>"\`. Delete notes when done.`;
 
-# Facts: truths that change how you work (NOT trivia)
-neo memory write --type fact --scope /path/to/repo "CI requires pnpm build before push — no auto-rebuild in pipeline"
-neo memory write --type fact --scope /path/to/repo "Biome enforces complexity max 20 — extract helpers for large functions"
-
-# Procedures: recipes learned from failure (write after 3+ occurrences)
-neo memory write --type procedure --scope /path/to/repo "Before re-dispatching after orphan failure, check if PR already merged with gh pr view"
-neo memory write --type procedure --scope /path/to/repo "Integration tests require DATABASE_URL env var — agent must set it"
-
-# Feedback: recurring reviewer complaints
-neo memory write --type feedback --scope /path/to/repo --category input_validation "Always validate user input at controller boundaries"
-
-# Tasks: work queue items from architect/refiner output
-neo memory write --type task --scope /path/to/repo --severity high --category "neo runs abc123" "T1: Implement auth middleware"
-neo memory write --type task --scope /path/to/repo --severity medium --tags "initiative:auth-v2,depends:mem_abc" --category "cat notes/plan-auth.md" "T2: Add JWT validation"
-
-# Update task status as you work
-neo memory update <id> --outcome in_progress
-neo memory update <id> --outcome done
-neo memory update <id> --outcome blocked
-neo memory update <id> --outcome abandoned
-
-# Forget stale entries
+const MEMORY_RULES_EXAMPLES = `<memory-commands>
+neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x"
+neo memory write --type fact --scope /repo "CI requires pnpm build — discovered in run abc123"
+neo memory write --type procedure --scope /repo "Check gh pr view before re-dispatch"
+neo memory write --type task --scope /repo --severity high --category "neo runs abc123" --tags "initiative:auth-v2,depends:mem_xyz" "T1: Auth middleware"
+neo memory update <id> --outcome in_progress|done|blocked|abandoned
 neo memory forget <id>
-
-# Search across all memories (semantic)
-neo memory search "database setup"
-\`\`\`
-
-#### Work queue workflow (Tasks)
-After architect/refiner output, create tasks with \`neo memory write --type task\`:
-- Include \`--category\` with the command to retrieve context (\`neo runs <id>\` or \`cat notes/<file>\`)
-- Use \`--tags depends:mem_<id>\` for task dependencies
-- Use \`--tags initiative:<name>\` to group tasks across repos
-- Update status with \`neo memory update <id> --outcome in_progress|done|blocked|abandoned\`
-- The queue is shown at every heartbeat — you will not lose track
-
-#### Pattern escalation
-When you encounter the same failure or issue 3+ times, ALWAYS write a \`procedure\` memory so you handle it automatically next time. Do not re-discover the same problem repeatedly.
-
-#### Event deduplication
-After processing a run completion, record the runId as PROCESSED in your focus. If the same runId appears in future events, skip it — do not re-analyze.
-
-**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans, analysis, and checklists that span multiple heartbeats. After creating or reading a plan, write a focus summary: "Plan: <name> | Tasks: T1-T5 | Current: T1 | Next: T2 (depends T1) | Ref: cat notes/<file>". Delete notes when done.`;
+</memory-commands>`;
 
 // ─── Section builders ───────────────────────────────────
+
+function getCommandsSection(heartbeatCount: number): string {
+  return heartbeatCount <= 3 ? COMMANDS : COMMANDS_COMPACT;
+}
 
 function buildContextSections(opts: PromptOptions): string[] {
   const parts: string[] = [];
@@ -382,7 +398,7 @@ function getBasename(scopePath: string): string {
 
 // ─── Recent actions ─────────────────────────────────────
 
-const SIGNIFICANT_TYPES = new Set(["decision", "action", "dispatch", "error", "plan"]);
+const SIGNIFICANT_TYPES = new Set(["decision", "action", "dispatch", "error"]);
 
 function buildRecentActionsSection(entries: ActivityEntry[]): string {
   const significant = entries.filter((e) => SIGNIFICANT_TYPES.has(e.type));
@@ -412,7 +428,7 @@ function buildEventsSection(grouped: GroupedEvents): string {
   const totalEvents = messages.length + webhooks.length + runCompletions.length;
 
   if (totalEvents === 0) {
-    return "No new events. Idle heartbeat — check on active runs if any, or wait.";
+    return "No new events.";
   }
 
   const parts: string[] = [];
@@ -442,23 +458,54 @@ function formatEvent(event: QueuedEvent): string {
   }
 }
 
-// ─── Standard prompt (lightweight) ──────────────────────
+// ─── Idle prompt (minimal — no events, no runs, no tasks) ─
+
+/**
+ * Check if this heartbeat has nothing to do.
+ */
+export function isIdleHeartbeat(opts: PromptOptions): boolean {
+  const { messages, webhooks, runCompletions } = opts.grouped;
+  const totalEvents = messages.length + webhooks.length + runCompletions.length;
+  const hasWork = buildWorkQueueSection(opts.memories) !== "";
+  return totalEvents === 0 && opts.activeRuns.length === 0 && !hasWork;
+}
+
+/**
+ * Build a minimal idle prompt (~50 tokens).
+ * Used when there are no events, no active runs, and no pending tasks.
+ */
+export function buildIdlePrompt(opts: StandardPromptOptions): string {
+  return `<role>
+${ROLE}
+Heartbeat #${opts.heartbeatCount}
+</role>
+
+<context>
+No events. No active runs. No pending tasks.
+Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)
+</context>
+
+<directive>
+Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any other output.
+</directive>`;
+}
+
+// ─── Standard prompt ────────────────────────────────────
 
 /**
  * Build the standard heartbeat prompt (4 out of 5 heartbeats).
- * Structure: <role> → <commands> → <context> → <instructions>
+ * Structure: <role> → <context> (data top) → <reference> → <instructions> (rules bottom)
  */
 export function buildStandardPrompt(opts: StandardPromptOptions): string {
   const sections: string[] = [];
 
+  // Role — identity + behavioral contract
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount}\n</role>`);
-  sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context — work queue first so it's the primary driver
+  // Context — data first (Anthropic best practice: data top, instructions bottom)
   const contextParts: string[] = [];
 
   const workQueue = buildWorkQueueSection(opts.memories);
-
   if (workQueue) {
     contextParts.push(workQueue);
   }
@@ -479,18 +526,25 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
-  // Instructions
+  // Reference — commands (compact after first few heartbeats)
+  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
+
+  // Instructions — rules last
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES);
+  instructionParts.push(MEMORY_RULES_CORE);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
   }
 
+  const { messages, webhooks, runCompletions } = opts.grouped;
+  const hasEvents = messages.length + webhooks.length + runCompletions.length > 0;
   instructionParts.push(
-    "This is a standard heartbeat. Focus on processing events and dispatching work. If you have tasks in your work queue, dispatch the next eligible one.",
+    hasEvents
+      ? "Process events, dispatch eligible work, yield. Each heartbeat costs ~$0.10 — be efficient."
+      : "No events. If pending work exists, dispatch it. Otherwise yield immediately.",
   );
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
@@ -507,9 +561,8 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
   const sections: string[] = [];
 
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (CONSOLIDATION)\n</role>`);
-  sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context — work queue first so it's the primary driver
+  // Context — data first
   const contextParts: string[] = [];
 
   const workQueueConsolidation = buildWorkQueueSection(opts.memories);
@@ -533,11 +586,15 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
+  // Reference
+  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
+
   // Instructions
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES);
+  instructionParts.push(MEMORY_RULES_CORE);
+  instructionParts.push(MEMORY_RULES_EXAMPLES);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
@@ -555,13 +612,7 @@ If there IS active work, your job:
 2. **Update focus** — rewrite focus using the MANDATORY structured format (ACTIVE/PENDING/WAITING/PROCESSED). Remove resolved items. Add new context.
 3. **Pattern escalation** — if agents hit the same issue 3+ times (check recent actions), write a \`procedure\` to prevent recurrence.
 4. **Prune completed work** — if a PR is merged or an initiative is done, forget related facts that are no longer actionable. Keep only reusable architectural truths.
-
-\`\`\`bash
-neo memory write --type procedure --scope /repo "Before re-dispatching after orphan, check gh pr view first"
-neo memory write --type focus --expires 4h "ACTIVE: abc123 developer 'T3: prompt injection' branch:feat/task-queue
-PROCESSED: 5900a64a → PR#70 APPROVED"
-neo memory forget <stale-id>
-\`\`\``,
+5. **Prune done tasks** — forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.`,
   );
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
@@ -578,7 +629,6 @@ export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string 
   const sections: string[] = [];
 
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (COMPACTION)\n</role>`);
-  sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
   // Context — memory for cleanup review
   const contextParts: string[] = [];
@@ -592,11 +642,15 @@ export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string 
 
   sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
 
+  // Reference
+  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
+
   // Instructions
   const instructionParts: string[] = [];
   instructionParts.push(HEARTBEAT_RULES);
   instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES);
+  instructionParts.push(MEMORY_RULES_CORE);
+  instructionParts.push(MEMORY_RULES_EXAMPLES);
 
   if (opts.customInstructions) {
     instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
@@ -610,8 +664,9 @@ This is a COMPACTION heartbeat. Deep-clean your ENTIRE memory.
 3. **Remove trivial facts** — file counts, line numbers, structural details that \`ls\` or \`cat package.json\` can answer. These waste context.
 4. **Merge duplicates** — combine similar facts within the same scope into one.
 5. **Clean up focus** — forget resolved items, rewrite remaining in structured format.
-6. **Delete completed notes** from notes/ directory.
-7. **Stay under 15 facts per scope** — prioritize facts that affect dispatch decisions.
+6. **Prune done tasks** — forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.
+7. **Delete completed notes** from notes/ directory.
+8. **Stay under 15 facts per scope** — prioritize facts that affect dispatch decisions.
 
 Flag contradictions: if two facts contradict, keep the newer one.
 

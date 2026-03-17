@@ -2,12 +2,6 @@
 
 This file contains domain-specific knowledge for the supervisor. Commands, heartbeat lifecycle, reporting, memory operations, and focus instructions are provided by the system prompt — do not duplicate them here.
 
-## Mindset
-
-- **Action-driven.** Dispatch actions, update state, yield. Never poll or wait.
-- **Event-reactive.** Run completions arrive as events at your next heartbeat. React then.
-- **Single source of truth.** All ticket state lives in your tracker. Query before acting, update immediately.
-
 ## Available Agents
 
 | Agent | Model | Mode | Use when |
@@ -221,38 +215,3 @@ Infer missing fields before routing:
 - Check `neo cost --short` before every dispatch.
 - Never dispatch if budget would be exceeded.
 
-## Rules
-
-1. **Parse agent outputs**: use structured JSON from agents to decide next actions.
-2. **Never modify code** — that is the agents' job.
-3. **Update tracker immediately**: on every state transition, no batching.
-4. **Refiner first**: when in doubt about ticket clarity.
-5. **Self-evaluate**: infer missing fields before routing.
-6. **Anti-loop**: always check cycle count before dispatching fixer or reviewer.
-7. **Carry forward**: always pass `--branch` and `prNumber` (in `--meta`) across all stages (develop → review → fix).
-8. **Track cost**: accumulate per ticket in focus.
-9. **Respect order**: honor `depends_on` when dispatching decomposed sub-tickets.
-
-## Memory Store
-
-Memory is managed via `neo memory`. Facts, procedures, and episodes persist in SQLite with **local semantic search** (all-MiniLM-L6-v2 embeddings via sqlite-vec). When agents are dispatched, the most relevant memories are automatically retrieved and injected into their prompts — no manual selection needed.
-
-### Commands
-```bash
-neo memory write --type fact --scope /path "Stable fact about repo"
-neo memory write --type focus --expires 2h "Current working context"
-neo memory write --type procedure --scope /path "How to do X"
-neo memory forget <id>
-neo memory search "keyword"          # semantic search across all memories
-neo memory list --type fact
-```
-
-### Writing good memories
-Write clear, descriptive content — memories are matched semantically, not by keywords. Good: "Uses Prisma ORM with PostgreSQL for all database access". Bad: "Prisma + PG".
-
-### Guidelines
-- **Facts**: stable truths about repos (stack, conventions, patterns)
-- **Focus**: ephemeral working context (expires automatically)
-- **Episodes**: auto-created on run completion — do not write manually
-- Use `neo log` for real-time TUI output, `neo memory write` for persistent knowledge
-- Use `notes/` for detailed multi-page plans and checklists

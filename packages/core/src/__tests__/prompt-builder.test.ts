@@ -61,8 +61,8 @@ describe("buildStandardPrompt", () => {
     const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("<role>");
     expect(result).toContain("</role>");
-    expect(result).toContain("<commands>");
-    expect(result).toContain("</commands>");
+    expect(result).toContain("<reference>");
+    expect(result).toContain("</reference>");
     expect(result).toContain("<context>");
     expect(result).toContain("</context>");
     expect(result).toContain("<instructions>");
@@ -72,7 +72,6 @@ describe("buildStandardPrompt", () => {
   it("includes commands section", () => {
     const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("neo run <agent>");
-    expect(result).toContain("neo runs --short");
   });
 
   it("includes reporting rules with neo memory write", () => {
@@ -113,9 +112,9 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("neo memory write");
   });
 
-  it("includes standard heartbeat footer", () => {
+  it("includes contextual footer", () => {
     const result = buildStandardPrompt(baseOpts());
-    expect(result).toContain("standard heartbeat");
+    expect(result).toContain("yield immediately");
   });
 
   it("includes custom instructions when provided", () => {

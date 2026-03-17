@@ -22,7 +22,9 @@ import { MemoryStore } from "./memory/store.js";
 import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
+  buildIdlePrompt,
   buildStandardPrompt,
+  isIdleHeartbeat,
 } from "./prompt-builder.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
 
@@ -483,6 +485,13 @@ export class HeartbeatLoop {
           lastConsolidationTimestamp: opts.lastConsolidationTimestamp,
         }),
         modeLabel: "consolidation",
+      };
+    }
+
+    if (isIdleHeartbeat(sharedOpts)) {
+      return {
+        prompt: buildIdlePrompt(sharedOpts),
+        modeLabel: "idle",
       };
     }
 
