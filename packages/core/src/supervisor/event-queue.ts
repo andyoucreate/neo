@@ -132,8 +132,10 @@ export class EventQueue {
     for (const p of [inboxPath, eventsPath]) {
       try {
         await writeFile(p, "", { flag: "a" });
-      } catch {
-        // Non-critical — watchJsonlFile will handle the error
+      } catch (err) {
+        // Non-critical: file creation may fail due to permissions or missing parent directory.
+        // watchJsonlFile will handle this gracefully by skipping the watch.
+        console.error(`[EventQueue] Failed to ensure file exists: ${p}`, err);
       }
     }
     this.watchJsonlFile(inboxPath, "message");
@@ -190,11 +192,15 @@ export class EventQueue {
   private watchJsonlFile(filePath: string, kind: "message" | "webhook"): void {
     try {
       const watcher = watch(filePath, () => {
-        this.readNewLines(filePath, kind).catch(() => {});
+        this.readNewLines(filePath, kind).catch((err) => {
+          // Non-critical: file may have been deleted or become unreadable between watch trigger and read
+          console.error(`[EventQueue] Failed to read new lines from ${filePath}:`, err);
+        });
       });
       this.watchers.push(watcher);
-    } catch {
-      // File may not exist yet — that's fine
+    } catch (err) {
+      // Non-critical: file may not exist yet — watcher will be set up when file is created
+      console.error(`[EventQueue] Cannot watch file (may not exist yet): ${filePath}`, err);
     }
   }
 
@@ -202,7 +208,9 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (_err) {
+      // Non-critical: file may not exist or be temporarily unavailable during rotation
+      // Silently return — the watcher will retry on next change event
       return;
     }
 
@@ -223,8 +231,8 @@ export class EventQueue {
         } else {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
-      } catch {
-        // Skip malformed lines
+      } catch (_err) {
+        // Non-critical: skip malformed JSON lines (may be partial writes or corrupted entries)
       }
     }
   }
@@ -233,7 +241,9 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (_err) {
+      // Non-critical on replay: file may not exist yet on first startup
+      // Events will be captured when file is created and watcher triggers
       return;
     }
 
@@ -253,8 +263,8 @@ export class EventQueue {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
         unprocessed.push(line);
-      } catch {
-        // Skip malformed
+      } catch (_err) {
+        // Non-critical: skip malformed JSON lines during replay (may be partial writes)
       }
     }
   }
@@ -296,8 +306,8 @@ export class EventQueue {
             changed = true;
             return JSON.stringify(parsed);
           }
-        } catch {
-          // Keep as-is
+        } catch (_err) {
+          // Non-critical: keep malformed lines as-is (manual edits or corruption)
         }
         return line;
       });
@@ -306,8 +316,10 @@ export class EventQueue {
         await writeFile(filePath, updated.join("\n"), "utf-8");
         this.fileOffsets.set(filePath, updated.join("\n").length);
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      // Non-critical: marking as processed may fail but events are already handled.
+      // Worst case: duplicate processing on restart (idempotent operations).
+      console.error(`[EventQueue] Failed to mark events as processed in ${filePath}:`, err);
     }
   }
 }
