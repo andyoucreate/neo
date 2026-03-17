@@ -252,7 +252,7 @@ export default defineCommand({
     }
 
     // ─── Foreground mode (default) ──────────────────────
-    const orchestrator = new Orchestrator(config);
+    const orchestrator = new Orchestrator(config, { skipOrphanRecovery: true });
     orchestrator.registerAgent(agent);
     orchestrator.registerWorkflow({
       name: `_run_${args.agent}`,

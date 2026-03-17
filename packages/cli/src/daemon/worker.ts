@@ -97,8 +97,8 @@ async function main(): Promise<void> {
       throw new Error(`Agent "${request.agentName}" not found`);
     }
 
-    // Create orchestrator
-    const orchestrator = new Orchestrator(config);
+    // Create orchestrator — skip orphan recovery to prevent false positives on concurrent launches
+    const orchestrator = new Orchestrator(config, { skipOrphanRecovery: true });
     orchestrator.registerAgent(agent);
     orchestrator.registerWorkflow({
       name: `_run_${request.agentName}`,
@@ -120,10 +120,6 @@ async function main(): Promise<void> {
 
     writeLog("[worker] Starting orchestrator...");
     await orchestrator.start();
-
-    // Re-assert running status — orchestrator.start() calls recoverOrphanedRuns()
-    // which marks any "running" persisted runs as "failed"
-    await updatePersistedRun(runPath, { status: "running", pid: process.pid });
 
     writeLog("[worker] Dispatching...");
     const result = await orchestrator.dispatch({

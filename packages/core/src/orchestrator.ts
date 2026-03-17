@@ -48,6 +48,8 @@ export interface OrchestratorOptions {
   journalDir?: string | undefined;
   builtInWorkflowDir?: string | undefined;
   customWorkflowDir?: string | undefined;
+  /** Skip orphan recovery on start — workers should set this to true to avoid false orphan detection on concurrent launches. */
+  skipOrphanRecovery?: boolean | undefined;
 }
 
 // ─── Internal dispatch context ─────────────────────────
@@ -96,6 +98,8 @@ export class Orchestrator extends NeoEventEmitter {
   private _startedAt = 0;
   private _drainResolve: (() => void) | null = null;
 
+  private readonly skipOrphanRecovery: boolean;
+
   constructor(config: NeoConfig, options: OrchestratorOptions = {}) {
     super();
     this.config = config;
@@ -103,6 +107,7 @@ export class Orchestrator extends NeoEventEmitter {
     this.journalDir = options.journalDir ?? getJournalsDir();
     this.builtInWorkflowDir = options.builtInWorkflowDir;
     this.customWorkflowDir = options.customWorkflowDir;
+    this.skipOrphanRecovery = options.skipOrphanRecovery ?? false;
     for (const repo of config.repos) {
       const resolvedPath = path.resolve(repo.path);
       const normalizedRepo = { ...repo, path: resolvedPath };
@@ -252,7 +257,9 @@ export class Orchestrator extends NeoEventEmitter {
       }
     }
 
-    await this.recoverOrphanedRuns();
+    if (!this.skipOrphanRecovery) {
+      await this.recoverOrphanedRuns();
+    }
 
     await mkdir(this.config.sessions.dir, { recursive: true });
   }
