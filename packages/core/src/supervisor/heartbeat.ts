@@ -1,3 +1,8 @@
+import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { readdir, readFile, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
+import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getDataDir, getRunsDir } from "@/paths";
 import {
@@ -9,11 +14,6 @@ import {
   type SDKStreamMessage,
 } from "@/sdk-types";
 import type { PersistedRun } from "@/types";
-import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import path from "node:path";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
