@@ -13,6 +13,12 @@ import { pushSessionBranch } from "@/isolation/git";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { loopDetection } from "@/middleware/loop-detection";
+import {
+  buildFullPrompt,
+  buildGitStrategyInstructions,
+  buildReportingInstructions,
+  loadRepoInstructions,
+} from "@/orchestrator/prompt-builder";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
 import { SessionExecutor } from "@/runner/session-executor";
 import { isProcessAlive } from "@/shared/process";
