@@ -191,4 +191,111 @@ steps:
 
     expect(registry.list()).toHaveLength(1);
   });
+
+  it("handles empty directory gracefully", async () => {
+    // BUILTIN_DIR exists but has no files
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+    await registry.load();
+
+    expect(registry.list()).toHaveLength(0);
+    expect(registry.has("anything")).toBe(false);
+    expect(registry.get("anything")).toBeUndefined();
+  });
+
+  it("propagates error for invalid workflow files", async () => {
+    const invalidYaml = `
+name: broken
+steps:
+  implement:
+    # missing required 'agent' field
+    prompt: "Do something"
+`;
+    await writeFile(path.join(BUILTIN_DIR, "broken.yml"), invalidYaml, "utf-8");
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+
+    await expect(registry.load()).rejects.toThrow("Invalid workflow definition");
+  });
+
+  it("propagates error for malformed YAML syntax", async () => {
+    const malformedYaml = `
+name: malformed
+steps:
+  implement:
+    agent: developer
+    # Invalid YAML - unquoted colon in value
+    prompt: "foo: bar: baz
+`;
+    await writeFile(path.join(BUILTIN_DIR, "malformed.yml"), malformedYaml, "utf-8");
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+
+    await expect(registry.load()).rejects.toThrow();
+  });
+
+  it("loads .yaml extension files", async () => {
+    await writeFile(
+      path.join(BUILTIN_DIR, "deploy.yaml"),
+      VALID_WORKFLOW.replace("hotfix", "deploy"),
+      "utf-8",
+    );
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+    await registry.load();
+
+    expect(registry.has("deploy")).toBe(true);
+  });
+
+  it("list() returns workflows in deterministic order", async () => {
+    await writeFile(
+      path.join(BUILTIN_DIR, "alpha.yml"),
+      VALID_WORKFLOW.replace("hotfix", "alpha"),
+      "utf-8",
+    );
+    await writeFile(
+      path.join(BUILTIN_DIR, "beta.yml"),
+      VALID_WORKFLOW.replace("hotfix", "beta"),
+      "utf-8",
+    );
+    await writeFile(
+      path.join(BUILTIN_DIR, "gamma.yml"),
+      VALID_WORKFLOW.replace("hotfix", "gamma"),
+      "utf-8",
+    );
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+    await registry.load();
+
+    const names = registry.list().map((w) => w.name);
+    expect(names).toHaveLength(3);
+    expect(names).toContain("alpha");
+    expect(names).toContain("beta");
+    expect(names).toContain("gamma");
+  });
+
+  it("custom directory can be non-existent", async () => {
+    await writeFile(path.join(BUILTIN_DIR, "hotfix.yml"), VALID_WORKFLOW, "utf-8");
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR, "/nonexistent/custom/path");
+    await registry.load();
+
+    expect(registry.list()).toHaveLength(1);
+    expect(registry.has("hotfix")).toBe(true);
+  });
+
+  it("preserves workflow definition structure from list()", async () => {
+    await writeFile(path.join(BUILTIN_DIR, "feature.yml"), FEATURE_WORKFLOW, "utf-8");
+
+    const registry = new WorkflowRegistry(BUILTIN_DIR);
+    await registry.load();
+
+    const workflows = registry.list();
+    expect(workflows).toHaveLength(1);
+
+    const feature = workflows[0];
+    expect(feature).toBeDefined();
+    expect(feature?.name).toBe("feature");
+    expect(feature?.description).toBe("Plan, implement, and review a feature");
+    expect(Object.keys(feature?.steps ?? {})).toEqual(["plan", "implement", "review", "fix"]);
+  });
 });

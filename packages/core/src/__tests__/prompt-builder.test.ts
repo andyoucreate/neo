@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 import type { GroupedEvents } from "@/supervisor/event-queue";
 import type { MemoryEntry } from "@/supervisor/memory/entry";
 import {
+  buildCompactionPrompt,
   buildConsolidationPrompt,
+  buildIdlePrompt,
   buildStandardPrompt,
   buildWorkQueueSection,
+  isIdleHeartbeat,
 } from "@/supervisor/prompt-builder";
 
 function emptyGrouped(): GroupedEvents {
@@ -391,5 +394,411 @@ describe("buildConsolidationPrompt", () => {
     const result = buildConsolidationPrompt(baseOpts());
     expect(result).toContain("CONSOLIDATION heartbeat");
     expect(result).toContain("Review memory");
+  });
+});
+
+// ─── isIdleHeartbeat ────────────────────────────────────
+
+describe("isIdleHeartbeat", () => {
+  it("returns true when no events, no active runs, and no tasks", () => {
+    const result = isIdleHeartbeat(baseOpts());
+    expect(result).toBe(true);
+  });
+
+  it("returns false when there are messages", () => {
+    const opts = {
+      ...baseOpts(),
+      grouped: {
+        messages: [{ from: "user", text: "hello", count: 1 }],
+        webhooks: [],
+        runCompletions: [],
+      },
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when there are webhooks", () => {
+    const opts = {
+      ...baseOpts(),
+      grouped: {
+        messages: [],
+        webhooks: [
+          {
+            kind: "webhook" as const,
+            timestamp: new Date().toISOString(),
+            data: {
+              receivedAt: new Date().toISOString(),
+              source: "github",
+              event: "push",
+              payload: {},
+            },
+          },
+        ],
+        runCompletions: [],
+      },
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when there are run completions", () => {
+    const opts = {
+      ...baseOpts(),
+      grouped: {
+        messages: [],
+        webhooks: [],
+        runCompletions: [
+          {
+            kind: "run_complete" as const,
+            timestamp: new Date().toISOString(),
+            runId: "run-123",
+          },
+        ],
+      },
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when there are active runs", () => {
+    const opts = {
+      ...baseOpts(),
+      activeRuns: ["run-abc"],
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when there are pending tasks", () => {
+    const opts = {
+      ...baseOpts(),
+      memories: [
+        makeMemory({
+          type: "task",
+          content: "Pending work",
+          outcome: "pending",
+        }),
+      ],
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+
+  it("returns false when done/abandoned tasks exist (completion message shown)", () => {
+    // When done tasks exist, buildWorkQueueSection returns a non-empty string
+    // ("all tasks complete") which isIdleHeartbeat interprets as having work
+    const opts = {
+      ...baseOpts(),
+      memories: [
+        makeMemory({
+          type: "task",
+          content: "Done task",
+          outcome: "done",
+        }),
+        makeMemory({
+          type: "task",
+          content: "Abandoned task",
+          outcome: "abandoned",
+        }),
+      ],
+    };
+    const result = isIdleHeartbeat(opts);
+    expect(result).toBe(false);
+  });
+});
+
+// ─── buildIdlePrompt ────────────────────────────────────
+
+describe("buildIdlePrompt", () => {
+  it("includes role and heartbeat number", () => {
+    const result = buildIdlePrompt(baseOpts());
+    expect(result).toContain("neo autonomous supervisor");
+    expect(result).toContain("Heartbeat #10");
+  });
+
+  it("uses XML tag structure with role, context, and directive", () => {
+    const result = buildIdlePrompt(baseOpts());
+    expect(result).toContain("<role>");
+    expect(result).toContain("</role>");
+    expect(result).toContain("<context>");
+    expect(result).toContain("</context>");
+    expect(result).toContain("<directive>");
+    expect(result).toContain("</directive>");
+  });
+
+  it("includes idle state message", () => {
+    const result = buildIdlePrompt(baseOpts());
+    expect(result).toContain("No events. No active runs. No pending tasks.");
+  });
+
+  it("includes budget status", () => {
+    const result = buildIdlePrompt(baseOpts());
+    expect(result).toContain("$5.00 / $50.00");
+    expect(result).toContain("90% remaining");
+  });
+
+  it("includes directive to yield", () => {
+    const result = buildIdlePrompt(baseOpts());
+    expect(result).toContain("Nothing to do");
+    expect(result).toContain("neo log discovery");
+    expect(result).toContain("yield");
+  });
+
+  it("is minimal compared to standard prompt", () => {
+    const idlePrompt = buildIdlePrompt(baseOpts());
+    const standardPrompt = buildStandardPrompt(baseOpts());
+
+    // Idle prompt should be significantly smaller
+    expect(idlePrompt.length).toBeLessThan(standardPrompt.length / 2);
+  });
+
+  it("respects custom budget values", () => {
+    const opts = {
+      ...baseOpts(),
+      budgetStatus: { todayUsd: 42.5, capUsd: 100, remainingPct: 57.5 },
+    };
+    const result = buildIdlePrompt(opts);
+    expect(result).toContain("$42.50 / $100.00");
+    expect(result).toContain("58% remaining"); // Rounded
+  });
+});
+
+// ─── buildCompactionPrompt ──────────────────────────────
+
+describe("buildCompactionPrompt", () => {
+  it("includes COMPACTION label in header", () => {
+    const result = buildCompactionPrompt(baseOpts());
+    expect(result).toContain("(COMPACTION)");
+  });
+
+  it("includes heartbeat number", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 50 };
+    const result = buildCompactionPrompt(opts);
+    expect(result).toContain("Heartbeat #50");
+  });
+
+  it("uses XML tag structure", () => {
+    const result = buildCompactionPrompt(baseOpts());
+    expect(result).toContain("<role>");
+    expect(result).toContain("</role>");
+    expect(result).toContain("<context>");
+    expect(result).toContain("</context>");
+    expect(result).toContain("<reference>");
+    expect(result).toContain("</reference>");
+    expect(result).toContain("<instructions>");
+    expect(result).toContain("</instructions>");
+  });
+
+  it("includes memory cleanup instructions", () => {
+    const result = buildCompactionPrompt(baseOpts());
+    expect(result).toContain("Remove stale facts");
+    expect(result).toContain("Merge duplicates");
+    expect(result).toContain("neo memory forget");
+  });
+
+  it("includes memory entries in context", () => {
+    const result = buildCompactionPrompt({
+      ...baseOpts(),
+      memories: [makeMemory({ type: "fact", content: "Old fact to review", accessCount: 5 })],
+    });
+    expect(result).toContain("Known facts:");
+    expect(result).toContain("Old fact to review");
+  });
+
+  it("includes work queue section", () => {
+    const result = buildCompactionPrompt({
+      ...baseOpts(),
+      memories: [
+        makeMemory({
+          type: "task",
+          content: "Task to prune",
+          outcome: "pending",
+        }),
+      ],
+    });
+    expect(result).toContain("Work queue");
+    expect(result).toContain("Task to prune");
+  });
+
+  it("includes guidance for fact limit per scope", () => {
+    const result = buildCompactionPrompt(baseOpts());
+    expect(result).toContain("15 facts per scope");
+  });
+
+  it("includes custom instructions when provided", () => {
+    const result = buildCompactionPrompt({
+      ...baseOpts(),
+      customInstructions: "Keep security-related facts.",
+    });
+    expect(result).toContain("Custom instructions");
+    expect(result).toContain("Keep security-related facts.");
+  });
+});
+
+// ─── buildWorkQueueSection edge cases ───────────────────
+
+describe("buildWorkQueueSection edge cases", () => {
+  it("shows category command when present", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Task with context",
+        outcome: "pending",
+        category: "neo runs abc123",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("→ neo runs abc123");
+  });
+
+  it("handles task with all metadata fields", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Full metadata task",
+        outcome: "in_progress",
+        severity: "critical",
+        scope: "/repos/my-app",
+        runId: "run_xyz789",
+        category: "cat notes/plan.md",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("[ACTIVE]");
+    expect(result).toContain("[critical]");
+    expect(result).toContain("(my-app)");
+    expect(result).toContain("[run run_xyz7]");
+    expect(result).toContain("→ cat notes/plan.md");
+  });
+
+  it("handles multiple initiatives with correct grouping", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Auth task 1",
+        outcome: "pending",
+        tags: ["initiative:auth-v2"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "Billing task 1",
+        outcome: "pending",
+        tags: ["initiative:billing"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "Auth task 2",
+        outcome: "pending",
+        tags: ["initiative:auth-v2"],
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("[auth-v2]");
+    expect(result).toContain("[billing]");
+  });
+
+  it("shows completion message when all tasks are done", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Completed task",
+        outcome: "done",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("0 remaining");
+    expect(result).toContain("1 done");
+    expect(result).toContain("all tasks complete");
+  });
+
+  it("handles all severity levels", () => {
+    const severities = ["critical", "high", "medium", "low"] as const;
+    const memories = severities.map((severity) =>
+      makeMemory({
+        type: "task",
+        content: `${severity} priority task`,
+        outcome: "pending",
+        severity,
+      }),
+    );
+
+    const result = buildWorkQueueSection(memories);
+    for (const sev of severities) {
+      expect(result).toContain(`[${sev}]`);
+    }
+  });
+
+  it("handles undefined outcome as pending", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "No outcome task",
+        outcome: undefined,
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("○ No outcome task");
+  });
+
+  it("does not show initiative header when only one group exists", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Single initiative task 1",
+        outcome: "pending",
+        tags: ["initiative:only-one"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "Single initiative task 2",
+        outcome: "pending",
+        tags: ["initiative:only-one"],
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    // When there's only one group, the initiative header is not shown
+    expect(result).not.toContain("[only-one]");
+  });
+
+  it("handles empty scope path gracefully", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Empty scope task",
+        outcome: "pending",
+        scope: "",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    // Should not crash and should show the task
+    expect(result).toContain("Empty scope task");
+  });
+
+  it("handles mixed pending and blocked tasks correctly", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Blocked task",
+        outcome: "blocked",
+      }),
+      makeMemory({
+        type: "task",
+        content: "Pending task",
+        outcome: "pending",
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+    expect(result).toContain("[BLOCKED] Blocked task");
+    expect(result).toContain("○ Pending task");
+    expect(result).toContain("2 remaining");
   });
 });
