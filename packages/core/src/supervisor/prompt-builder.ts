@@ -55,19 +55,20 @@ neo run <agent> --prompt "..." --repo <path> --branch <name> [--priority critica
 | \`--repo\` | always | Target repository path |
 | \`--branch\` | always | Branch name for the isolated clone |
 | \`--priority\` | no | \`critical\`, \`high\`, \`medium\`, \`low\` |
-| \`--meta\` | recommended | JSON metadata for traceability and deduplication |
+| \`--meta\` | **always** | JSON with \`"label"\` for identification + \`"ticketId"\`, \`"stage"\`, etc. |
 
 All agents require \`--branch\`. Each agent session runs in an isolated clone on that branch.
+Always include \`--meta '{"label":"T1-auth-middleware","ticketId":"YC-42","stage":"develop"}'\` so you can identify runs later.
 
 ### Monitoring & reading agent output
 \`\`\`bash
-neo runs --short [--all]     # check recent runs
-neo runs <runId>             # full run details + agent output
-neo cost --short [--all]     # check budget
-neo agents                   # list available agents
+neo runs --short                    # check recent runs
+neo runs --short --status running   # check active runs are alive
+neo runs <runId>                    # full run details + agent output (MUST READ on completion)
+neo cost --short [--all]            # check budget
 \`\`\`
 
-\`neo runs <runId>\` returns the agent's full output. Always read it after \`architect\` or \`refiner\` runs — their output contains the plan or decomposition you need to act on next.
+\`neo runs <runId>\` returns the agent's full output. **ALWAYS read it when a run completes** — it contains structured JSON (PR URLs, issues, plans, milestones) that you need to decide next steps.
 
 ### Memory
 \`\`\`bash
@@ -87,10 +88,10 @@ neo log <type> "<message>"   # visible in TUI only
 \`\`\``;
 
 const COMMANDS_COMPACT = `### Commands (reference)
-\`neo run <agent> --prompt "..." --repo <path> --branch <name> [--meta '<json>']\`
-\`neo runs [--short | <runId>]\` · \`neo cost --short\` · \`neo agents\`
+\`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
+\`neo runs [--short | <runId>]\` · \`neo runs --short --status running\` · \`neo cost --short\`
 \`neo memory write|update|forget|search|list\` · \`neo log <type> "<msg>"\`
-Always read output after architect/refiner: \`neo runs <runId>\`.`;
+ALWAYS read run output on completion: \`neo runs <runId>\` — it contains the agent's structured result.`;
 
 // ─── Shared instruction blocks ──────────────────────────
 
@@ -98,18 +99,28 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 
 <decision-tree>
 1. DEDUP FIRST — check focus for PROCESSED entries. Skip any runId already processed.
-2. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
-3. EVENTS? — process run completions, messages, webhooks. Parse agent JSON output.
-4. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches (\`neo runs\`).
-5. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
-6. YIELD — log your decisions and yield. Do not poll. Completions arrive at future heartbeats.
+2. MONITOR RUNS — \`neo runs --short\` to check active run status. If a run completed since last HB, read its output with \`neo runs <runId>\` BEFORE doing anything else.
+3. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
+4. EVENTS? — process run completions, messages, webhooks. Parse agent JSON output.
+5. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches.
+6. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
+7. YIELD — log your decisions and yield. Do not poll. Completions arrive at future heartbeats.
 </decision-tree>
+
+<run-monitoring>
+Runs are your agents in the field. You MUST track them:
+- **On dispatch**: always include a label in \`--meta\` for identification: \`--meta '{"label":"T6-csv-export","ticketId":"YC-42",...}'\`
+- **On completion**: ALWAYS run \`neo runs <runId>\` to read the agent's full output. The output contains structured JSON (PR URLs, issues, plans) — you need it to decide next steps.
+- **On failure**: read the output to understand why. Check if the task should be retried, blocked, or abandoned.
+- **Active runs**: check \`neo runs --short --status running\` to verify your runs are still alive. If a run disappeared, investigate.
+</run-monitoring>
 
 <rules>
 - Work queue IS your plan. Never re-plan existing tasks.
 - Maximize parallelism: dispatch independent tasks in the same heartbeat.
 - After dispatch: update focus, yield immediately. Do NOT wait for results.
 - Deferred work (CI pending): MUST check at next heartbeat.
+- Before dispatching a task, run the \`--category\` command from the task to retrieve context.
 </rules>`;
 
 const REPORTING_RULES = `### Reporting
