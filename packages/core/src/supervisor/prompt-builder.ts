@@ -145,9 +145,15 @@ neo memory write --type procedure --scope /path/to/repo "Integration tests requi
 # Feedback: recurring reviewer complaints
 neo memory write --type feedback --scope /path/to/repo --category input_validation "Always validate user input at controller boundaries"
 
-# Tasks: work queue items from architect output or manual decomposition
-neo memory write --type task --scope /path/to/repo --severity high "T1: Implement auth middleware"
-neo memory write --type task --scope /path/to/repo --tags 'initiative:auth-v2' "T2: Add JWT validation"
+# Tasks: work queue items from architect/refiner output
+neo memory write --type task --scope /path/to/repo --severity high --category "neo runs abc123" "T1: Implement auth middleware"
+neo memory write --type task --scope /path/to/repo --severity medium --tags "initiative:auth-v2,depends:mem_abc" --category "cat notes/plan-auth.md" "T2: Add JWT validation"
+
+# Update task status as you work
+neo memory update <id> --outcome in_progress
+neo memory update <id> --outcome done
+neo memory update <id> --outcome blocked
+neo memory update <id> --outcome abandoned
 
 # Forget stale entries
 neo memory forget <id>
@@ -155,6 +161,14 @@ neo memory forget <id>
 # Search across all memories (semantic)
 neo memory search "database setup"
 \`\`\`
+
+#### Work queue workflow (Tasks)
+After architect/refiner output, create tasks with \`neo memory write --type task\`:
+- Include \`--category\` with the command to retrieve context (\`neo runs <id>\` or \`cat notes/<file>\`)
+- Use \`--tags depends:mem_<id>\` for task dependencies
+- Use \`--tags initiative:<name>\` to group tasks across repos
+- Update status with \`neo memory update <id> --outcome in_progress|done|blocked|abandoned\`
+- The queue is shown at every heartbeat — you will not lose track
 
 #### Pattern escalation
 When you encounter the same failure or issue 3+ times, ALWAYS write a \`procedure\` memory so you handle it automatically next time. Do not re-discover the same problem repeatedly.

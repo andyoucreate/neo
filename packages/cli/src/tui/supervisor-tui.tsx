@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
-import type { ActivityEntry, SupervisorDaemonState } from "@neotx/core";
+import path from "node:path";
+import type { ActivityEntry, MemoryEntry, SupervisorDaemonState } from "@neotx/core";
 import {
   getSupervisorActivityPath,
+  getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorStatePath,
+  MemoryStore,
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
@@ -336,6 +339,71 @@ function ActivityRow({
   );
 }
 
+const TASK_STATUS_COLORS: Record<string, string> = {
+  in_progress: "#60a5fa",
+  blocked: "#f87171",
+  pending: "#6b7280",
+  done: "#4ade80",
+};
+
+const TASK_STATUS_LABELS: Record<string, string> = {
+  in_progress: "ACTIVE",
+  blocked: "BLOCK",
+  pending: "·",
+};
+
+function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
+  const active = tasks.filter((t) => t.outcome !== "done" && t.outcome !== "abandoned");
+  const doneCount = tasks.filter((t) => t.outcome === "done").length;
+
+  if (tasks.length === 0) return null;
+
+  const MAX_VISIBLE = 6;
+  const visible = active.slice(0, MAX_VISIBLE);
+  const overflow = active.length - visible.length;
+
+  return (
+    <Box flexDirection="column">
+      <Box paddingX={2} gap={1}>
+        <Text dimColor>├</Text>
+        <Text dimColor bold>
+          TASKS
+        </Text>
+        <Text dimColor>
+          ({active.length} active, {doneCount} done)
+        </Text>
+        <Text dimColor>{"─".repeat(30)}</Text>
+      </Box>
+      {visible.map((t) => {
+        const status = t.outcome ?? "pending";
+        const color = TASK_STATUS_COLORS[status] ?? "#6b7280";
+        const label = (TASK_STATUS_LABELS[status] ?? "·").padEnd(6);
+        const prio = t.severity ? `[${t.severity.slice(0, 3)}] ` : "";
+        const repo = t.scope !== "global" ? path.basename(t.scope) : "";
+        const run = t.runId ? `run:${t.runId.slice(0, 4)}` : "";
+        const meta = [repo, run].filter(Boolean).join(" ");
+
+        return (
+          <Box key={t.id} gap={1} paddingX={2}>
+            <Text dimColor>│</Text>
+            <Text color={color} bold>
+              {label}
+            </Text>
+            {prio && <Text dimColor>{prio.padEnd(5)}</Text>}
+            <Text wrap="truncate">{t.content.slice(0, 40)}</Text>
+            {meta && <Text dimColor>({meta})</Text>}
+          </Box>
+        );
+      })}
+      {overflow > 0 && (
+        <Box paddingX={2}>
+          <Text dimColor>│ ... +{overflow} more pending</Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 /** Types shown in the activity feed — plan/thinking are internal, not shown */
 const ACTIVITY_TYPES = new Set([
   "heartbeat",
@@ -464,6 +532,18 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
   }
 }
 
+function readTasks(name: string): MemoryEntry[] {
+  try {
+    const dir = getSupervisorDir(name);
+    const store = new MemoryStore(path.join(dir, "memory.sqlite"));
+    const tasks = store.query({ types: ["task"], limit: 20, sortBy: "createdAt" });
+    store.close();
+    return tasks;
+  } catch {
+    return [];
+  }
+}
+
 async function sendMessage(name: string, text: string): Promise<void> {
   const id = randomUUID();
   const timestamp = new Date().toISOString();
@@ -488,6 +568,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
   const [state, setState] = useState<SupervisorDaemonState | null>(null);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
+  const [tasks, setTasks] = useState<MemoryEntry[]>([]);
   const [input, setInput] = useState("");
   const [lastSent, setLastSent] = useState("");
   const [termHeight, setTermHeight] = useState(stdout?.rows ?? 30);
@@ -516,6 +597,7 @@ export function SupervisorTui({ name }: { name: string }) {
       if (!active) return;
       setState(newState);
       setEntries(newEntries);
+      setTasks(readTasks(name));
     }
 
     poll();
@@ -548,7 +630,19 @@ export function SupervisorTui({ name }: { name: string }) {
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={50} costHistory={costHistory} />
-      <ActivityPanel entries={entries} termHeight={termHeight} />
+      <TaskPanel tasks={tasks} />
+      <ActivityPanel
+        entries={entries}
+        termHeight={
+          termHeight -
+          (tasks.length > 0
+            ? Math.min(
+                tasks.filter((t) => t.outcome !== "done" && t.outcome !== "abandoned").length,
+                6,
+              ) + 2
+            : 0)
+        }
+      />
       <InputPanel value={input} onChange={setInput} onSubmit={handleSubmit} lastSent={lastSent} />
       <Footer />
     </Box>
