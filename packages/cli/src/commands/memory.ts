@@ -13,6 +13,7 @@ interface ParsedArgs {
   source: string;
   expires: string | undefined;
   name: string;
+  outcome: string | undefined;
 }
 
 function parseDuration(input: string): string | undefined {
@@ -106,9 +107,11 @@ function handleForget(args: ParsedArgs): void {
   }
 }
 
+const VALID_OUTCOMES = ["pending", "in_progress", "done", "blocked", "abandoned"] as const;
+
 function handleUpdate(args: ParsedArgs): void {
   if (!args.value) {
-    printError('Usage: neo memory update <id> "new content"');
+    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
     process.exitCode = 1;
     return;
   }
@@ -120,15 +123,43 @@ function handleUpdate(args: ParsedArgs): void {
   const idArg = argv[updateIdx + 1];
   const contentArg = argv[updateIdx + 2];
 
-  if (!idArg || !contentArg) {
-    printError('Usage: neo memory update <id> "new content"');
+  // Validate outcome if provided
+  if (args.outcome && !VALID_OUTCOMES.includes(args.outcome as (typeof VALID_OUTCOMES)[number])) {
+    printError(`Invalid outcome "${args.outcome}". Must be one of: ${VALID_OUTCOMES.join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Determine if contentArg is actually content or a flag
+  const isContentArgAFlag = contentArg?.startsWith("--");
+  const hasContent = contentArg && !isContentArgAFlag;
+
+  // Need either content or --outcome
+  if (!hasContent && !args.outcome) {
+    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
+    process.exitCode = 1;
+    return;
+  }
+
+  // ID is required at this point — validated by args.value check above
+  if (!idArg) {
+    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
     process.exitCode = 1;
     return;
   }
 
   const store = openStore(args.name);
   try {
-    store.update(idArg, contentArg);
+    // Use updateFields when --outcome is provided
+    if (args.outcome) {
+      store.updateFields(idArg, {
+        ...(hasContent && { content: contentArg }),
+        outcome: args.outcome,
+      });
+    } else {
+      // contentArg is guaranteed to be defined when hasContent is true and no outcome
+      store.update(idArg, contentArg as string);
+    }
     printSuccess(`Memory updated: ${idArg}`);
   } finally {
     store.close();
@@ -238,6 +269,10 @@ export default defineCommand({
       type: "string",
       description: "TTL for focus entries (e.g. 2h, 30m)",
     },
+    outcome: {
+      type: "string",
+      description: "Task outcome: pending, in_progress, done, blocked, abandoned",
+    },
     name: {
       type: "string",
       description: "Supervisor name",
@@ -253,6 +288,7 @@ export default defineCommand({
       source: args.source as string,
       expires: args.expires as string | undefined,
       name: args.name as string,
+      outcome: args.outcome as string | undefined,
     };
 
     switch (action) {
