@@ -54,8 +54,9 @@ async function checkGit(): Promise<CheckResult> {
       return { name: "git", status: "pass", message: `v${version}` };
     }
     return { name: "git", status: "fail", message: `v${version} (requires >= 2.20)` };
-  } catch {
-    return { name: "git", status: "fail", message: "not installed" };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return { name: "git", status: "fail", message: `not installed (${reason})` };
   }
 }
 
@@ -103,8 +104,13 @@ async function checkClaudeCli(): Promise<CheckResult> {
   try {
     const { stdout } = await execFileAsync("claude", ["--version"]);
     return { name: "Claude CLI", status: "pass", message: stdout.trim() };
-  } catch {
-    return { name: "Claude CLI", status: "fail", message: "not installed or not in PATH" };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Claude CLI",
+      status: "fail",
+      message: `not installed or not in PATH (${reason})`,
+    };
   }
 }
 
@@ -141,8 +147,13 @@ async function checkJournalDirs(): Promise<CheckResult> {
   try {
     await access(journalDir, constants.W_OK);
     return { name: "Journals", status: "pass", message: journalDir };
-  } catch {
-    return { name: "Journals", status: "fail", message: `${journalDir} is not writable` };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Journals",
+      status: "fail",
+      message: `${journalDir} is not writable (${reason})`,
+    };
   }
 }
 
@@ -160,8 +171,13 @@ async function checkDataDir(): Promise<CheckResult> {
   try {
     await access(dataDir, constants.W_OK);
     return { name: "Data directory", status: "pass", message: dataDir };
-  } catch {
-    return { name: "Data directory", status: "fail", message: `${dataDir} is not writable` };
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return {
+      name: "Data directory",
+      status: "fail",
+      message: `${dataDir} is not writable (${reason})`,
+    };
   }
 }
 
