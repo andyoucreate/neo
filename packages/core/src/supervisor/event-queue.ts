@@ -132,8 +132,9 @@ export class EventQueue {
     for (const p of [inboxPath, eventsPath]) {
       try {
         await writeFile(p, "", { flag: "a" });
-      } catch {
-        // Non-critical — watchJsonlFile will handle the error
+      } catch (error) {
+        // Non-critical — watchJsonlFile will handle missing file
+        console.error(`[EventQueue] Failed to ensure file exists: ${p}`, error);
       }
     }
     this.watchJsonlFile(inboxPath, "message");
@@ -190,11 +191,14 @@ export class EventQueue {
   private watchJsonlFile(filePath: string, kind: "message" | "webhook"): void {
     try {
       const watcher = watch(filePath, () => {
-        this.readNewLines(filePath, kind).catch(() => {});
+        this.readNewLines(filePath, kind).catch((error) => {
+          console.error(`[EventQueue] Failed to read new lines from ${filePath}:`, error);
+        });
       });
       this.watchers.push(watcher);
-    } catch {
-      // File may not exist yet — that's fine
+    } catch (error) {
+      // File may not exist yet — watcher will be established when file is created
+      console.error(`[EventQueue] Failed to watch file ${filePath}:`, error);
     }
   }
 
@@ -202,7 +206,8 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (error) {
+      console.error(`[EventQueue] Failed to read file ${filePath}:`, error);
       return;
     }
 
@@ -223,8 +228,8 @@ export class EventQueue {
         } else {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
-      } catch {
-        // Skip malformed lines
+      } catch (error) {
+        console.error(`[EventQueue] Malformed JSON line in ${filePath}:`, line, error);
       }
     }
   }
@@ -233,7 +238,8 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (error) {
+      console.error(`[EventQueue] Failed to read file for replay ${filePath}:`, error);
       return;
     }
 
@@ -253,8 +259,12 @@ export class EventQueue {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
         unprocessed.push(line);
-      } catch {
-        // Skip malformed
+      } catch (error) {
+        console.error(
+          `[EventQueue] Malformed JSON line during replay in ${filePath}:`,
+          line,
+          error,
+        );
       }
     }
   }
@@ -296,8 +306,12 @@ export class EventQueue {
             changed = true;
             return JSON.stringify(parsed);
           }
-        } catch {
-          // Keep as-is
+        } catch (error) {
+          console.error(
+            `[EventQueue] Failed to parse line in ${filePath} while marking processed:`,
+            line,
+            error,
+          );
         }
         return line;
       });
@@ -306,8 +320,8 @@ export class EventQueue {
         await writeFile(filePath, updated.join("\n"), "utf-8");
         this.fileOffsets.set(filePath, updated.join("\n").length);
       }
-    } catch {
-      // Non-critical
+    } catch (error) {
+      console.error(`[EventQueue] Failed to mark events as processed in ${filePath}:`, error);
     }
   }
 }
