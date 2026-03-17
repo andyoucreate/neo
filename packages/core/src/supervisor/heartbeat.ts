@@ -1,19 +1,19 @@
+import type { GlobalConfig } from "@/config";
+import { getDataDir, getRunsDir } from "@/paths";
+import {
+  isAssistantMessage,
+  isInitMessage,
+  isResultMessage,
+  isToolResultMessage,
+  isToolUseMessage,
+  type SDKStreamMessage,
+} from "@/sdk-types";
+import type { PersistedRun } from "@/types";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import {
-  isInitMessage,
-  isResultMessage,
-  type SDKAssistantMessage,
-  type SDKStreamMessage,
-  type SDKToolResultMessage,
-  type SDKToolUseMessage,
-} from "@/sdk-types";
-import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import type { EventQueue } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
@@ -647,21 +647,19 @@ export class HeartbeatLoop {
 
   /** Route a single SDK stream message to the appropriate log handler. */
   private async logStreamMessage(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (msg.type !== "assistant") return;
-
-    if (!msg.subtype) {
+    if (isAssistantMessage(msg)) {
       await this.logContentBlocks(msg, heartbeatId);
-    } else if (msg.subtype === "tool_use") {
+    } else if (isToolUseMessage(msg)) {
       await this.logToolUse(msg, heartbeatId);
-    } else if (msg.subtype === "tool_result") {
+    } else if (isToolResultMessage(msg)) {
       await this.logToolResult(msg, heartbeatId);
     }
   }
 
   /** Log thinking and plan blocks from assistant content — no truncation. */
   private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const assistantMsg = msg as SDKAssistantMessage;
-    const content = assistantMsg.message?.content;
+    if (!isAssistantMessage(msg)) return;
+    const content = msg.message?.content;
     if (!content) return;
 
     for (const block of content) {
@@ -677,20 +675,20 @@ export class HeartbeatLoop {
 
   /** Log tool use events — distinguish MCP tools from built-in tools. */
   private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const toolUseMsg = msg as SDKToolUseMessage;
-    const toolName = String(toolUseMsg.tool ?? "unknown");
+    if (!isToolUseMessage(msg)) return;
+    const toolName = msg.tool;
     const isMcp = toolName.startsWith("mcp__");
     await this.activityLog.log(
       isMcp ? "tool_use" : "action",
       isMcp ? toolName : `Tool use: ${toolName}`,
-      { heartbeatId, tool: toolName, input: toolUseMsg.input },
+      { heartbeatId, tool: toolName, input: msg.input },
     );
   }
 
   /** Detect agent dispatches from bash tool results. */
   private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    const toolResultMsg = msg as SDKToolResultMessage;
-    const result = String(toolResultMsg.result ?? "");
+    if (!isToolResultMessage(msg)) return;
+    const result = msg.result ?? "";
     const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
     if (runMatch) {
       await this.activityLog.log("dispatch", `Agent dispatched: ${runMatch[1]}`, {
