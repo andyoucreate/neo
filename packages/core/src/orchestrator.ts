@@ -3,21 +3,18 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Semaphore } from "@/concurrency/semaphore";
-import type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
+import type { McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 import { CostJournal } from "@/cost/journal";
 import { NeoEventEmitter } from "@/events";
 import { EventJournal } from "@/events/journal";
 import { WebhookDispatcher } from "@/events/webhook";
 import { createSessionClone, removeSessionClone } from "@/isolation/clone";
 import { pushSessionBranch } from "@/isolation/git";
-import { buildSandboxConfig } from "@/isolation/sandbox";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
-import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { loopDetection } from "@/middleware/loop-detection";
 import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
-import { parseOutput } from "@/runner/output-parser";
-import { runWithRecovery } from "@/runner/recovery";
+import { SessionExecutor } from "@/runner/session-executor";
 import { isProcessAlive } from "@/shared/process";
 import { formatMemoriesForPrompt, MemoryStore } from "@/supervisor/memory/index.js";
 import type {
@@ -25,7 +22,6 @@ import type {
   CostEntry,
   DispatchInput,
   Middleware,
-  MiddlewareContext,
   NeoEvent,
   OrchestratorStatus,
   PersistedRun,
@@ -42,104 +38,7 @@ import { WorkflowRegistry } from "@/workflows/registry";
 const MAX_PROMPT_SIZE = 100 * 1024; // 100 KB
 const MAX_METADATA_DEPTH = 5;
 const SHUTDOWN_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-// Session clones are stored in the configured sessions.dir (default: /tmp/neo-sessions)
-const INSTRUCTIONS_PATH = ".neo/INSTRUCTIONS.md";
 const textEncoder = new TextEncoder();
-
-// ─── Repo instructions loader ──────────────────────────
-
-async function loadRepoInstructions(repoPath: string): Promise<string | undefined> {
-  const filePath = path.join(repoPath, INSTRUCTIONS_PATH);
-  try {
-    return await readFile(filePath, "utf-8");
-  } catch {
-    return undefined;
-  }
-}
-
-// ─── Git strategy prompt builder ───────────────────────
-
-function buildGitStrategyInstructions(
-  strategy: GitStrategy,
-  agent: ResolvedAgent,
-  branch: string,
-  baseBranch: string,
-  remote: string,
-  metadata?: Record<string, unknown>,
-): string | null {
-  const prNumber = metadata?.prNumber as number | undefined;
-
-  // Readonly agents: only inject PR comment instruction if a PR exists
-  if (agent.sandbox !== "writable") {
-    if (prNumber) {
-      return `## Pull Request\n\nPR #${String(prNumber)} is open for this task. After your review, leave your findings as a comment: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
-    }
-    return null;
-  }
-
-  // Writable agents: inject git workflow context
-  if (strategy === "pr") {
-    if (prNumber) {
-      return `## Git workflow\n\nYou are on branch \`${branch}\`.\nAn open PR exists: #${String(prNumber)}.\nAfter committing, push your changes to the branch. The PR will be updated automatically.\nLeave a review comment on the PR summarizing what you did: \`gh pr comment ${String(prNumber)} --body "..."\`.`;
-    }
-    return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nAfter committing:\n1. Push: \`git push -u ${remote} ${branch}\`\n2. Create a PR against \`${baseBranch}\` — choose a title and description that reflect the work you completed. End the PR body with: \`🤖 Generated with [neo](https://neotx.dev)\`\n3. Output the PR URL on a dedicated line: \`PR_URL: <url>\``;
-  }
-
-  // strategy === "branch"
-  return `## Git workflow\n\nYou are on branch \`${branch}\` (base: \`${baseBranch}\`).\nCommit your changes. The branch will be pushed automatically.`;
-}
-
-// ─── Reporting instructions for agents ──────────────────
-
-function buildReportingInstructions(_runId: string): string {
-  return `## Reporting & Memory
-
-### Progress reporting (real-time, visible in TUI)
-Chain \`neo log\` with the command that triggered it — never standalone:
-\`\`\`bash
-pnpm test && neo log milestone "all tests passing" || neo log blocker "tests failing"
-git push origin HEAD && neo log action "pushed to branch"
-neo log decision "chose JWT over sessions — simpler for MVP"
-\`\`\`
-
-### Memory (persistent, injected into future agent prompts)
-Write discoveries so the next agent on this repo starts smarter:
-\`\`\`bash
-# Stable facts — describe clearly for semantic search
-neo memory write --type fact --scope $NEO_REPOSITORY "Uses Prisma ORM with PostgreSQL, migrations in prisma/migrations/"
-neo memory write --type fact --scope $NEO_REPOSITORY "Biome for lint+format, config in biome.json"
-
-# How-to procedures — non-obvious workflows
-neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var"
-neo memory write --type procedure --scope $NEO_REPOSITORY "Always run pnpm build before push — CI doesn't rebuild"
-\`\`\`
-
-Write at key moments: after discovering conventions, after resolving a non-obvious issue, before finishing.`;
-}
-
-// ─── Full prompt assembler ─────────────────────────────
-
-function buildFullPrompt(
-  agentPrompt: string | undefined,
-  repoInstructions: string | undefined,
-  gitInstructions: string | null,
-  taskPrompt: string,
-  memoryContext?: string | undefined,
-  cwdInstructions?: string | undefined,
-  reportingInstructions?: string | undefined,
-): string {
-  const sections: string[] = [];
-
-  if (agentPrompt) sections.push(agentPrompt);
-  if (cwdInstructions) sections.push(cwdInstructions);
-  if (memoryContext) sections.push(memoryContext);
-  if (repoInstructions) sections.push(`## Repository instructions\n\n${repoInstructions}`);
-  if (gitInstructions) sections.push(gitInstructions);
-  if (reportingInstructions) sections.push(reportingInstructions);
-  sections.push(`## Task\n\n${taskPrompt}`);
-
-  return sections.join("\n\n---\n\n");
-}
 
 // ─── Options ───────────────────────────────────────────
 
@@ -596,18 +495,7 @@ export class Orchestrator extends NeoEventEmitter {
     ctx: DispatchContext,
     sessionPath: string | undefined,
   ): Promise<StepResult> {
-    const { input, runId, sessionId, stepName, stepDef, agent, activeSession } = ctx;
-
-    const sandboxConfig = buildSandboxConfig(agent, sessionPath);
-    const chain = buildMiddlewareChain(this.userMiddleware);
-    const middlewareContext = this.buildMiddlewareContext(
-      runId,
-      input.workflow,
-      stepName,
-      agent.name,
-      input.repo,
-    );
-    const hooks = buildSDKHooks(chain, middlewareContext, this.userMiddleware);
+    const { input, runId, sessionId, stepName, stepDef, agent, repoConfig, activeSession } = ctx;
 
     this.emit({
       type: "session:start",
@@ -621,108 +509,63 @@ export class Orchestrator extends NeoEventEmitter {
       timestamp: new Date().toISOString(),
     });
 
-    // Build the full prompt with repo instructions and git strategy context
-    const repoInstructions = await loadRepoInstructions(input.repo);
-    const strategy: GitStrategy = input.gitStrategy ?? ctx.repoConfig.gitStrategy ?? "branch";
-    if (agent.sandbox === "writable" && !input.branch) {
-      throw new Error(
-        "Validation error: --branch is required for writable agents. Provide an explicit branch name (e.g. --branch feat/PROJ-42-description).",
-      );
-    }
-    const branch = agent.sandbox === "writable" ? (input.branch as string) : "";
-    const gitInstructions = buildGitStrategyInstructions(
-      strategy,
-      agent,
-      branch,
-      ctx.repoConfig.defaultBranch,
-      ctx.repoConfig.pushRemote ?? "origin",
-      input.metadata,
-    );
-    const taskPrompt = stepDef.prompt ?? input.prompt;
-
-    // Memory injection: load relevant memories for this repo
-    const memoryContext = this.loadMemoryContext(input.repo);
-
-    // Inject working directory context so the agent knows where to operate.
-    // Without this, Claude Code may resolve to the wrong directory.
-    const cwdInstructions = sessionPath
-      ? `## Working directory\n\nYou are working in an isolated clone at: \`${sessionPath}\`\nALWAYS run commands from this directory. NEVER cd to or operate on any other repository.`
-      : undefined;
-
-    const reportingInstructions = buildReportingInstructions(runId);
-
-    const fullPrompt = buildFullPrompt(
-      agent.definition.prompt,
-      repoInstructions,
-      gitInstructions,
-      taskPrompt,
-      memoryContext,
-      cwdInstructions,
-      reportingInstructions,
-    );
-
-    const recoveryOpts = stepDef.recovery;
-    const mcpServers = this.resolveMcpServers(stepDef, agent);
-
-    // Inject env vars so agents can use `neo log` and `neo memory` for reporting
-    const agentEnv: Record<string, string> = {
-      NEO_RUN_ID: runId,
-      NEO_AGENT_NAME: agent.name,
-      NEO_REPOSITORY: input.repo,
-    };
-
-    const sessionResult = await runWithRecovery({
-      agent,
-      prompt: fullPrompt,
-      repoPath: input.repo,
-      sandboxConfig,
-      hooks,
-      env: agentEnv,
-      initTimeoutMs: this.config.sessions.initTimeoutMs,
-      maxDurationMs: this.config.sessions.maxDurationMs,
-      maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
-      backoffBaseMs: this.config.recovery.backoffBaseMs,
-      ...(sessionPath ? { sessionPath } : {}),
-      ...(mcpServers ? { mcpServers } : {}),
-      ...(recoveryOpts?.nonRetryable ? { nonRetryable: recoveryOpts.nonRetryable } : {}),
-      onAttempt: (attempt, strategy) => {
-        if (attempt > 1) {
-          this.emit({
-            type: "session:fail",
-            sessionId,
-            runId,
-            error: `Retrying with strategy: ${strategy}`,
-            attempt: attempt - 1,
-            maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
-            willRetry: true,
-            metadata: input.metadata,
-            timestamp: new Date().toISOString(),
-          });
-        }
+    // Create SessionExecutor with config and context value getter
+    const executor = new SessionExecutor(
+      {
+        initTimeoutMs: this.config.sessions.initTimeoutMs,
+        maxDurationMs: this.config.sessions.maxDurationMs,
+        maxRetries: this.config.recovery.maxRetries,
+        backoffBaseMs: this.config.recovery.backoffBaseMs,
       },
-    });
+      (key: string) => {
+        if (key === "costToday") return this._costToday;
+        if (key === "budgetCapUsd") return this.config.budget.dailyCapUsd;
+        return undefined;
+      },
+    );
 
-    const parsed = parseOutput(sessionResult.output);
+    // Build execution input
+    const strategy = input.gitStrategy ?? repoConfig.gitStrategy ?? "branch";
+    const mcpServers = this.resolveMcpServers(stepDef, agent);
+    const memoryContext = this.loadMemoryContext(input.repo);
+    const recoveryOpts = stepDef.recovery;
 
-    const result: StepResult = {
-      status: "success",
-      sessionId: sessionResult.sessionId,
-      output: parsed.output ?? parsed.rawOutput,
-      rawOutput: sessionResult.output,
-      costUsd: sessionResult.costUsd,
-      durationMs: sessionResult.durationMs,
-      agent: agent.name,
-      startedAt: activeSession.startedAt,
-      completedAt: new Date().toISOString(),
-      attempt: 1,
-    };
-
-    if (parsed.prUrl) {
-      result.prUrl = parsed.prUrl;
-    }
-    if (parsed.prNumber !== undefined) {
-      result.prNumber = parsed.prNumber;
-    }
+    const result = await executor.execute(
+      {
+        runId,
+        sessionId,
+        agent,
+        stepDef,
+        repoConfig,
+        repoPath: input.repo,
+        prompt: input.prompt,
+        branch: input.branch,
+        gitStrategy: strategy,
+        sessionPath,
+        metadata: input.metadata,
+        startedAt: activeSession.startedAt,
+      },
+      {
+        middleware: this.userMiddleware,
+        mcpServers,
+        memoryContext,
+        onAttempt: (attempt, strategy) => {
+          if (attempt > 1) {
+            this.emit({
+              type: "session:fail",
+              sessionId,
+              runId,
+              error: `Retrying with strategy: ${strategy}`,
+              attempt: attempt - 1,
+              maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
+              willRetry: true,
+              metadata: input.metadata,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        },
+      },
+    );
 
     // Write episode to memory store
     try {
@@ -1002,31 +845,6 @@ export class Orchestrator extends NeoEventEmitter {
       branchPrefix: "feat",
       pushRemote: "origin",
       gitStrategy: "branch",
-    };
-  }
-
-  private buildMiddlewareContext(
-    runId: string,
-    workflow: string,
-    step: string,
-    agent: string,
-    repo: string,
-  ): MiddlewareContext {
-    const store = new Map<string, unknown>();
-    return {
-      runId,
-      workflow,
-      step,
-      agent,
-      repo,
-      get: ((key: string) => {
-        if (key === "costToday") return this._costToday;
-        if (key === "budgetCapUsd") return this.config.budget.dailyCapUsd;
-        return store.get(key);
-      }) as MiddlewareContext["get"],
-      set: ((key: string, value: unknown) => {
-        store.set(key, value);
-      }) as MiddlewareContext["set"],
     };
   }
 

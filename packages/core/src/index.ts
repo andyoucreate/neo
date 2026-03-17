@@ -98,6 +98,19 @@ export type {
   SessionResult,
 } from "@/runner/session";
 export { runSession, SessionError } from "@/runner/session";
+export type {
+  SessionExecutionConfig,
+  SessionExecutionDeps,
+  SessionExecutionInput,
+  SessionExecutionResult,
+} from "@/runner/session-executor";
+export {
+  buildFullPrompt,
+  buildGitStrategyInstructions,
+  buildReportingInstructions,
+  loadRepoInstructions,
+  SessionExecutor,
+} from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
 export type { SupervisorState } from "@/supervisor";
