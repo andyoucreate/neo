@@ -46,23 +46,36 @@ export {
   buildConsolidationPrompt,
   buildIdlePrompt,
   buildStandardPrompt,
+  buildWorkQueueSection,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
 export type {
   ActivityEntry,
   InboxMessage,
+  InternalEventKind,
   LogBufferEntry,
   QueuedEvent,
   SupervisorDaemonState,
+  WakeReason,
   WebhookIncomingEvent,
 } from "./schemas.js";
 // ─── Schemas ────────────────────────────────────────────
 export {
   activityEntrySchema,
   inboxMessageSchema,
+  internalEventKindSchema,
   logBufferEntrySchema,
   supervisorDaemonStateSchema,
+  wakeReasonSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";
+// ─── Shutdown ───────────────────────────────────────────
+export type { ShutdownContext, ShutdownHandler, ShutdownOptions } from "./shutdown.js";
+export {
+  createShutdownManager,
+  ShutdownManager,
+  terminateGracefully,
+  waitForExit,
+} from "./shutdown.js";
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
