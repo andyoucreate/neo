@@ -132,8 +132,8 @@ export class EventQueue {
     for (const p of [inboxPath, eventsPath]) {
       try {
         await writeFile(p, "", { flag: "a" });
-      } catch {
-        // Non-critical — watchJsonlFile will handle the error
+      } catch (_err) {
+        // Non-critical — watchJsonlFile will handle missing files gracefully
       }
     }
     this.watchJsonlFile(inboxPath, "message");
@@ -190,11 +190,13 @@ export class EventQueue {
   private watchJsonlFile(filePath: string, kind: "message" | "webhook"): void {
     try {
       const watcher = watch(filePath, () => {
-        this.readNewLines(filePath, kind).catch(() => {});
+        this.readNewLines(filePath, kind).catch((err) => {
+          console.error(`[EventQueue] Failed to read new lines from ${filePath}:`, err);
+        });
       });
       this.watchers.push(watcher);
-    } catch {
-      // File may not exist yet — that's fine
+    } catch (_err) {
+      // File may not exist yet — watcher will be created when file appears
     }
   }
 
@@ -202,7 +204,9 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (err) {
+      // Critical: file existed when watcher was created but is now unreadable
+      console.error(`[EventQueue] Failed to read ${filePath}:`, err);
       return;
     }
 
@@ -223,8 +227,8 @@ export class EventQueue {
         } else {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
-      } catch {
-        // Skip malformed lines
+      } catch (_err) {
+        // Skip malformed JSON lines — non-critical, file may contain partial writes
       }
     }
   }
@@ -233,7 +237,8 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch {
+    } catch (_err) {
+      // Non-critical: file may not exist on first startup — nothing to replay
       return;
     }
 
@@ -253,8 +258,8 @@ export class EventQueue {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
         unprocessed.push(line);
-      } catch {
-        // Skip malformed
+      } catch (_err) {
+        // Skip malformed JSON lines — non-critical, file may contain partial writes
       }
     }
   }
@@ -296,8 +301,8 @@ export class EventQueue {
             changed = true;
             return JSON.stringify(parsed);
           }
-        } catch {
-          // Keep as-is
+        } catch (_err) {
+          // Keep malformed lines as-is — preserve file integrity
         }
         return line;
       });
@@ -306,8 +311,8 @@ export class EventQueue {
         await writeFile(filePath, updated.join("\n"), "utf-8");
         this.fileOffsets.set(filePath, updated.join("\n").length);
       }
-    } catch {
-      // Non-critical
+    } catch (_err) {
+      // Non-critical: marking processed is best-effort, events will be deduped on next run
     }
   }
 }
