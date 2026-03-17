@@ -225,7 +225,7 @@ interface TaskGroup {
   tasks: MemoryEntry[];
 }
 
-function buildWorkQueueSection(memories: MemoryEntry[]): string {
+export function buildWorkQueueSection(memories: MemoryEntry[]): string {
   // Filter task memories that are not done/abandoned
   const tasks = memories.filter((m) => m.type === "task" && !DONE_OUTCOMES.has(m.outcome ?? ""));
 

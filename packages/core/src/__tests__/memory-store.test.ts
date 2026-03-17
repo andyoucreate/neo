@@ -237,4 +237,211 @@ describe("MemoryStore", () => {
       store.close();
     });
   });
+
+  describe("task memory type", () => {
+    it("writes and retrieves a task memory", async () => {
+      const store = createStore();
+      const id = await store.write({
+        type: "task",
+        scope: "/repos/myapp",
+        content: "T1: Implement auth middleware",
+        source: "supervisor",
+        outcome: "pending",
+      });
+
+      const results = store.query({ types: ["task"] });
+      expect(results).toHaveLength(1);
+      expect(results[0]?.content).toBe("T1: Implement auth middleware");
+      expect(results[0]?.type).toBe("task");
+      expect(results[0]?.id).toBe(id);
+      expect(results[0]?.outcome).toBe("pending");
+      store.close();
+    });
+
+    it("filters tasks by type", async () => {
+      const store = createStore();
+      await store.write({
+        type: "task",
+        scope: "global",
+        content: "Task 1",
+        source: "supervisor",
+        outcome: "pending",
+      });
+      await store.write({
+        type: "fact",
+        scope: "global",
+        content: "Some fact",
+        source: "user",
+      });
+      await store.write({
+        type: "task",
+        scope: "global",
+        content: "Task 2",
+        source: "supervisor",
+        outcome: "in_progress",
+      });
+
+      const tasks = store.query({ types: ["task"] });
+      expect(tasks).toHaveLength(2);
+      expect(tasks.every((t) => t.type === "task")).toBe(true);
+      store.close();
+    });
+
+    it("updates task outcome with updateFields()", async () => {
+      const store = createStore();
+      const id = await store.write({
+        type: "task",
+        scope: "global",
+        content: "Implement feature",
+        source: "supervisor",
+        outcome: "pending",
+      });
+
+      // Verify initial state
+      let tasks = store.query({ types: ["task"] });
+      expect(tasks[0]?.outcome).toBe("pending");
+
+      // Update to in_progress
+      store.updateFields(id, { outcome: "in_progress" });
+      tasks = store.query({ types: ["task"] });
+      expect(tasks[0]?.outcome).toBe("in_progress");
+
+      // Update to done
+      store.updateFields(id, { outcome: "done" });
+      tasks = store.query({ types: ["task"] });
+      expect(tasks[0]?.outcome).toBe("done");
+      store.close();
+    });
+
+    it("updates multiple fields at once with updateFields()", async () => {
+      const store = createStore();
+      const id = await store.write({
+        type: "task",
+        scope: "global",
+        content: "Task to update",
+        source: "supervisor",
+        outcome: "pending",
+      });
+
+      store.updateFields(id, {
+        outcome: "in_progress",
+        runId: "run_abc123",
+        content: "Updated task content",
+      });
+
+      const tasks = store.query({ types: ["task"] });
+      expect(tasks[0]?.outcome).toBe("in_progress");
+      expect(tasks[0]?.runId).toBe("run_abc123");
+      expect(tasks[0]?.content).toBe("Updated task content");
+      store.close();
+    });
+  });
+
+  describe("decay with tasks", () => {
+    it("removes completed tasks older than 7 days", async () => {
+      const store = createStore();
+
+      // Create a done task and manually backdate it
+      const id = await store.write({
+        type: "task",
+        scope: "global",
+        content: "Old completed task",
+        source: "supervisor",
+        outcome: "done",
+      });
+
+      // Backdate the task to 10 days ago using raw SQL
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+      // Access private db for testing - hacky but necessary
+      (
+        store as unknown as {
+          db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } };
+        }
+      ).db
+        .prepare("UPDATE memories SET last_accessed_at = ? WHERE id = ?")
+        .run(tenDaysAgo, id);
+
+      // Also add a fresh fact to ensure it's not removed
+      await store.write({
+        type: "fact",
+        scope: "global",
+        content: "Fresh fact",
+        source: "user",
+      });
+
+      const removed = store.decay(30, 3);
+      expect(removed).toBeGreaterThanOrEqual(1);
+
+      // Done task should be removed
+      const tasks = store.query({ types: ["task"] });
+      expect(tasks).toHaveLength(0);
+
+      // Fresh fact should remain
+      const facts = store.query({ types: ["fact"] });
+      expect(facts).toHaveLength(1);
+      store.close();
+    });
+
+    it("does NOT decay tasks with pending outcome", async () => {
+      const store = createStore();
+
+      const id = await store.write({
+        type: "task",
+        scope: "global",
+        content: "Old pending task",
+        source: "supervisor",
+        outcome: "pending",
+      });
+
+      // Backdate to 10 days ago
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+      (
+        store as unknown as {
+          db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } };
+        }
+      ).db
+        .prepare("UPDATE memories SET last_accessed_at = ? WHERE id = ?")
+        .run(tenDaysAgo, id);
+
+      const removed = store.decay(30, 3);
+      // Task should NOT be removed since it's pending
+      expect(removed).toBe(0);
+
+      const tasks = store.query({ types: ["task"] });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.content).toBe("Old pending task");
+      store.close();
+    });
+
+    it("does NOT decay tasks with in_progress outcome", async () => {
+      const store = createStore();
+
+      const id = await store.write({
+        type: "task",
+        scope: "global",
+        content: "Old in-progress task",
+        source: "supervisor",
+        outcome: "in_progress",
+      });
+
+      // Backdate to 10 days ago
+      const tenDaysAgo = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+      (
+        store as unknown as {
+          db: { prepare: (sql: string) => { run: (...args: unknown[]) => void } };
+        }
+      ).db
+        .prepare("UPDATE memories SET last_accessed_at = ? WHERE id = ?")
+        .run(tenDaysAgo, id);
+
+      const removed = store.decay(30, 3);
+      // Task should NOT be removed since it's in_progress
+      expect(removed).toBe(0);
+
+      const tasks = store.query({ types: ["task"] });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0]?.content).toBe("Old in-progress task");
+      store.close();
+    });
+  });
 });
