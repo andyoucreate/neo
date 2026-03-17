@@ -62,5 +62,12 @@ export {
   supervisorDaemonStateSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";
+// ─── Session executor ───────────────────────────────────
+export type {
+  SessionContext,
+  SessionEvents,
+  SessionExecutorConfig,
+} from "./session-executor.js";
+export { SessionExecutor } from "./session-executor.js";
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
