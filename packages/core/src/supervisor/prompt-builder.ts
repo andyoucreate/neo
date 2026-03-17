@@ -119,10 +119,19 @@ Runs are your agents in the field. You MUST actively track them:
 <orchestration>
 When managing a multi-task initiative (architect decomposition, feature with milestones):
 
+**Branch strategy:**
+- Use ONE branch per initiative: \`feat/YC-2670-kanban-improvements\` — all tasks in the initiative push commits to this same branch
+- Each agent inherits the previous task's work without needing merges
+- The first task creates the branch. Subsequent tasks reuse it with the same \`--branch\` flag
+- Open the PR after the first task completes. Later tasks push additional commits to the same PR
+- Tasks within an initiative MUST be dispatched sequentially (not in parallel) since they share a branch
+- Independent initiatives CAN run in parallel on different branches
+
 **Before dispatching a task:**
 1. Run the task's \`--category\` command to retrieve context (architect plan, previous run output)
 2. Write a detailed \`--prompt\` with: task description, acceptance criteria, files to modify, and context from previous tasks in the initiative
-3. Include results from completed sibling tasks if relevant (e.g. "T5 added date filtering in fetchAllFstRecords — now integrate it into CSV export")
+3. Include results from completed sibling tasks: what was built, which files were changed, which APIs were added
+4. Always pass the same \`--branch\` as previous tasks in the initiative
 
 **After a run completes:**
 1. \`neo runs <runId>\` — read the FULL output, not just status
@@ -130,10 +139,11 @@ When managing a multi-task initiative (architect decomposition, feature with mil
 3. Verify the output matches the task's acceptance criteria
 4. If the agent opened a PR: dispatch \`reviewer\` in parallel with CI (do not wait for CI)
 5. Update the task outcome and log the result with concrete details (PR#, branch, what was done)
+6. Update the initiative note with the completed milestone
 
 **Cross-task context:**
-- Each task in an initiative builds on previous ones. When dispatching T6, tell the agent what T1-T5 produced (PR numbers, branches merged, APIs added)
-- Store key outputs as facts if they affect future tasks: "T5 added dateRange param to fetchAllFstRecords (PR#20 merged)"
+- Each task builds on previous ones. When dispatching T6, tell the agent what T1-T5 produced (commits, APIs added, files changed)
+- Store key outputs as facts if they affect future tasks: "T5 added dateRange param to fetchAllFstRecords"
 - Use notes for initiative-level plans: \`cat notes/plan-<initiative>.md\` — update as tasks complete
 </orchestration>
 
@@ -215,6 +225,7 @@ PROCESSED: <runId> → <outcome> PR#<N>
 </focus-format>
 
 <notes>
+
 You have a notes/ directory for rich markdown documents that persist across heartbeats.
 
 When to use notes:
@@ -233,14 +244,16 @@ How to use:
 Use notes for every initiative with 3+ tasks. They are your project management tool.
 </notes>`;
 
-const MEMORY_RULES_EXAMPLES = `<memory-commands>
-neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x"
-neo memory write --type fact --scope /repo "CI requires pnpm build — discovered in run abc123"
+const MEMORY_RULES_EXAMPLES = `<memory-examples>
+neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat notes/plan-YC-2670-kanban.md)"
+neo memory write --type fact --scope /repo "CI requires pnpm build — discovered in run 2g589f34a5a"
 neo memory write --type procedure --scope /repo "Check gh pr view before re-dispatch"
-neo memory write --type task --scope /repo --severity high --category "neo runs abc123" --tags "initiative:auth-v2,depends:mem_xyz" "T1: Auth middleware"
+neo memory write --type procedure --scope /repo "Always run pnpm lint before push"
+neo memory write --type procedure --scope /repo/backend "User want to dispatch reviewer agent without waiting for CI"
+neo memory write --type task --scope /repo --severity high --category "neo runs 2g589f34a5a" --tags "initiative:auth-v2,depends:mem_xyz" "T1: Auth middleware"
 neo memory update <id> --outcome in_progress|done|blocked|abandoned
 neo memory forget <id>
-</memory-commands>`;
+</memory-examples>`;
 
 // ─── Section builders ───────────────────────────────────
 
