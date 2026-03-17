@@ -332,7 +332,7 @@ function ActivityRow({
       <Text color={color} dimColor={isOld} bold>
         {label}
       </Text>
-      <Text dimColor={isOld} bold={isLatest} wrap={isLatest ? "wrap" : "truncate"}>
+      <Text dimColor={isOld} bold={isLatest}>
         {entry.summary}
       </Text>
     </Box>
@@ -390,7 +390,7 @@ function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
               {label}
             </Text>
             {prio && <Text dimColor>{prio.padEnd(5)}</Text>}
-            <Text wrap="truncate">{t.content.slice(0, 40)}</Text>
+            <Text wrap="truncate">{t.content}</Text>
             {meta && <Text dimColor>({meta})</Text>}
           </Box>
         );

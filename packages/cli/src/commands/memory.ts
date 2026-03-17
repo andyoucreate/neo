@@ -14,6 +14,9 @@ interface ParsedArgs {
   expires: string | undefined;
   name: string;
   outcome: string | undefined;
+  severity: string | undefined;
+  category: string | undefined;
+  tags: string | undefined;
 }
 
 function parseDuration(input: string): string | undefined {
@@ -77,13 +80,17 @@ async function handleWrite(args: ParsedArgs): Promise<void> {
 
   const store = openStore(args.name, true);
   try {
+    const tags = args.tags ? args.tags.split(",").map((t) => t.trim()) : [];
     const id = await store.write({
       type: type as MemoryType,
       scope: args.scope,
       content: args.value,
       source: args.source,
-      tags: [],
+      tags,
       expiresAt,
+      severity: args.severity,
+      category: args.category,
+      outcome: args.outcome,
     });
     printSuccess(`Memory written: ${id}`);
   } finally {
@@ -273,6 +280,18 @@ export default defineCommand({
       type: "string",
       description: "Task outcome: pending, in_progress, done, blocked, abandoned",
     },
+    severity: {
+      type: "string",
+      description: "Priority: critical, high, medium, low",
+    },
+    category: {
+      type: "string",
+      description: "Context reference (e.g. 'neo runs abc123' or 'cat notes/plan.md')",
+    },
+    tags: {
+      type: "string",
+      description: "Comma-separated tags (e.g. 'initiative:auth,depends:mem_abc')",
+    },
     name: {
       type: "string",
       description: "Supervisor name",
@@ -289,6 +308,9 @@ export default defineCommand({
       expires: args.expires as string | undefined,
       name: args.name as string,
       outcome: args.outcome as string | undefined,
+      severity: args.severity as string | undefined,
+      category: args.category as string | undefined,
+      tags: args.tags as string | undefined,
     };
 
     switch (action) {
