@@ -7,6 +7,7 @@ import {
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorStatePath,
+  loadGlobalConfig,
   MemoryStore,
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
@@ -569,6 +570,7 @@ export function SupervisorTui({ name }: { name: string }) {
   const [state, setState] = useState<SupervisorDaemonState | null>(null);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [tasks, setTasks] = useState<MemoryEntry[]>([]);
+  const [dailyCap, setDailyCap] = useState(50);
   const [input, setInput] = useState("");
   const [lastSent, setLastSent] = useState("");
   const [termHeight, setTermHeight] = useState(stdout?.rows ?? 30);
@@ -583,6 +585,13 @@ export function SupervisorTui({ name }: { name: string }) {
       stdout?.off("resize", onResize);
     };
   }, [stdout]);
+
+  // Load daily cap from config
+  useEffect(() => {
+    loadGlobalConfig()
+      .then((cfg) => setDailyCap(cfg.supervisor.dailyCapUsd))
+      .catch(() => {});
+  }, []);
 
   // Poll state and activity
   useEffect(() => {
@@ -629,7 +638,7 @@ export function SupervisorTui({ name }: { name: string }) {
   return (
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
-      <BudgetPanel state={state} dailyCap={50} costHistory={costHistory} />
+      <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
       <TaskPanel tasks={tasks} />
       <ActivityPanel
         entries={entries}

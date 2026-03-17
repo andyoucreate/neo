@@ -78,13 +78,16 @@ neo log <type> "<message>"   # visible in TUI only
 // ─── Shared instruction blocks ──────────────────────────
 
 const HEARTBEAT_RULES = `### Heartbeat lifecycle
-1. Process incoming events (messages, run completions)
-2. Follow up on pending work (CI checks, deferred dispatches) with \`neo runs\` or \`gh pr checks\`
-3. Make decisions and dispatch agents
-4. Update memory and log decisions
-5. Yield — each heartbeat should take seconds, not minutes
+1. **Check work queue FIRST** — if you have pending tasks, work on the next one before looking for new work
+2. Process incoming events (messages, run completions)
+3. Follow up on pending work (CI checks, deferred dispatches) with \`neo runs\` or \`gh pr checks\`
+4. Make decisions and dispatch agents
+5. Update task status (\`neo memory update <id> --outcome in_progress|done|blocked\`) and log decisions
+6. Yield — each heartbeat should take seconds, not minutes
 
-After dispatching with \`neo run\`, note the runId in your focus and yield. Do NOT poll in a loop.
+**CRITICAL**: Your work queue IS your plan. Do not re-plan work that is already in the queue. When an planner agent produces tasks, create them with \`neo memory write --type task\`, then dispatch them one by one in subsequent heartbeats. Mark each task \`in_progress\` when dispatching, \`done\` when the run completes, \`blocked\` if stuck.
+
+After dispatching with \`neo run\`, mark the task \`in_progress\`, note the runId in your focus, and yield. Do NOT poll in a loop.
 Completion events arrive at future heartbeats — react then.
 If you deferred work (e.g. "CI pending"), you MUST check it at the next heartbeat.`;
 
@@ -282,76 +285,83 @@ interface TaskGroup {
 }
 
 export function buildWorkQueueSection(memories: MemoryEntry[]): string {
-  // Filter task memories that are not done/abandoned
   const tasks = memories.filter((m) => m.type === "task" && !DONE_OUTCOMES.has(m.outcome ?? ""));
+  const doneCount = countDoneTasks(memories);
 
-  if (tasks.length === 0) return "";
+  if (tasks.length === 0) {
+    if (doneCount > 0) {
+      return `Work queue (0 remaining, ${doneCount} done) — all tasks complete. Pick up new work or wait for events.`;
+    }
+    return "";
+  }
 
-  // Count done tasks for the counter
-  const doneCount = memories.filter(
-    (m) => m.type === "task" && DONE_OUTCOMES.has(m.outcome ?? ""),
-  ).length;
+  const groups = groupTasksByInitiative(tasks);
+  const lines = renderTaskGroups(groups);
 
-  // Group by initiative tag
-  const groups: TaskGroup[] = [];
+  if (tasks.length > MAX_TASKS) {
+    lines.push(`  ... and ${tasks.length - MAX_TASKS} more pending`);
+  }
+
+  const header = `Work queue (${tasks.length} remaining, ${doneCount} done) — dispatch the next eligible task:`;
+  return `${header}\n${lines.join("\n")}`;
+}
+
+function countDoneTasks(memories: MemoryEntry[]): number {
+  return memories.filter((m) => m.type === "task" && DONE_OUTCOMES.has(m.outcome ?? "")).length;
+}
+
+function groupTasksByInitiative(tasks: MemoryEntry[]): TaskGroup[] {
   const initiativeMap = new Map<string, MemoryEntry[]>();
   const noInitiative: MemoryEntry[] = [];
 
   for (const task of tasks) {
-    const initiativeTag = task.tags.find((t) => t.startsWith("initiative:"));
-    if (initiativeTag) {
-      const initiative = initiativeTag.slice("initiative:".length);
-      const group = initiativeMap.get(initiative) ?? [];
+    const tag = task.tags.find((t) => t.startsWith("initiative:"));
+    if (tag) {
+      const key = tag.slice("initiative:".length);
+      const group = initiativeMap.get(key) ?? [];
       group.push(task);
-      initiativeMap.set(initiative, group);
+      initiativeMap.set(key, group);
     } else {
       noInitiative.push(task);
     }
   }
 
-  // Build groups array
+  const groups: TaskGroup[] = [];
   for (const [initiative, taskList] of initiativeMap) {
     groups.push({ initiative, tasks: taskList });
   }
   if (noInitiative.length > 0) {
     groups.push({ initiative: null, tasks: noInitiative });
   }
+  return groups;
+}
 
-  // Render tasks with cap
+function renderTaskGroups(groups: TaskGroup[]): string[] {
   const lines: string[] = [];
   let rendered = 0;
-  const remaining = tasks.length;
 
   for (const group of groups) {
     if (rendered >= MAX_TASKS) break;
-
-    // Add initiative header if multiple initiatives exist
-    if (group.initiative && initiativeMap.size > 0) {
+    if (group.initiative && groups.length > 1) {
       lines.push(`  [${group.initiative}]`);
     }
-
     for (const task of group.tasks) {
       if (rendered >= MAX_TASKS) break;
-
-      const marker = formatTaskMarker(task.outcome);
-      const severity = task.severity ? `[${task.severity}] ` : "";
-      const scopeBasename = task.scope !== "global" ? ` (${getBasename(task.scope)})` : "";
-      const runRef = task.runId ? ` [run ${task.runId.slice(0, 8)}]` : "";
-      const categoryRef = task.category ? ` → ${task.category}` : "";
-
-      lines.push(`  ${marker} ${severity}${task.content}${scopeBasename}${runRef}${categoryRef}`);
+      lines.push(`  ${formatTaskLine(task)}`);
       rendered++;
     }
   }
 
-  // Add overflow notice if capped
-  if (remaining > MAX_TASKS) {
-    const overflow = remaining - MAX_TASKS;
-    lines.push(`  ... and ${overflow} more pending`);
-  }
+  return lines;
+}
 
-  const header = `Work queue (${remaining} remaining, ${doneCount} done):`;
-  return `${header}\n${lines.join("\n")}`;
+function formatTaskLine(task: MemoryEntry): string {
+  const marker = formatTaskMarker(task.outcome);
+  const severity = task.severity ? `[${task.severity}] ` : "";
+  const scope = task.scope !== "global" ? ` (${getBasename(task.scope)})` : "";
+  const run = task.runId ? ` [run ${task.runId.slice(0, 8)}]` : "";
+  const cat = task.category ? ` → ${task.category}` : "";
+  return `${marker} ${severity}${task.content}${scope}${run}${cat}`;
 }
 
 function formatTaskMarker(outcome: string | undefined): string {
@@ -444,20 +454,21 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount}\n</role>`);
   sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context
+  // Context — work queue first so it's the primary driver
   const contextParts: string[] = [];
-  contextParts.push(...buildContextSections(opts));
+
+  const workQueue = buildWorkQueueSection(opts.memories);
+
+  if (workQueue) {
+    contextParts.push(workQueue);
+  }
 
   if (opts.activeRuns.length > 0) {
     contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
   }
 
+  contextParts.push(...buildContextSections(opts));
   contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
-
-  const workQueue = buildWorkQueueSection(opts.memories);
-  if (workQueue) {
-    contextParts.push(workQueue);
-  }
 
   const recentActions = buildRecentActionsSection(opts.recentActions);
   if (recentActions) {
@@ -479,7 +490,7 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
   }
 
   instructionParts.push(
-    "This is a standard heartbeat. Focus on processing events and dispatching work.",
+    "This is a standard heartbeat. Focus on processing events and dispatching work. If you have tasks in your work queue, dispatch the next eligible one.",
   );
 
   sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
@@ -498,20 +509,20 @@ export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): stri
   sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (CONSOLIDATION)\n</role>`);
   sections.push(`<commands>\n${COMMANDS}\n</commands>`);
 
-  // Context
+  // Context — work queue first so it's the primary driver
   const contextParts: string[] = [];
-  contextParts.push(...buildContextSections(opts));
-
-  if (opts.activeRuns.length > 0) {
-    contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
-  }
-
-  contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
 
   const workQueueConsolidation = buildWorkQueueSection(opts.memories);
   if (workQueueConsolidation) {
     contextParts.push(workQueueConsolidation);
   }
+
+  if (opts.activeRuns.length > 0) {
+    contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
+  }
+
+  contextParts.push(...buildContextSections(opts));
+  contextParts.push(buildMemorySection(opts.memories, opts.supervisorDir));
 
   const recentActions = buildRecentActionsSection(opts.recentActions);
   if (recentActions) {

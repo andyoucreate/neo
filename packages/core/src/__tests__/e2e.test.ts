@@ -933,6 +933,7 @@ describe("e2e: run persistence", () => {
     // Create an orphaned run file
     const runsDir = GLOBAL_RUNS_DIR;
     await mkdir(runsDir, { recursive: true });
+    const staleDate = new Date(Date.now() - 120_000).toISOString(); // 2 min ago — past grace period
     await writeFile(
       path.join(runsDir, "orphan-1.json"),
       JSON.stringify({
@@ -943,8 +944,8 @@ describe("e2e: run persistence", () => {
         prompt: "Orphaned task",
         status: "running",
         steps: {},
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: staleDate,
+        updatedAt: staleDate,
       }),
     );
 

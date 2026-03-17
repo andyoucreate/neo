@@ -216,7 +216,7 @@ describe("buildWorkQueueSection", () => {
     const result = buildWorkQueueSection(memories);
 
     // Check header
-    expect(result).toContain("Work queue (3 remaining, 0 done):");
+    expect(result).toContain("Work queue (3 remaining, 0 done) — dispatch the next eligible task:");
 
     // Check markers
     expect(result).toContain("○ T1: Setup auth"); // pending uses ○
@@ -303,7 +303,7 @@ describe("buildWorkQueueSection", () => {
     const result = buildWorkQueueSection(memories);
 
     // Header should show 1 remaining (pending), 2 done
-    expect(result).toContain("Work queue (1 remaining, 2 done):");
+    expect(result).toContain("Work queue (1 remaining, 2 done) — dispatch the next eligible task:");
 
     // Should only render the pending task
     expect(result).toContain("T3: Pending task");

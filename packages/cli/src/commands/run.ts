@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { NeoEvent, PersistedRun } from "@neotx/core";
@@ -130,6 +130,20 @@ async function runDetached(params: DetachParams): Promise<void> {
     env: process.env,
   });
   child.unref();
+
+  // Write PID to persisted run immediately so other workers' recoverOrphanedRuns()
+  // can see this process is alive (prevents false orphan detection on concurrent launches)
+  if (child.pid) {
+    const runFilePath = path.join(runsDir, `${runId}.json`);
+    try {
+      const raw = await readFile(runFilePath, "utf-8");
+      const run = JSON.parse(raw) as PersistedRun;
+      run.pid = child.pid;
+      await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
+    } catch {
+      // Non-critical — worker will write PID on startup anyway
+    }
+  }
 
   if (params.jsonOutput) {
     printJson({ runId, status: "detached", pid: child.pid });

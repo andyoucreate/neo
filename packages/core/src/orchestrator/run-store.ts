@@ -9,6 +9,9 @@ export interface RunStoreOptions {
   runsDir?: string | undefined;
 }
 
+/** Grace period before a run without PID can be considered orphaned (ms). */
+const ORPHAN_GRACE_PERIOD_MS = 30_000;
+
 /**
  * Handles persistence and recovery of workflow runs.
  *
@@ -98,6 +101,11 @@ export class RunStore {
     if (run.status !== "running") return null;
     // If the run has a PID and the process is still alive, skip it
     if (run.pid && isProcessAlive(run.pid)) return null;
+
+    // Don't mark recently created runs as orphaned — the worker process
+    // may not have written its PID yet (race condition on concurrent launches)
+    const ageMs = Date.now() - new Date(run.createdAt).getTime();
+    if (ageMs < ORPHAN_GRACE_PERIOD_MS) return null;
 
     run.status = "failed";
     run.updatedAt = new Date().toISOString();

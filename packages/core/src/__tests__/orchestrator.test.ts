@@ -485,6 +485,7 @@ describe("start", () => {
     const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
+    const staleDate = new Date(Date.now() - 120_000).toISOString(); // 2 min ago — past grace period
     const orphanedRun = {
       version: 1,
       runId: "orphan-run-1",
@@ -493,8 +494,8 @@ describe("start", () => {
       prompt: "Fix something",
       status: "running",
       steps: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: staleDate,
+      updatedAt: staleDate,
     };
     writeFileSync(path.join(runsDir, "orphan-run-1.json"), JSON.stringify(orphanedRun));
 
@@ -536,6 +537,7 @@ describe("start", () => {
     const runsDir = GLOBAL_RUNS_DIR;
     mkdirSync(runsDir, { recursive: true });
 
+    const staleDate = new Date(Date.now() - 120_000).toISOString(); // 2 min ago — past grace period
     const deadRun = {
       version: 1,
       runId: "dead-run-1",
@@ -545,8 +547,8 @@ describe("start", () => {
       status: "running",
       pid: 999999999, // Dead PID
       steps: {},
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
+      createdAt: staleDate,
+      updatedAt: staleDate,
     };
     writeFileSync(path.join(runsDir, "dead-run-1.json"), JSON.stringify(deadRun));
 
