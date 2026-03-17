@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { Semaphore } from "@/concurrency/semaphore";
 import type { McpServerConfig, NeoConfig, RepoConfig } from "@/config";
@@ -13,7 +13,8 @@ import { pushSessionBranch } from "@/isolation/git";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { loopDetection } from "@/middleware/loop-detection";
-import { getJournalsDir, getRepoRunsDir, getRunsDir, getSupervisorsDir, toRepoSlug } from "@/paths";
+import { RunStore } from "@/orchestrator/run-store";
+import { getJournalsDir, getSupervisorsDir } from "@/paths";
 import { SessionExecutor } from "@/runner/session-executor";
 import { isProcessAlive } from "@/shared/process";
 import { formatMemoriesForPrompt, MemoryStore } from "@/supervisor/memory/index.js";
@@ -82,7 +83,7 @@ export class Orchestrator extends NeoEventEmitter {
   private readonly idempotencyCache = new Map<string, IdempotencyEntry>();
   private readonly abortControllers = new Map<string, AbortController>();
   private readonly repoIndex = new Map<string, RepoConfig>();
-  private readonly createdRunDirs = new Set<string>();
+  private readonly runStore = new RunStore();
   private readonly journalDir: string;
   private readonly builtInWorkflowDir: string | undefined;
   private readonly customWorkflowDir: string | undefined;
@@ -927,82 +928,30 @@ export class Orchestrator extends NeoEventEmitter {
   // ─── Private: Run persistence ──────────────────────────
 
   private async persistRun(run: PersistedRun): Promise<void> {
-    try {
-      const slug = toRepoSlug({ path: run.repo });
-      const runsDir = getRepoRunsDir(slug);
-      if (!this.createdRunDirs.has(runsDir)) {
-        await mkdir(runsDir, { recursive: true });
-        this.createdRunDirs.add(runsDir);
-      }
-      const filePath = path.join(runsDir, `${run.runId}.json`);
-      await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch {
-      // Non-critical — don't fail the dispatch if persistence fails
-    }
+    await this.runStore.persistRun(run);
   }
 
   private async recoverOrphanedRuns(): Promise<void> {
-    const runsDir = getRunsDir();
-    if (!existsSync(runsDir)) return;
+    const orphanedRuns = await this.runStore.recoverOrphanedRuns();
 
-    try {
-      const jsonFiles = await collectRunFiles(runsDir);
-      for (const filePath of jsonFiles) {
-        await this.recoverRunIfOrphaned(filePath);
-      }
-    } catch {
-      // Non-critical
+    // Emit session:fail for each orphaned run so the supervisor learns about them
+    for (const run of orphanedRuns) {
+      this.emit({
+        type: "session:fail",
+        sessionId: run.runId,
+        runId: run.runId,
+        error: "Orphaned run: process died without completing",
+        attempt: 1,
+        maxRetries: this.config.recovery.maxRetries,
+        willRetry: false,
+        metadata: run.metadata,
+        timestamp: new Date().toISOString(),
+      });
     }
-  }
-
-  private async recoverRunIfOrphaned(filePath: string): Promise<void> {
-    const content = await readFile(filePath, "utf-8");
-    const run = JSON.parse(content) as PersistedRun;
-
-    if (run.status !== "running") return;
-    // If the run has a PID and the process is still alive, skip it
-    if (run.pid && isProcessAlive(run.pid)) return;
-
-    run.status = "failed";
-    run.updatedAt = new Date().toISOString();
-    await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
-
-    // Emit session:fail so the supervisor learns about the orphaned run
-    this.emit({
-      type: "session:fail",
-      sessionId: run.runId,
-      runId: run.runId,
-      error: "Orphaned run: process died without completing",
-      attempt: 1,
-      maxRetries: this.config.recovery.maxRetries,
-      willRetry: false,
-      metadata: run.metadata,
-      timestamp: new Date().toISOString(),
-    });
   }
 }
 
 // ─── Utility functions ─────────────────────────────────
-
-async function collectRunFiles(runsDir: string): Promise<string[]> {
-  const { readdir } = await import("node:fs/promises");
-  const entries = await readdir(runsDir, { withFileTypes: true });
-  const jsonFiles: string[] = [];
-
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      const subDir = path.join(runsDir, entry.name);
-      const subFiles = await readdir(subDir);
-      for (const f of subFiles) {
-        if (f.endsWith(".json")) jsonFiles.push(path.join(subDir, f));
-      }
-    } else if (entry.name.endsWith(".json")) {
-      jsonFiles.push(path.join(runsDir, entry.name));
-    }
-  }
-
-  return jsonFiles;
-}
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
