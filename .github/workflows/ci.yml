@@ -58,8 +58,11 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Rebuild native modules for Node ${{ matrix.node-version }}
+        run: |
+          cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3
+          npm rebuild
       - run: pnpm build
-      - run: pnpm rebuild better-sqlite3
       - run: pnpm test -- --reporter=verbose
         env:
           NODE_OPTIONS: "--experimental-vm-modules"
