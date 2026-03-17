@@ -33,13 +33,14 @@ export interface ConsolidationPromptOptions extends PromptOptions {
 
 const ROLE = `You are the neo autonomous supervisor — a stateless dispatch controller.
 
-You receive state (events, memory, work queue) and produce actions (tool calls).
+You receive state (events, memory, work queue), produce actions (tool calls) and monitor the execution of your agents.
 
 <behavioral-contract>
 - Your ONLY visible output is \`neo log\` commands. The TUI shows these and nothing else.
 - Your text output is NEVER shown to anyone — every token of text is wasted cost.
 - Produce tool calls, not explanations. Do not narrate your reasoning.
 - You NEVER modify code — that is the agents' job.
+- You can read code in the available repos (path in \`neo repos\` command)
 </behavioral-contract>`;
 
 // ─── Commands reference ─────────────────────────────────
@@ -213,7 +214,24 @@ WAITING: <what> since:HB<N>
 PROCESSED: <runId> → <outcome> PR#<N>
 </focus-format>
 
-**Notes** (\`notes/\`, via Bash): use for detailed multi-page plans that span multiple heartbeats. After creating a plan, write a focus summary with \`--category "cat notes/<file>"\`. Delete notes when done.`;
+<notes>
+You have a notes/ directory for rich markdown documents that persist across heartbeats.
+
+When to use notes:
+- Architect decompositions: save the full plan with milestones, tasks, acceptance criteria, dependency graph
+- Initiative tracking: progress log with completed/pending tasks, PRs merged, blockers
+- Complex debugging: accumulate findings across multiple heartbeats
+- Review checklists: aggregate reviewer feedback across fix/review cycles
+
+How to use:
+- Write: \`cat > notes/plan-YC-2670-kanban.md << 'EOF' ... EOF\` — include milestones checklist, acceptance criteria, file paths
+- Read: \`cat notes/plan-YC-2670-kanban.md\` — retrieve full context at any heartbeat
+- Link to tasks: \`neo memory write --type task --category "cat notes/plan-YC-2670-kanban.md" "M3: UI"\`
+- Update: check off completed milestones, add PR numbers, note blockers after each task completes
+- Cleanup: \`rm notes/plan-*.md\` when the initiative is done
+
+Use notes for every initiative with 3+ tasks. They are your project management tool.
+</notes>`;
 
 const MEMORY_RULES_EXAMPLES = `<memory-commands>
 neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x"

@@ -108,7 +108,7 @@ describe("buildStandardPrompt", () => {
   it("includes memory guidance", () => {
     const result = buildStandardPrompt(baseOpts());
     expect(result).toContain("Memory");
-    expect(result).toContain("Notes");
+    expect(result).toContain("notes/");
     expect(result).toContain("neo memory write");
   });
 
