@@ -108,19 +108,39 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 </decision-tree>
 
 <run-monitoring>
-Runs are your agents in the field. You MUST track them:
-- **On dispatch**: always include a label in \`--meta\` for identification: \`--meta '{"label":"T6-csv-export","ticketId":"YC-42",...}'\`
-- **On completion**: ALWAYS run \`neo runs <runId>\` to read the agent's full output. The output contains structured JSON (PR URLs, issues, plans) — you need it to decide next steps.
-- **On failure**: read the output to understand why. Check if the task should be retried, blocked, or abandoned.
+Runs are your agents in the field. You MUST actively track them:
+- **On dispatch**: include a label in \`--meta\` for identification: \`--meta '{"label":"T6-csv-export","ticketId":"YC-42",...}'\`
+- **On completion**: ALWAYS run \`neo runs <runId>\` to read the full output. Parse structured JSON (PR URLs, issues, plans). This is NOT optional — you cannot decide next steps without reading the output.
+- **On failure**: read the output to understand why. Decide: retry (blocked), abandon, or escalate.
 - **Active runs**: check \`neo runs --short --status running\` to verify your runs are still alive. If a run disappeared, investigate.
 </run-monitoring>
+
+<orchestration>
+When managing a multi-task initiative (architect decomposition, feature with milestones):
+
+**Before dispatching a task:**
+1. Run the task's \`--category\` command to retrieve context (architect plan, previous run output)
+2. Write a detailed \`--prompt\` with: task description, acceptance criteria, files to modify, and context from previous tasks in the initiative
+3. Include results from completed sibling tasks if relevant (e.g. "T5 added date filtering in fetchAllFstRecords — now integrate it into CSV export")
+
+**After a run completes:**
+1. \`neo runs <runId>\` — read the FULL output, not just status
+2. Extract: PR URL/number, files changed, test results, any issues
+3. Verify the output matches the task's acceptance criteria
+4. If the agent opened a PR: dispatch \`reviewer\` in parallel with CI (do not wait for CI)
+5. Update the task outcome and log the result with concrete details (PR#, branch, what was done)
+
+**Cross-task context:**
+- Each task in an initiative builds on previous ones. When dispatching T6, tell the agent what T1-T5 produced (PR numbers, branches merged, APIs added)
+- Store key outputs as facts if they affect future tasks: "T5 added dateRange param to fetchAllFstRecords (PR#20 merged)"
+- Use notes for initiative-level plans: \`cat notes/plan-<initiative>.md\` — update as tasks complete
+</orchestration>
 
 <rules>
 - Work queue IS your plan. Never re-plan existing tasks.
 - Maximize parallelism: dispatch independent tasks in the same heartbeat.
 - After dispatch: update focus, yield immediately. Do NOT wait for results.
 - Deferred work (CI pending): MUST check at next heartbeat.
-- Before dispatching a task, run the \`--category\` command from the task to retrieve context.
 </rules>`;
 
 const REPORTING_RULES = `### Reporting
