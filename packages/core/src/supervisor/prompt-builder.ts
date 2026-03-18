@@ -474,19 +474,96 @@ function groupTasksByInitiative(tasks: MemoryEntry[]): TaskGroup[] {
   return groups;
 }
 
+const SEVERITY_ORDER: Record<string, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+function bySeverity(a: MemoryEntry, b: MemoryEntry): number {
+  const aOrder = SEVERITY_ORDER[a.severity ?? "medium"] ?? 2;
+  const bOrder = SEVERITY_ORDER[b.severity ?? "medium"] ?? 2;
+  return aOrder - bOrder;
+}
+
+function partitionTasks(tasks: MemoryEntry[]): {
+  active: MemoryEntry[];
+  blocked: MemoryEntry[];
+  pending: MemoryEntry[];
+} {
+  const active: MemoryEntry[] = [];
+  const blocked: MemoryEntry[] = [];
+  const pending: MemoryEntry[] = [];
+  for (const t of tasks) {
+    if (t.outcome === "in_progress") active.push(t);
+    else if (t.outcome === "blocked") blocked.push(t);
+    else pending.push(t);
+  }
+  return { active, blocked, pending };
+}
+
+function renderInitiativeSummary(group: TaskGroup): string {
+  const { active, pending } = partitionTasks(group.tasks);
+  const nextEligible = pending.sort(bySeverity)[0];
+  const cat = nextEligible?.category ? ` -> ${nextEligible.category}` : "";
+  const nextLabel = nextEligible
+    ? ` (next: ${nextEligible.content.slice(0, 30)}${nextEligible.content.length > 30 ? "..." : ""} [${nextEligible.severity ?? "medium"}])`
+    : "";
+  return `[${group.initiative}] ${active.length} active, ${pending.length} pending${nextLabel}${cat}`;
+}
+
+function renderCompactInitiative(group: TaskGroup, lines: string[], rendered: number): number {
+  lines.push(`  ${renderInitiativeSummary(group)}`);
+
+  const { active, blocked, pending } = partitionTasks(group.tasks);
+  const nextEligible = pending.sort(bySeverity)[0];
+
+  for (const task of [...active, ...blocked]) {
+    if (rendered >= MAX_TASKS) break;
+    lines.push(`    ${formatTaskLine(task)}`);
+    rendered++;
+  }
+
+  // Show next eligible pending if no active/blocked tasks
+  if (nextEligible && active.length === 0 && blocked.length === 0 && rendered < MAX_TASKS) {
+    lines.push(`    ${formatTaskLine(nextEligible)}`);
+    rendered++;
+  }
+
+  return rendered;
+}
+
+function renderFlatGroup(
+  group: TaskGroup,
+  showHeader: boolean,
+  lines: string[],
+  rendered: number,
+): number {
+  if (showHeader && group.initiative) {
+    lines.push(`  [${group.initiative}]`);
+  }
+  for (const task of group.tasks) {
+    if (rendered >= MAX_TASKS) break;
+    lines.push(`  ${formatTaskLine(task)}`);
+    rendered++;
+  }
+  return rendered;
+}
+
 function renderTaskGroups(groups: TaskGroup[]): string[] {
   const lines: string[] = [];
   let rendered = 0;
 
   for (const group of groups) {
     if (rendered >= MAX_TASKS) break;
-    if (group.initiative && groups.length > 1) {
-      lines.push(`  [${group.initiative}]`);
-    }
-    for (const task of group.tasks) {
-      if (rendered >= MAX_TASKS) break;
-      lines.push(`  ${formatTaskLine(task)}`);
-      rendered++;
+
+    const useCompactMode = group.initiative && group.tasks.length >= 3;
+    if (useCompactMode) {
+      rendered = renderCompactInitiative(group, lines, rendered);
+    } else {
+      const showHeader = group.initiative !== null && groups.length > 1;
+      rendered = renderFlatGroup(group, showHeader, lines, rendered);
     }
   }
 
