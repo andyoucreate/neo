@@ -87,3 +87,7 @@ export function getSupervisorEventsPath(name: string): string {
 export function getSupervisorLockPath(name: string): string {
   return path.join(getSupervisorDir(name), "daemon.lock");
 }
+
+export function getSupervisorDecisionsPath(name: string): string {
+  return path.join(getSupervisorDir(name), "decisions.jsonl");
+}

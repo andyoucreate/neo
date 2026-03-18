@@ -82,6 +82,7 @@ export {
   getRunLogPath,
   getRunsDir,
   getSupervisorActivityPath,
+  getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorEventsPath,
   getSupervisorInboxPath,
@@ -119,9 +120,13 @@ export { isProcessAlive } from "@/shared/process";
 export type { SupervisorState } from "@/supervisor";
 // ─── Supervisor (legacy) ──────────────────────────────
 export { supervisorStateSchema } from "@/supervisor";
+// ─── Decisions ─────────────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
+  Decision,
+  DecisionInput,
+  DecisionOption,
   HeartbeatLoopOptions,
   InboxMessage,
   QueuedEvent,
@@ -135,6 +140,9 @@ export {
   ActivityLog,
   activityEntrySchema,
   appendLogBuffer,
+  DecisionStore,
+  decisionOptionSchema,
+  decisionSchema,
   EventQueue,
   HeartbeatLoop,
   inboxMessageSchema,
