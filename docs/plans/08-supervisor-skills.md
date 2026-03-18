@@ -2,6 +2,12 @@
 
 Claude Code skills that teach the supervisor how to use neo effectively. These ship with `neotx` and are installed into the user's Claude Code environment when they run `neo init`.
 
+> **Status (NEO-DOCS initiative):**
+> - ✅ M1: Supervisor file clarification — DONE (SUPERVISOR.md header, SKILL.md header, architecture doc)
+> - ✅ M1b: neo-recover consolidation — DONE (full skill content in skills/neo-recover/SKILL.md)
+> - 🔄 M2: README sync — IN PROGRESS (agents README updated, root README synced, this doc is T2.3)
+> - ⏳ M3-M5: Remaining documentation tasks — PENDING
+
 ## Why Skills?
 
 When a human (or an AI agent acting as supervisor) drives neo via the CLI, they need to know:
@@ -119,8 +125,9 @@ neo runs <run-id> --output json   # machine-readable
 The step output depends on the agent:
 - **architect**: structured plan with tasks array
 - **developer**: raw text (commit summary, files changed)
-- **reviewer-***: findings with severity and suggestions
+- **reviewer**: findings with severity and suggestions
 - **fixer**: raw text (what was fixed)
+- **refiner**: ticket evaluation and decomposition
 
 If the step has an `outputSchema`, the output is parsed and validated JSON.
 ```
@@ -162,10 +169,7 @@ neo agents --output json      # machine-readable
 |-------|------|---------|
 | `architect` | Plans implementation, produces task breakdown | readonly |
 | `developer` | Implements code changes | writable |
-| `reviewer-quality` | Code quality review | readonly |
-| `reviewer-security` | Security audit | readonly |
-| `reviewer-perf` | Performance review | readonly |
-| `reviewer-coverage` | Test coverage review | readonly |
+| `reviewer` | Single-pass code review (quality, security, performance, coverage) | readonly |
 | `fixer` | Fixes issues found by reviewers | writable |
 | `refiner` | Evaluates and decomposes tickets | readonly |
 
@@ -223,16 +227,16 @@ neo workflows --output json
 ## Built-in workflows
 
 ### feature
-architect → [gate: approve-plan] → developer → reviewer-quality → [conditional: fixer]
+architect → developer → reviewer → [conditional: fixer]
 
 ### review
-reviewer-quality + reviewer-security + reviewer-perf + reviewer-coverage (parallel)
+reviewer (single-pass: quality, security, performance, coverage)
 
 ### hotfix
 developer (fast-track, no architect)
 
 ### refine
-refiner → structured output (pass_through | decompose | escalate)
+refiner → structured output (ticket evaluation and decomposition)
 
 ## Creating a custom workflow
 
