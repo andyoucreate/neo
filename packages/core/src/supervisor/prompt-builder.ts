@@ -1,4 +1,5 @@
 import type { RepoConfig } from "@/config";
+import type { Decision } from "./decisions.js";
 import type { GroupedEvents } from "./event-queue.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import type { ActivityEntry, QueuedEvent } from "./schemas.js";
@@ -20,6 +21,8 @@ export interface PromptOptions {
   supervisorDir: string;
   memories: MemoryEntry[];
   recentActions: ActivityEntry[];
+  pendingDecisions?: Decision[] | undefined;
+  answeredDecisions?: Decision[] | undefined;
 }
 
 export interface StandardPromptOptions extends PromptOptions {}
@@ -247,6 +250,61 @@ function buildFocusSection(memories: MemoryEntry[]): string {
   return "<focus>\n(empty \u2014 use neo memory write --type focus to set working context)\n</focus>";
 }
 
+// ─── Decision sections ──────────────────────────────────
+
+/**
+ * Build the pending decisions section.
+ * Shows decisions awaiting supervisor response with clear instructions.
+ */
+function buildPendingDecisionsSection(decisions: Decision[] | undefined): string {
+  if (!decisions || decisions.length === 0) {
+    return "";
+  }
+
+  const lines: string[] = [];
+  for (const d of decisions) {
+    const expiry = d.expiresAt ? ` (expires: ${d.expiresAt})` : "";
+    const defaultHint = d.defaultAnswer ? ` [default: ${d.defaultAnswer}]` : "";
+    lines.push(`- **${d.id}**: ${d.question}${expiry}${defaultHint}`);
+
+    if (d.options && d.options.length > 0) {
+      for (const opt of d.options) {
+        const desc = opt.description ? ` — ${opt.description}` : "";
+        lines.push(`    • \`${opt.key}\`: ${opt.label}${desc}`);
+      }
+    }
+
+    if (d.context) {
+      lines.push(`    Context: ${d.context}`);
+    }
+  }
+
+  return `Pending decisions (${decisions.length}):
+${lines.join("\n")}
+
+To answer a decision, emit a \`decision:answer\` event:
+\`\`\`bash
+neo event emit decision:answer --data '{"id":"<decision_id>","answer":"<option_key>"}'
+\`\`\``;
+}
+
+/**
+ * Build the recent answered decisions section.
+ * Provides context continuity by showing recently resolved decisions.
+ */
+function buildAnsweredDecisionsSection(decisions: Decision[] | undefined): string {
+  if (!decisions || decisions.length === 0) {
+    return "";
+  }
+
+  const lines = decisions.map((d) => {
+    const answeredBy = d.source ? ` (by ${d.source})` : "";
+    return `- ${d.id}: "${d.question}" → **${d.answer}**${answeredBy}`;
+  });
+
+  return `Recent decisions (${decisions.length}):\n${lines.join("\n")}`;
+}
+
 /**
  * Build the full context block shared by standard & consolidation prompts.
  * Order: focus (orientation) \u2192 work state \u2192 knowledge \u2192 environment \u2192 events (query last).
@@ -271,6 +329,17 @@ function buildFullContext(opts: PromptOptions): string {
   const recentActions = buildRecentActionsSection(opts.recentActions);
   if (recentActions) {
     parts.push(recentActions);
+  }
+
+  // 2b. Decisions — pending questions requiring supervisor response
+  const pendingDecisions = buildPendingDecisionsSection(opts.pendingDecisions);
+  if (pendingDecisions) {
+    parts.push(pendingDecisions);
+  }
+
+  const answeredDecisions = buildAnsweredDecisionsSection(opts.answeredDecisions);
+  if (answeredDecisions) {
+    parts.push(answeredDecisions);
   }
 
   // 3. Knowledge — accumulated memory (facts, procedures, feedback)
