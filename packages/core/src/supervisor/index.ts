@@ -53,6 +53,8 @@ export { StatusReader } from "./StatusReader.js";
 // ─── Status ─────────────────────────────────────────────
 export type {
   ActivityEntry,
+  ActivityQueryOptions,
+  ActivityTypeFilter,
   InboxMessage,
   InternalEventKind,
   LogBufferEntry,
@@ -65,6 +67,8 @@ export type {
 // ─── Schemas ────────────────────────────────────────────
 export {
   activityEntrySchema,
+  activityQueryOptionsSchema,
+  activityTypeFilterSchema,
   inboxMessageSchema,
   internalEventKindSchema,
   logBufferEntrySchema,

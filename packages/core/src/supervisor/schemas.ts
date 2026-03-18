@@ -117,6 +117,22 @@ export const supervisorStatusSchema = z.object({
 
 export type SupervisorStatus = z.infer<typeof supervisorStatusSchema>;
 
+// ─── Activity query options (API query params) ─────────
+
+export const activityTypeFilterSchema = z.enum(["decision", "action", "discovery", "error"]);
+
+export type ActivityTypeFilter = z.infer<typeof activityTypeFilterSchema>;
+
+export const activityQueryOptionsSchema = z.object({
+  limit: z.number().int().min(1).max(500).default(50).optional(),
+  offset: z.number().int().min(0).default(0).optional(),
+  type: activityTypeFilterSchema.optional(),
+  since: z.string().datetime().optional(),
+  until: z.string().datetime().optional(),
+});
+
+export type ActivityQueryOptions = z.infer<typeof activityQueryOptionsSchema>;
+
 // ─── Queued event (union of all event sources) ──────────
 
 export type QueuedEvent =
