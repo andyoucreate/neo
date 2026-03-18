@@ -62,6 +62,51 @@ neo cost                 # Today's spend by agent
 
 ---
 
+## Built-in Agents
+
+neo comes with 5 built-in agents ready to use out of the box:
+
+| Agent | Role | Model | Sandbox |
+|-------|------|-------|---------|
+| `architect` | Strategic planner. Designs architecture, decomposes work into atomic tasks. Never writes code. | opus | readonly |
+| `developer` | Implementation worker. Executes tasks in isolated clones with strict scope discipline. | opus | writable |
+| `fixer` | Auto-correction. Fixes issues found by reviewers. Targets root causes, not symptoms. | opus | writable |
+| `refiner` | Ticket evaluator. Assesses clarity and splits vague tickets into precise specs. | opus | readonly |
+| `reviewer` | Single-pass reviewer. Covers quality, security, performance, and test coverage in one sweep. | sonnet | readonly |
+
+### Customize per repo
+
+Each repository can configure how agents behave through two files in `.neo/`:
+
+- **`.neo/INSTRUCTIONS.md`** - injected into every agent's prompt for this repo. Use it to describe your stack, conventions, and rules (e.g. "We use Biome, not ESLint", "All API endpoints must have integration tests").
+- **`SUPERVISOR.md`** (in `@neotx/agents`) - domain knowledge for the supervisor: agent output contracts, routing rules, dispatch patterns, and the full pipeline state machine.
+
+```
+your-project/
+|-- .neo/
+|   |-- agents/              # Custom agent definitions (YAML)
+|   |   +-- my-developer.yml
+|   +-- INSTRUCTIONS.md      # Repo-specific rules injected into all agents
++-- ...
+```
+
+### Add custom agents
+
+Drop a YAML file in `.neo/agents/` to extend built-in agents or create new ones:
+
+```yaml
+# .neo/agents/my-developer.yml
+name: my-developer
+extends: developer
+promptAppend: |
+  Always use our internal logger instead of console.log.
+  Follow the patterns in src/shared/conventions.ts.
+```
+
+Agents support inheritance (`extends`), tool customization (`$inherited`), and per-agent settings (`maxTurns`, `mcpServers`).
+
+---
+
 ## How It Works
 
 ### Supervisor mode (recommended)
@@ -198,35 +243,6 @@ if (result.status === "success") {
 orchestrator.on("session:complete", (e) => log(`Done: $${e.costUsd}`));
 orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct}%`));
 ```
-
----
-
-## Agents
-
-5 built-in agents, each with a specific role:
-
-| Agent | Role | Model | Sandbox |
-|-------|------|-------|---------|
-| `architect` | Strategic planner. Designs architecture, decomposes work into atomic tasks. Never writes code. | opus | readonly |
-| `developer` | Implementation worker. Executes tasks in isolated clones with strict scope discipline. | opus | writable |
-| `fixer` | Auto-correction. Fixes issues found by reviewers. Targets root causes, not symptoms. | opus | writable |
-| `refiner` | Ticket evaluator. Assesses clarity and splits vague tickets into precise specs. | opus | readonly |
-| `reviewer` | Single-pass reviewer. Covers quality, security, performance, and test coverage in one sweep. | sonnet | readonly |
-
-### Custom Agents
-
-Drop a YAML file in `.neo/agents/` to extend built-in agents:
-
-```yaml
-# .neo/agents/my-developer.yml
-name: my-developer
-extends: developer
-promptAppend: |
-  Always use our internal logger instead of console.log.
-  Follow the patterns in src/shared/conventions.ts.
-```
-
-Agents support inheritance (`extends`), tool customization (`$inherited`), and per-agent settings (`maxTurns`, `mcpServers`).
 
 ---
 
