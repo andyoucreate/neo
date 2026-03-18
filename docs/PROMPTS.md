@@ -907,6 +907,10 @@ Mock the Agent SDK. Test:
 
 ## Phase 9a — Workflow Graph & Loader
 
+> **⚠️ DEPRECATED:** The workflow engine described in this phase has been removed from neo.
+> Neo now uses single-agent dispatch only. This documentation is preserved for historical reference.
+> See `docs/plans/04-workflow-engine.md` for the original design (also deprecated).
+
 ```markdown
 # Task: Implement workflow YAML loader and DAG graph engine (pure logic, no I/O)
 
@@ -1026,6 +1030,10 @@ All pure functions:
 
 ## Phase 9b — Persistence & Context
 
+> **⚠️ DEPRECATED:** The workflow engine described in this phase has been removed from neo.
+> Neo now uses single-agent dispatch only. This documentation is preserved for historical reference.
+> See `docs/plans/04-workflow-engine.md` for the original design (also deprecated).
+
 ```markdown
 # Task: Implement run persistence and workflow context (parallel with 9a)
 
@@ -1134,6 +1142,10 @@ Add `nanoid` to `packages/core/package.json` for run ID generation.
 
 ## Phase 9c — Workflow Executor
 
+> **⚠️ DEPRECATED:** The workflow engine described in this phase has been removed from neo.
+> Neo now uses single-agent dispatch only. This documentation is preserved for historical reference.
+> See `docs/plans/04-workflow-engine.md` for the original design (also deprecated).
+
 ```markdown
 # Task: Implement the main workflow execution loop
 
@@ -1232,6 +1244,10 @@ Mock the Agent SDK for all tests:
 ---
 
 ## Phase 9d — Gates & Built-in Workflows
+
+> **⚠️ DEPRECATED:** The workflow engine described in this phase has been removed from neo.
+> Neo now uses single-agent dispatch only. This documentation is preserved for historical reference.
+> See `docs/plans/04-workflow-engine.md` for the original design (also deprecated).
 
 ```markdown
 # Task: Implement approval gates and ship the 4 built-in workflows
