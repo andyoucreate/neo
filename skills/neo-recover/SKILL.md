@@ -7,23 +7,40 @@ description: Diagnose and recover from neo agent failures. Use when a run fails,
 
 Guide for diagnosing and recovering from agent failures.
 
+## How Recovery Works
+
+Neo uses a 3-level recovery strategy that escalates automatically:
+
+| Level | Strategy | When |
+|-------|----------|------|
+| 1 | Normal execution | First attempt — create a new session |
+| 2 | Resume session | Second attempt — preserve agent's context and partial work |
+| 3 | Fresh session | Third attempt — abandon previous session, start clean |
+
+Backoff between levels: 30s → 60s → 90s.
+
+**Non-retryable errors** skip directly to failure:
+- `error_max_turns` — agent hit its limit, retrying won't help
+- `budget_exceeded` — no point retrying without more budget
+
 ## Diagnosis
 
 Start with the failure details:
 
 ```bash
-neo logs --type session:fail --last 5
-neo runs --status failed --last 3
-neo runs <runId>                       # full error context
+neo runs <run-id>                      # full run state
+neo runs <run-id> --step <name>        # specific step output
+neo logs <run-id>                      # full event log
+neo logs <run-id> --step implement     # step-specific logs
 ```
 
 ## Common failures and fixes
 
 ### Agent looped (exceeded max turns)
 
-The agent went in circles without producing output.
+The agent went in circles without producing output. The loop detection middleware caught repeated tool calls.
 
-**Fix**: Simplify the prompt. Break the task into smaller pieces. Add explicit constraints:
+**Fix**: This error is **non-retryable** — the approach is wrong, not transient. Simplify the prompt, break the task into smaller pieces, or add explicit constraints:
 
 ```bash
 neo run developer --prompt "ONLY modify src/auth/login.ts. Add rate limiting to the login endpoint. Do not refactor other files."
@@ -33,10 +50,10 @@ neo run developer --prompt "ONLY modify src/auth/login.ts. Add rate limiting to 
 
 Claude API returned 429 or overloaded errors.
 
-**Fix**: Neo has built-in 3-level recovery (retry, resume session, fresh session with backoff). If it still fails after all retries, wait a few minutes and re-dispatch:
+**Fix**: Neo's 3-level recovery handles this automatically. If it still fails after all retries (3 attempts with increasing backoff), wait a few minutes and retry:
 
 ```bash
-neo run developer --prompt "..." --priority low
+neo run feature --run-id <id> --retry implement
 ```
 
 ### Budget exceeded
@@ -64,6 +81,16 @@ neo doctor
 ```
 
 If `neo doctor` reports stale sessions, run `neo doctor --fix` to clean them up and retry.
+
+### Agent produced invalid output
+
+The step has an `outputSchema` and the agent's response didn't match the expected structure.
+
+**Fix**: Retry — the agent may produce valid output on second attempt:
+
+```bash
+neo run feature --run-id <id> --retry plan
+```
 
 ### Agent produced wrong output
 
@@ -106,3 +133,31 @@ Then dispatch each sub-task separately.
 - Use `refiner` to validate ticket quality before implementation
 - Monitor `neo cost --short` regularly to avoid budget surprises
 - Use `--meta '{"ticket":"X-123"}'` to track which runs belong to which task
+
+## Per-Step Recovery Configuration
+
+Customize recovery per workflow step in your YAML:
+
+```yaml
+steps:
+  plan:
+    agent: architect
+    recovery:
+      maxRetries: 5       # readonly steps can retry more
+  implement:
+    agent: developer
+    recovery:
+      maxRetries: 2       # writable steps — fewer retries
+      nonRetryable: [max_turns]
+```
+
+If omitted, global `recovery` config applies.
+
+## Nuclear Option
+
+If a run is completely stuck:
+
+```bash
+neo kill <session-id>                 # kill the active session
+neo run feature --run-id <id> --retry implement  # then retry
+```
