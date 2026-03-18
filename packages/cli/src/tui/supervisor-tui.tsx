@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { appendFile, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ActivityEntry, MemoryEntry, SupervisorDaemonState } from "@neotx/core";
+import type { ActivityEntry, Decision, MemoryEntry, SupervisorDaemonState } from "@neotx/core";
 import {
+  DecisionStore,
   getSupervisorActivityPath,
+  getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorStatePath,
@@ -405,6 +407,90 @@ function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
   );
 }
 
+function DecisionPanel({
+  decisions,
+  selectedIndex,
+  isAnswering,
+  answerInput,
+  onAnswerChange,
+  onAnswerSubmit,
+  frame,
+}: {
+  decisions: Decision[];
+  selectedIndex: number;
+  isAnswering: boolean;
+  answerInput: string;
+  onAnswerChange: (v: string) => void;
+  onAnswerSubmit: (v: string) => void;
+  frame: number;
+}) {
+  if (decisions.length === 0) return null;
+
+  const pulseChars = ["★", "☆"];
+  const pulse = pulseChars[frame % pulseChars.length];
+
+  return (
+    <Box flexDirection="column">
+      <Box paddingX={2} gap={1}>
+        <Text dimColor>├</Text>
+        <Text color="#fbbf24" bold>
+          {pulse} DECISIONS
+        </Text>
+        <Text color="#fbbf24">({decisions.length} pending)</Text>
+        <Text dimColor>{"─".repeat(25)}</Text>
+      </Box>
+      {decisions.map((d, idx) => {
+        const isSelected = idx === selectedIndex;
+        const prefix = isSelected ? "▸" : "│";
+
+        return (
+          <Box key={d.id} flexDirection="column">
+            <Box gap={1} paddingX={2}>
+              {isSelected ? <Text color="#fbbf24">{prefix}</Text> : <Text dimColor>{prefix}</Text>}
+              <Text color="#fbbf24" bold={isSelected}>
+                [{d.id.slice(4, 12)}]
+              </Text>
+              <Text bold={isSelected} wrap="truncate">
+                {d.question}
+              </Text>
+            </Box>
+            {d.options && d.options.length > 0 && isSelected && (
+              <Box paddingX={4} gap={1}>
+                <Text dimColor>Options: </Text>
+                {d.options.map((opt, i) => (
+                  <Text key={opt.key} dimColor>
+                    [{opt.key}] {opt.label}
+                    {i < (d.options?.length ?? 0) - 1 ? " · " : ""}
+                  </Text>
+                ))}
+              </Box>
+            )}
+            {isSelected && isAnswering && (
+              <Box paddingX={4} gap={1}>
+                <Text color="#fbbf24" bold>
+                  →
+                </Text>
+                <TextInput
+                  value={answerInput}
+                  onChange={onAnswerChange}
+                  onSubmit={onAnswerSubmit}
+                  placeholder="type answer..."
+                />
+              </Box>
+            )}
+          </Box>
+        );
+      })}
+      <Box paddingX={2} gap={1}>
+        <Text dimColor>│</Text>
+        <Text dimColor>
+          <Text bold>↑↓</Text> select · <Text bold>d</Text> answer · <Text bold>esc</Text> cancel
+        </Text>
+      </Box>
+    </Box>
+  );
+}
+
 /** Types shown in the activity feed — plan/thinking are internal, not shown */
 const ACTIVITY_TYPES = new Set([
   "heartbeat",
@@ -545,6 +631,20 @@ function readTasks(name: string): MemoryEntry[] {
   }
 }
 
+async function readDecisions(name: string): Promise<Decision[]> {
+  try {
+    const store = new DecisionStore(getSupervisorDecisionsPath(name));
+    return await store.pending();
+  } catch {
+    return [];
+  }
+}
+
+async function answerDecision(name: string, id: string, answer: string): Promise<void> {
+  const store = new DecisionStore(getSupervisorDecisionsPath(name));
+  await store.answer(id, answer);
+}
+
 async function sendMessage(name: string, text: string): Promise<void> {
   const id = randomUUID();
   const timestamp = new Date().toISOString();
@@ -570,10 +670,16 @@ export function SupervisorTui({ name }: { name: string }) {
   const [state, setState] = useState<SupervisorDaemonState | null>(null);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [tasks, setTasks] = useState<MemoryEntry[]>([]);
+  const [decisions, setDecisions] = useState<Decision[]>([]);
   const [dailyCap, setDailyCap] = useState(50);
   const [input, setInput] = useState("");
   const [lastSent, setLastSent] = useState("");
   const [termHeight, setTermHeight] = useState(stdout?.rows ?? 30);
+
+  // Decision interaction state
+  const [decisionIndex, setDecisionIndex] = useState(0);
+  const [isAnsweringDecision, setIsAnsweringDecision] = useState(false);
+  const [decisionAnswer, setDecisionAnswer] = useState("");
 
   // Track terminal resize
   useEffect(() => {
@@ -593,20 +699,26 @@ export function SupervisorTui({ name }: { name: string }) {
       .catch(() => {});
   }, []);
 
-  // Poll state and activity
+  // Poll state, activity, and decisions
   useEffect(() => {
     let active = true;
 
     async function poll() {
       if (!active) return;
-      const [newState, newEntries] = await Promise.all([
+      const [newState, newEntries, newDecisions] = await Promise.all([
         readState(name),
         readActivity(name, MAX_VISIBLE_ENTRIES),
+        readDecisions(name),
       ]);
       if (!active) return;
       setState(newState);
       setEntries(newEntries);
+      setDecisions(newDecisions);
       setTasks(readTasks(name));
+      // Reset decision index if out of bounds
+      if (newDecisions.length > 0 && decisionIndex >= newDecisions.length) {
+        setDecisionIndex(0);
+      }
     }
 
     poll();
@@ -615,11 +727,40 @@ export function SupervisorTui({ name }: { name: string }) {
       active = false;
       clearInterval(interval);
     };
-  }, [name]);
+  }, [name, decisionIndex]);
 
-  useInput((_input, key) => {
+  useInput((char, key) => {
+    // If answering a decision, escape cancels
+    if (isAnsweringDecision) {
+      if (key.escape) {
+        setIsAnsweringDecision(false);
+        setDecisionAnswer("");
+      }
+      return;
+    }
+
+    // Global escape exits
     if (key.escape) {
       exit();
+      return;
+    }
+
+    // Decision navigation (when decisions exist and not in input mode)
+    if (decisions.length > 0) {
+      if (key.upArrow) {
+        setDecisionIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setDecisionIndex((i) => Math.min(decisions.length - 1, i + 1));
+        return;
+      }
+      // 'd' to answer selected decision
+      if (char === "d" && !isAnsweringDecision) {
+        setIsAnsweringDecision(true);
+        setDecisionAnswer("");
+        return;
+      }
     }
   });
 
@@ -633,24 +774,52 @@ export function SupervisorTui({ name }: { name: string }) {
     [name],
   );
 
+  const handleDecisionAnswer = useCallback(
+    async (answer: string) => {
+      if (!answer.trim()) return;
+      const decision = decisions[decisionIndex];
+      if (!decision) return;
+
+      try {
+        await answerDecision(name, decision.id, answer.trim());
+        setIsAnsweringDecision(false);
+        setDecisionAnswer("");
+        setLastSent(`Decision ${decision.id.slice(4, 12)}: "${answer.trim()}"`);
+      } catch {
+        // Error handling - decision may have been answered already
+        setIsAnsweringDecision(false);
+        setDecisionAnswer("");
+      }
+    },
+    [name, decisions, decisionIndex],
+  );
+
   const costHistory = extractCostHistory(entries);
+
+  // Calculate height adjustments for panels
+  const activeTaskCount = tasks.filter(
+    (t) => t.outcome !== "done" && t.outcome !== "abandoned",
+  ).length;
+  const taskPanelLines = tasks.length > 0 ? Math.min(activeTaskCount, 6) + 2 : 0;
+  const decisionPanelLines = decisions.length > 0 ? Math.min(decisions.length, 3) * 2 + 3 : 0;
 
   return (
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
+      <DecisionPanel
+        decisions={decisions}
+        selectedIndex={decisionIndex}
+        isAnswering={isAnsweringDecision}
+        answerInput={decisionAnswer}
+        onAnswerChange={setDecisionAnswer}
+        onAnswerSubmit={handleDecisionAnswer}
+        frame={frame}
+      />
       <TaskPanel tasks={tasks} />
       <ActivityPanel
         entries={entries}
-        termHeight={
-          termHeight -
-          (tasks.length > 0
-            ? Math.min(
-                tasks.filter((t) => t.outcome !== "done" && t.outcome !== "abandoned").length,
-                6,
-              ) + 2
-            : 0)
-        }
+        termHeight={termHeight - taskPanelLines - decisionPanelLines}
       />
       <InputPanel value={input} onChange={setInput} onSubmit={handleSubmit} lastSent={lastSent} />
       <Footer />

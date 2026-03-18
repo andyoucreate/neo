@@ -4,12 +4,13 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
-import { getSupervisorDir } from "@/paths";
+import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
+import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
-import type { SupervisorDaemonState } from "./schemas.js";
+import type { SupervisorDaemonState, WebhookIncomingEvent } from "./schemas.js";
 import { WebhookServer } from "./webhook-server.js";
 
 export interface SupervisorDaemonOptions {
@@ -32,6 +33,7 @@ export class SupervisorDaemon {
   private eventQueue: EventQueue | null = null;
   private heartbeatLoop: HeartbeatLoop | null = null;
   private activityLog: ActivityLog | null = null;
+  private decisionStore: DecisionStore | null = null;
   private sessionId = "";
 
   constructor(options: SupervisorDaemonOptions) {
@@ -75,6 +77,9 @@ export class SupervisorDaemon {
     // Initialize activity log
     this.activityLog = new ActivityLog(this.dir);
 
+    // Initialize decision store
+    this.decisionStore = new DecisionStore(getSupervisorDecisionsPath(this.name));
+
     // Initialize event queue
     this.eventQueue = new EventQueue({
       maxEventsPerSec: this.config.supervisor.maxEventsPerSec,
@@ -95,6 +100,14 @@ export class SupervisorDaemon {
       eventsPath,
       onEvent: (event) => {
         this.eventQueue?.push({ kind: "webhook", data: event });
+
+        // Handle decision:answer webhook events
+        this.handleDecisionAnswer(event).catch((err) => {
+          this.activityLog?.log(
+            "error",
+            `Failed to handle decision:answer: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
 
         // Convert session:complete/session:fail webhooks into run_complete events
         // so the heartbeat gets a structured signal that a run finished
@@ -222,6 +235,40 @@ export class SupervisorDaemon {
       return Number.isNaN(pid) ? null : pid;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Handle decision:answer webhook events.
+   * Extracts decisionId and answer from the payload and records the answer.
+   */
+  private async handleDecisionAnswer(event: WebhookIncomingEvent): Promise<void> {
+    if (event.event !== "decision:answer") return;
+    if (!this.decisionStore || !event.payload) return;
+
+    const decisionId =
+      typeof event.payload.decisionId === "string" ? event.payload.decisionId : undefined;
+    const answer = typeof event.payload.answer === "string" ? event.payload.answer : undefined;
+
+    if (!decisionId || !answer) {
+      await this.activityLog?.log(
+        "error",
+        `decision:answer webhook missing required fields (decisionId: ${decisionId}, answer: ${answer})`,
+      );
+      return;
+    }
+
+    try {
+      await this.decisionStore.answer(decisionId, answer);
+      await this.activityLog?.log(
+        "decision",
+        `Decision ${decisionId} answered via webhook: "${answer}"`,
+      );
+    } catch (err) {
+      await this.activityLog?.log(
+        "error",
+        `Failed to answer decision ${decisionId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }
