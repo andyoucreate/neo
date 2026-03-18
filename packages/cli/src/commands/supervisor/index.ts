@@ -7,5 +7,6 @@ export default defineCommand({
   },
   subCommands: {
     status: () => import("./status.js").then((m) => m.default),
+    activity: () => import("./activity.js").then((m) => m.default),
   },
 });
