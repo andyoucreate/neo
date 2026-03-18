@@ -22,3 +22,7 @@ export {
   sessionsConfigSchema,
   supervisorConfigSchema,
 } from "./schema";
+
+// ─── Re-export dot-notation utilities ────────────────────
+
+export { getConfigValue, setConfigValue } from "./dotNotation";
