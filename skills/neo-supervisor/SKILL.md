@@ -11,14 +11,11 @@ You are a supervisor managing developer agents through neo. Your job is to dispa
 
 | Agent | Model | Mode | Use when |
 |-------|-------|------|----------|
-| `architect` | opus | readonly | Designing systems, planning features, decomposing work into tasks |
+| `architect` | opus | readonly | Designing systems, planning features, decomposing work |
 | `developer` | opus | writable | Implementing code changes, bug fixes, new features |
-| `fixer` | opus | writable | Fixing issues found by reviewers - targets root causes |
-| `refiner` | opus | readonly | Evaluating ticket quality, splitting vague tickets into precise sub-tickets |
-| `reviewer-quality` | sonnet | readonly | DRY violations, naming, complexity, real bugs in changed code |
-| `reviewer-security` | opus | readonly | Injection attacks, auth gaps, secrets exposure, exploitable vulnerabilities |
-| `reviewer-perf` | sonnet | readonly | N+1 queries, O(n^2) on unbounded data, memory leaks |
-| `reviewer-coverage` | sonnet | readonly | Missing tests for critical paths, untested error handling |
+| `fixer` | opus | writable | Fixing issues found by reviewer — targets root causes |
+| `refiner` | opus | readonly | Evaluating ticket quality, splitting vague tickets |
+| `reviewer` | sonnet | readonly | Thorough single-pass review: quality, standards, security, perf, and coverage. Challenges by default — blocks on ≥1 CRITICAL or ≥3 WARNINGs |
 
 Writable agents get their own git clone. Readonly agents inspect code without modifying it.
 
@@ -107,19 +104,18 @@ neo logs --run <runId-prefix> --type session:fail
 
 ### 4. Review
 
-Dispatch reviewers on the branch created by the developer:
+Dispatch the reviewer on the branch created by the developer:
 
 ```bash
-neo run reviewer-security --prompt "Review changes on branch <branch> in <files>"
-neo run reviewer-quality --prompt "Review changes on branch <branch>"
+neo run reviewer --prompt "Review PR #<number> on branch <branch>"
 ```
 
 ### 5. Fix issues
 
-If reviewers found issues:
+If the reviewer found issues:
 
 ```bash
-neo run fixer --prompt "Fix these issues found by security review: <issues list>"
+neo run fixer --prompt "Fix these issues from review: <issues list>"
 ```
 
 ### 6. Track budget
@@ -135,8 +131,6 @@ If budget is getting tight, prioritize remaining work and skip non-critical revi
 - **Task unclear?** -> `refiner` first
 - **Complex feature?** -> `architect` then `developer`
 - **Simple bug fix?** -> `developer` directly
-- **Code written?** -> at minimum `reviewer-quality`, add `reviewer-security` for auth/input handling
+- **Code written?** -> `reviewer` (covers quality, security, perf, and coverage in one pass)
 - **Review found issues?** -> `fixer`
-- **Test gaps?** -> `reviewer-coverage` then `developer` to add tests
-- **Performance concern?** -> `reviewer-perf`
 - **Run failed?** -> check logs, adjust prompt, retry. See `/neo-recover` for recovery strategies
