@@ -3,12 +3,8 @@
  * Imports all fixtures to ensure they are available for E2E tests.
  */
 
-// CLI harness from cli package
-export {
-  type RunCliOptions,
-  type RunCliResult,
-  runCli,
-} from "../../../../cli/src/__tests__/fixtures/cli-harness.js";
+// CLI harness (local copy for core package typecheck boundaries)
+export { type RunCliOptions, type RunCliResult, runCli } from "./cli-harness.js";
 // Git repository utilities
 export {
   cleanupTestRepo,

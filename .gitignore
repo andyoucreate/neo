@@ -43,4 +43,7 @@ archive/
 # Test coverage reports
 coverage/
 
+# E2E test temporary directories
+**/__tmp_*__/
+
 # neo session clones are stored in /tmp/neo-sessions/ (configurable)
