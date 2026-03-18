@@ -34,21 +34,12 @@ for (const agent of registry.list()) {
   orchestrator.registerAgent(agent);
 }
 
-// Register a workflow
-orchestrator.registerWorkflow({
-  name: "implement",
-  steps: {
-    code: { agent: "developer" },
-    review: { agent: "reviewer-quality", dependsOn: ["code"] },
-  },
-});
-
 // Start the orchestrator
 await orchestrator.start();
 
 // Dispatch a task
 const result = await orchestrator.dispatch({
-  workflow: "implement",
+  agent: "developer",
   repo: "/path/to/repo",
   prompt: "Add rate limiting to the API",
   priority: "high",
@@ -87,8 +78,6 @@ import { Orchestrator } from "@neotx/core";
 const orchestrator = new Orchestrator(config, {
   middleware: [...],           // Optional middleware array
   journalDir: ".neo/journals", // Directory for JSONL journals
-  builtInWorkflowDir: "...",   // Path to built-in workflow YAML files
-  customWorkflowDir: "...",    // Path to custom workflow YAML files
 });
 ```
 
@@ -122,27 +111,17 @@ orchestrator.registerAgent({
   sandbox: "writable",
   source: "built-in",
 });
-
-// Register a workflow
-orchestrator.registerWorkflow({
-  name: "implement",
-  steps: {
-    code: { agent: "developer" },
-    review: { agent: "reviewer-quality", dependsOn: ["code"] },
-  },
-});
 ```
 
 #### Dispatch
 
 ```typescript
 const result = await orchestrator.dispatch({
-  workflow: "implement",      // Workflow name (required)
+  agent: "developer",         // Agent name (required)
   repo: "/path/to/repo",      // Repository path (required)
   prompt: "Add feature X",    // Task prompt (required)
   runId: "custom-id",         // Optional custom run ID
   priority: "high",           // "critical" | "high" | "medium" | "low"
-  step: "review",             // Start from a specific step
   metadata: { ticket: "123" }, // Arbitrary metadata (passed through events)
 });
 ```
@@ -152,10 +131,9 @@ Returns a `TaskResult`:
 ```typescript
 interface TaskResult {
   runId: string;
-  workflow: string;
+  agent: string;
   repo: string;
   status: "success" | "failure" | "timeout" | "cancelled";
-  steps: Record<string, StepResult>;
   branch?: string;
   costUsd: number;
   durationMs: number;
@@ -179,7 +157,7 @@ const status = orchestrator.status;
 // }
 
 const sessions = orchestrator.activeSessions;
-// [{ sessionId, runId, workflow, step, agent, repo, status, startedAt }]
+// [{ sessionId, runId, agent, repo, status, startedAt }]
 ```
 
 ### `AgentRegistry`
@@ -217,7 +195,7 @@ The orchestrator emits typed events for real-time monitoring:
 
 ```typescript
 orchestrator.on("session:start", (event) => {
-  // { type, sessionId, runId, workflow, step, agent, repo, metadata, timestamp }
+  // { type, sessionId, runId, agent, repo, metadata, timestamp }
 });
 
 orchestrator.on("session:complete", (event) => {
@@ -293,7 +271,7 @@ const customMiddleware: Middleware = {
   match: "Bash",            // Optional: only match specific tools
   async handler(event, context) {
     // event: { hookEvent, sessionId, toolName, input, output, message }
-    // context: { runId, workflow, step, agent, repo, get, set }
+    // context: { runId, agent, repo, get, set }
 
     const costToday = context.get("costToday");
 
@@ -421,8 +399,6 @@ const journal = new CostJournal({ dir: ".neo/journals" });
 await journal.append({
   timestamp: new Date().toISOString(),
   runId: "...",
-  workflow: "implement",
-  step: "code",
   sessionId: "...",
   agent: "developer",
   costUsd: 0.0842,
@@ -526,10 +502,6 @@ import type {
   ResolvedAgent,
   AgentConfig,
   AgentDefinition,
-
-  // Workflows
-  WorkflowDefinition,
-  WorkflowStepDef,
 
   // Dispatch
   DispatchInput,

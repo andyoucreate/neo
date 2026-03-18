@@ -1,5 +1,0 @@
-name: hotfix
-description: "Fast-track single-agent implementation"
-steps:
-  implement:
-    agent: developer
