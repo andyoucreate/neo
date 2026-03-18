@@ -344,12 +344,17 @@ export class HeartbeatLoop {
     // Emit run completed events for any run completions processed
     for (const event of rawEvents) {
       if (event.kind === "run_complete") {
-        await this.emitRunCompleted({
+        const runData = await this.readPersistedRun(event.runId);
+        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
           runId: event.runId,
-          status: "completed", // Default; actual status would come from run data
-          costUsd: 0, // Would need to read from persisted run
-          durationMs: 0, // Would need to calculate from persisted run
-        });
+          status: runData?.status === "failed" ? "failed" : "completed",
+          costUsd: runData?.totalCostUsd ?? 0,
+          durationMs: runData?.durationMs ?? 0,
+        };
+        if (runData?.output) {
+          emitOpts.output = runData.output;
+        }
+        await this.emitRunCompleted(emitOpts);
       }
     }
   }
@@ -763,7 +768,16 @@ export class HeartbeatLoop {
       });
 
       // Emit run dispatched webhook event
-      // Extract additional info from the result if available
+      // Extract additional info from the result if available.
+      //
+      // Expected tool result formats from `neo run` command output:
+      //   - "Run <runId> dispatched"
+      //   - "agent: <name>" or "Agent: <name>" or "agent <name>"
+      //   - "repo: <path>" or "Repo: <path>" or "repo <path>"
+      //   - "branch: <name>" or "Branch: <name>" or "branch <name>"
+      //
+      // These patterns are best-effort extraction. If the format changes,
+      // values will default to "unknown" without breaking the event emission.
       const agentMatch = /agent[:\s]+(\S+)/i.exec(result);
       const repoMatch = /repo[:\s]+(\S+)/i.exec(result);
       const branchMatch = /branch[:\s]+(\S+)/i.exec(result);
@@ -784,6 +798,58 @@ export class HeartbeatLoop {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Read persisted run data to extract actual status, cost, and duration.
+   * Returns null if the run file cannot be found or parsed.
+   */
+  private async readPersistedRun(runId: string): Promise<{
+    status: PersistedRun["status"];
+    totalCostUsd: number;
+    durationMs: number;
+    output: string | undefined;
+  } | null> {
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return null;
+
+    try {
+      const entries = await readdir(runsDir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subDir = path.join(runsDir, entry.name);
+        const runPath = path.join(subDir, `${runId}.json`);
+
+        if (existsSync(runPath)) {
+          const raw = await readFile(runPath, "utf-8");
+          const run = JSON.parse(raw) as PersistedRun;
+
+          // Calculate total cost from all steps
+          const totalCostUsd = Object.values(run.steps).reduce(
+            (sum, step) => sum + (step.costUsd ?? 0),
+            0,
+          );
+
+          // Calculate duration from createdAt to updatedAt
+          const durationMs = new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime();
+
+          // Get output from the last completed step
+          const completedSteps = Object.values(run.steps).filter(
+            (s) => s.status === "success" || s.status === "failure",
+          );
+          const lastStep = completedSteps[completedSteps.length - 1];
+          const output =
+            typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
+
+          return { status: run.status, totalCostUsd, durationMs, output };
+        }
+      }
+    } catch {
+      // Non-critical — return null if we can't read run data
+    }
+
+    return null;
   }
 
   // ─── Webhook event emission ───────────────────────────────

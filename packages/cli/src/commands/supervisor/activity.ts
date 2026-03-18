@@ -30,7 +30,8 @@ export default defineCommand({
     },
     type: {
       type: "string",
-      description: "Filter by activity type (decision, action, discovery, error)",
+      description:
+        "Filter by activity type (decision, action, error, event, message, plan, dispatch)",
     },
     since: {
       type: "string",
@@ -57,7 +58,15 @@ export default defineCommand({
     const reader = new StatusReader(dataDir);
 
     const limit = Number.parseInt(args.limit, 10) || DEFAULT_LIMIT;
-    const type = args.type as "decision" | "action" | "discovery" | "error" | undefined;
+    const type = args.type as
+      | "decision"
+      | "action"
+      | "error"
+      | "event"
+      | "message"
+      | "plan"
+      | "dispatch"
+      | undefined;
 
     const entries = reader.queryActivity({
       type,

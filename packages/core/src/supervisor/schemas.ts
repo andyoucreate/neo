@@ -6,14 +6,26 @@ export const wakeReasonSchema = z.enum(["events", "timer", "active_runs", "force
 
 export type WakeReason = z.infer<typeof wakeReasonSchema>;
 
-// ─── Daemon state (persisted in state.json) ──────────────
+// ─── Base supervisor fields (shared between daemon state and API status) ──
 
-export const supervisorDaemonStateSchema = z.object({
+/**
+ * Common fields shared between supervisorDaemonStateSchema and supervisorStatusSchema.
+ * Extracted to avoid duplication and ensure consistency.
+ */
+const supervisorBaseFieldsSchema = z.object({
   pid: z.number(),
   sessionId: z.string(),
+  startedAt: z.string(),
+  heartbeatCount: z.number(),
+  totalCostUsd: z.number(),
+  todayCostUsd: z.number(),
+});
+
+// ─── Daemon state (persisted in state.json) ──────────────
+
+export const supervisorDaemonStateSchema = supervisorBaseFieldsSchema.extend({
   port: z.number(),
   cwd: z.string(),
-  startedAt: z.string(),
   lastHeartbeat: z.string().optional(),
   heartbeatCount: z.number().default(0),
   totalCostUsd: z.number().default(0),
@@ -102,15 +114,9 @@ export type InternalEventKind = z.infer<typeof internalEventKindSchema>;
 
 // ─── Supervisor status (API response) ──────────────────
 
-export const supervisorStatusSchema = z.object({
-  pid: z.number(),
-  sessionId: z.string(),
+export const supervisorStatusSchema = supervisorBaseFieldsSchema.extend({
   status: z.enum(["running", "idle", "stopping"]),
-  startedAt: z.string(),
   lastHeartbeat: z.string(),
-  heartbeatCount: z.number(),
-  todayCostUsd: z.number(),
-  totalCostUsd: z.number(),
   activeRunCount: z.number(),
   recentActivitySummary: z.array(z.string()),
 });
@@ -119,7 +125,21 @@ export type SupervisorStatus = z.infer<typeof supervisorStatusSchema>;
 
 // ─── Activity query options (API query params) ─────────
 
-export const activityTypeFilterSchema = z.enum(["decision", "action", "discovery", "error"]);
+/**
+ * Filterable activity types for API queries.
+ * This is a subset of activityEntrySchema.type — only types that make sense
+ * for external filtering are included. Internal types like "heartbeat" and
+ * "thinking" are excluded as they're implementation details.
+ */
+export const activityTypeFilterSchema = z.enum([
+  "decision",
+  "action",
+  "error",
+  "event",
+  "message",
+  "plan",
+  "dispatch",
+]);
 
 export type ActivityTypeFilter = z.infer<typeof activityTypeFilterSchema>;
 
