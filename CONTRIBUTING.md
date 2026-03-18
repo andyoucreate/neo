@@ -77,7 +77,7 @@ The project is a monorepo with packages in `packages/`:
 
 - `@neotx/core` - Orchestration engine
 - `@neotx/agents` - Agent definitions and prompts
-- `neotx` - CLI wrapper
+- `@neotx/cli` - CLI wrapper
 
 ## Code of Conduct
 

@@ -2,7 +2,7 @@
 
 Built-in agent definitions for `@neotx/core`.
 
-This package contains YAML configuration files and Markdown prompts that define the 9 built-in agents used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
+This package contains YAML configuration files and Markdown prompts that define the 5 built-in agents used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
 
 ## Contents
 
@@ -13,13 +13,13 @@ packages/agents/
 │   ├── developer.yml
 │   ├── fixer.yml
 │   ├── refiner.yml
-│   ├── reviewer-coverage.yml
-│   ├── reviewer-perf.yml
-│   ├── reviewer-quality.yml
-│   ├── reviewer-security.yml
 │   └── reviewer.yml
 └── prompts/          # Markdown system prompts
-    └── *.md
+    ├── architect.md
+    ├── developer.md
+    ├── fixer.md
+    ├── refiner.md
+    └── reviewer.md
 ```
 
 ## Built-in Agents
@@ -30,11 +30,7 @@ packages/agents/
 | **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated clones. |
 | **fixer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms. |
 | **refiner** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Ticket quality evaluator. Assesses clarity and splits vague tickets into precise sub-tickets. |
-| **reviewer-quality** | sonnet | readonly | Read, Glob, Grep, Bash | Code quality reviewer. Catches bugs and DRY violations. Approves by default. |
-| **reviewer-security** | opus | readonly | Read, Glob, Grep, Bash | Security auditor. Flags directly exploitable vulnerabilities. Approves by default. |
-| **reviewer-perf** | sonnet | readonly | Read, Glob, Grep, Bash | Performance reviewer. Flags N+1 queries and O(n²) on unbounded data. Approves by default. |
-| **reviewer-coverage** | sonnet | readonly | Read, Glob, Grep, Bash | Test coverage reviewer. Recommends missing tests. Never blocks merge. |
-| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Single-pass unified reviewer. Covers all 4 lenses in one sweep. Lightweight alternative to parallel review. |
+| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Single-pass unified reviewer. Covers quality, security, performance, and test coverage in one sweep. Challenges by default — blocks on critical issues. |
 
 ### Sandbox Modes
 

@@ -5,9 +5,9 @@ Orchestration engine for autonomous developer agents. This is the programmatic A
 ## Installation
 
 ```bash
-npm install @neotx/core
-# or
 pnpm add @neotx/core
+# or
+npm install @neotx/core
 ```
 
 Requires Node.js >= 22 and the [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) installed and authenticated.
@@ -15,9 +15,9 @@ Requires Node.js >= 22 and the [Claude Code CLI](https://docs.anthropic.com/en/d
 ## Quick Start
 
 ```typescript
-import { AgentRegistry, loadConfig, Orchestrator } from "@neotx/core";
+import { AgentRegistry, loadGlobalConfig, Orchestrator } from "@neotx/core";
 
-const config = await loadConfig("~/.neo/config.yml");
+const config = await loadGlobalConfig();
 
 const orchestrator = new Orchestrator(config, {
   journalDir: ".neo/journals",
@@ -426,7 +426,7 @@ repos:
     defaultBranch: main
     branchPrefix: feat
     pushRemote: origin
-    autoCreatePr: false
+    gitStrategy: branch  # or "pr"
 
 concurrency:
   maxSessions: 5
@@ -458,6 +458,19 @@ mcpServers:
     headers:
       Authorization: "Bearer ${LINEAR_API_KEY}"
 
+supervisor:
+  port: 7777
+  heartbeatTimeoutMs: 300000
+  maxConsecutiveFailures: 3
+  maxEventsPerSec: 10
+  dailyCapUsd: 50
+  consolidationIntervalMs: 300000
+  compactionIntervalMs: 3600000
+  eventTimeoutMs: 300000
+
+memory:
+  embeddings: true              # Enable local vector embeddings
+
 idempotency:
   enabled: true
   key: metadata  # or "prompt"
@@ -485,6 +498,65 @@ await removeRepoFromGlobalConfig("/path/to/repo");
 
 // List all registered repos
 const repos = await listReposFromGlobalConfig();
+```
+
+## Supervisor Daemon
+
+The supervisor daemon runs as a long-lived process that monitors orchestrator health, processes events, and maintains memory.
+
+```typescript
+import { SupervisorDaemon, loadGlobalConfig } from "@neotx/core";
+
+const config = await loadGlobalConfig();
+
+const daemon = new SupervisorDaemon({
+  name: "supervisor",
+  config,
+  defaultInstructionsPath: "path/to/SUPERVISOR.md",
+});
+
+await daemon.start(); // Blocks until stopped
+await daemon.stop();
+```
+
+Components:
+- **WebhookServer** — receives events from orchestrator instances
+- **EventQueue** — rate-limited event processing with disk replay
+- **HeartbeatLoop** — periodic health checks and consolidation
+- **ActivityLog** — structured logging of supervisor actions
+
+## Memory Store
+
+Persistent memory with full-text search (FTS5) and optional vector search (sqlite-vec).
+
+```typescript
+import { MemoryStore } from "@neotx/core";
+
+const store = new MemoryStore("path/to/memory.sqlite");
+
+// Write a memory
+await store.write({
+  type: "fact",           // "fact" | "procedure" | "episode" | "focus" | "feedback" | "task"
+  scope: "/path/to/repo", // or "global"
+  content: "CI requires pnpm build before push",
+  source: "developer",
+});
+
+// Query by type and scope
+const memories = store.query({
+  scope: "/path/to/repo",
+  types: ["fact", "procedure"],
+  limit: 25,
+  sortBy: "relevance",    // "relevance" | "createdAt" | "accessCount"
+});
+
+// Semantic search (uses local embeddings via transformers.js)
+const results = await store.search("CI pipeline", { scope: "/path/to/repo" });
+
+// Lifecycle
+store.decay(30, 3);       // Remove stale low-access memories
+store.expireEphemeral();  // Remove expired focus entries
+store.close();
 ```
 
 ## Types

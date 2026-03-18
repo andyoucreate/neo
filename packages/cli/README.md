@@ -5,13 +5,13 @@ The `neo` command-line interface for orchestrating autonomous developer agents. 
 ## Installation
 
 ```bash
-npm install -g neotx
+npm install -g @neotx/cli
 ```
 
-Or with the scoped package name:
+Or with pnpm:
 
 ```bash
-npm install -g @neotx/cli
+pnpm add -g @neotx/cli
 ```
 
 Requires Node.js 22 or later.
@@ -58,11 +58,11 @@ Dispatch an agent to execute a task in an isolated clone.
 ```bash
 neo run developer --prompt "Implement user authentication"
 neo run architect --prompt "Design the caching layer" --repo /path/to/repo
-neo run reviewer-quality --prompt "Review the auth changes" --priority high
+neo run reviewer --prompt "Review the auth changes" --priority high
 ```
 
 **Arguments:**
-- `<agent>` - Agent name (e.g., `developer`, `architect`, `reviewer-quality`)
+- `<agent>` - Agent name (e.g., `developer`, `architect`, `reviewer`)
 
 **Options:**
 | Flag | Description |
@@ -140,14 +140,16 @@ neo logs --output json             # Output as JSON
 Log a structured progress report to the supervisor activity log.
 
 ```bash
-neo log decision "Chose JWT over sessions for auth"
-neo log action "Created migration for users table"
-neo log blocker "Tests failing due to missing env var"
-neo log progress "Completed 3 of 5 endpoints"
+neo log progress "3/5 endpoints done"
+neo log action "Pushed to branch"
+neo log decision "Chose JWT over sessions — simpler for MVP"
+neo log blocker "Tests failing, missing dependency"
+neo log milestone "All tests passing, PR opened"
+neo log discovery "Repo uses Prisma + PostgreSQL"
 ```
 
 **Arguments:**
-- `<type>` - Report type: `decision`, `action`, `blocker`, `progress`
+- `<type>` - Report type: `progress`, `action`, `decision`, `blocker`, `milestone`, `discovery`
 - `<message>` - Message to log
 
 **Options:**

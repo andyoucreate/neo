@@ -7,7 +7,7 @@ First public release.
 ### Features
 
 - **Orchestrator** - dispatch agents with concurrency control, budget guards, and typed event streaming
-- **8 built-in agents** - architect, developer, fixer, refiner, and 4 specialized reviewers (quality, security, perf, coverage)
+- **5 built-in agents** - architect, developer, fixer, refiner, and a unified single-pass reviewer
 - **Git clone isolation** - each run gets its own branch and clone, working directory is never touched
 - **3-level recovery** - normal retry, session resume, fresh session with exponential backoff
 - **Cost tracking** - daily budget caps, JSONL journals with monthly rotation, real-time budget alerts
@@ -20,8 +20,8 @@ First public release.
 
 ### Architecture
 
-- Monorepo with 3 packages: `@neotx/core`, `neotx`, `@neotx/agents`
+- Monorepo with 3 packages: `@neotx/core`, `@neotx/cli`, `@neotx/agents`
 - Zero infrastructure - no database, no Redis, no Docker
 - Zod schemas as single source of truth for all types
 - ESM only, TypeScript strict, Biome for linting
-- 248 tests covering all modules
+- 643 tests across core and CLI packages
