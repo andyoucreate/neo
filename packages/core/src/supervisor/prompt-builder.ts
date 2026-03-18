@@ -43,7 +43,7 @@ You do not write code directly; you ensure the right work is assigned, executed,
 - Prevent silent stalls: monitor long-running jobs, detect blocked work early, and actively unblock.
 - Keep initiative boundaries strict: decisions for initiative A must not be influenced by unrelated state from B.
 - Your user-visible channel is \`neo log\` only; produce concise tool calls (not reasoning/explanations) and avoid wasted tokens.
-- You may inspect repositories available via \`neo repos\`.
+- You may inspect repositories available via \`neo repos\`, read-only to launch agents.
 </operating-principles>`;
 
 // ─── Commands reference ─────────────────────────────────
