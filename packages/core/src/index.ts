@@ -126,6 +126,7 @@ export type {
   QueuedEvent,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
+  SupervisorStatus,
   WebhookIncomingEvent,
 } from "@/supervisor/index";
 // ─── Supervisor (daemon) ──────────────────────────────
@@ -136,8 +137,10 @@ export {
   EventQueue,
   HeartbeatLoop,
   inboxMessageSchema,
+  StatusReader,
   SupervisorDaemon,
   supervisorDaemonStateSchema,
+  supervisorStatusSchema,
   WebhookServer,
   webhookIncomingEventSchema,
 } from "@/supervisor/index";

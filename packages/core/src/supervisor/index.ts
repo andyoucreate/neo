@@ -49,6 +49,8 @@ export {
   buildWorkQueueSection,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
+export { StatusReader } from "./StatusReader.js";
+// ─── Status ─────────────────────────────────────────────
 export type {
   ActivityEntry,
   InboxMessage,
@@ -56,6 +58,7 @@ export type {
   LogBufferEntry,
   QueuedEvent,
   SupervisorDaemonState,
+  SupervisorStatus,
   WakeReason,
   WebhookIncomingEvent,
 } from "./schemas.js";
@@ -66,6 +69,7 @@ export {
   internalEventKindSchema,
   logBufferEntrySchema,
   supervisorDaemonStateSchema,
+  supervisorStatusSchema,
   wakeReasonSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";
