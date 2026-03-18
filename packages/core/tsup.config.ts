@@ -6,5 +6,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   sourcemap: true,
-  external: ["better-sqlite3", "sqlite-vec", "@huggingface/transformers"],
+  external: ["better-sqlite3", "sqlite-vec", "@huggingface/transformers", "chokidar"],
 });
