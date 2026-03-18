@@ -224,7 +224,7 @@ export class HeartbeatLoop {
     if (budgetCheck.exceeded) return;
 
     // Drain events and check for active work
-    const { grouped } = this.eventQueue.drainAndGroup();
+    const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
@@ -270,6 +270,12 @@ export class HeartbeatLoop {
 
     // Call SDK with timeout + shutdown abort
     const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+
+    // Mark events as processed so they are not replayed on restart
+    if (rawEvents.length > 0) {
+      const inboxPath = path.join(this.supervisorDir, "inbox.jsonl");
+      await this.eventQueue.markProcessed(inboxPath, this.eventsPath, rawEvents);
+    }
 
     // Post-response: mark entries consolidated and compact log buffer
     if (modeResult.isConsolidation) {
