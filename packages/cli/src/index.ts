@@ -22,6 +22,7 @@ const main = defineCommand({
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
     version: () => import("./commands/version.js").then((m) => m.default),
+    webhooks: () => import("./commands/webhooks.js").then((m) => m.default),
   },
 });
 

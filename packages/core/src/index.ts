@@ -156,6 +156,20 @@ export type {
 // ─── Memory ───────────────────────────────────────────
 export { LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
 export * from "@/types";
+// ─── Webhook Config ────────────────────────────────────
+export type {
+  WebhookEntry,
+  WebhookEntryInput,
+  WebhookTestPayload,
+  WebhookTestResult,
+} from "@/webhook-config";
+export {
+  addWebhook,
+  listWebhooks,
+  removeWebhook,
+  testWebhooks,
+  webhookEntrySchema,
+} from "@/webhook-config";
 // ─── Workflows ─────────────────────────────────────────
 export { loadWorkflow, workflowGateDefSchema, workflowStepDefSchema } from "@/workflows/loader";
 export { WorkflowRegistry } from "@/workflows/registry";
