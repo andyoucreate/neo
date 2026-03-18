@@ -106,6 +106,8 @@ export interface HeartbeatLoopOptions {
   sessionId: string;
   eventQueue: EventQueue;
   activityLog: ActivityLog;
+  /** Path to the inbox/events directory for markProcessed() calls */
+  eventsPath: string;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
   memoryDbPath?: string | undefined;
@@ -132,6 +134,7 @@ export class HeartbeatLoop {
   private sessionId: string;
   private readonly eventQueue: EventQueue;
   private readonly activityLog: ActivityLog;
+  private readonly _eventsPath: string;
 
   private customInstructions: string | undefined;
   private readonly defaultInstructionsPath: string | undefined;
@@ -145,8 +148,14 @@ export class HeartbeatLoop {
     this.sessionId = options.sessionId;
     this.eventQueue = options.eventQueue;
     this.activityLog = options.activityLog;
+    this._eventsPath = options.eventsPath;
     this.defaultInstructionsPath = options.defaultInstructionsPath;
     this.memoryDbPath = options.memoryDbPath;
+  }
+
+  /** Path to the inbox/events directory for markProcessed() calls */
+  get eventsPath(): string {
+    return this._eventsPath;
   }
 
   private getMemoryStore(): MemoryStore | null {
