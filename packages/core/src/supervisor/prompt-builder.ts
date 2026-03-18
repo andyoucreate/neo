@@ -91,6 +91,15 @@ neo memory search "keyword"
 neo memory list --type fact
 \`\`\`
 
+### Decisions
+When you need human input on something that cannot be decided autonomously:
+\`\`\`bash
+neo decision create "<question>" --options "key1:label1,key2:label2:description" [--default <key>] [--expires-in 24h] [--context "..."]
+neo decision list                    # show pending decisions
+neo decision answer <id> <answer>    # answer a decision (usually done by human via TUI)
+\`\`\`
+The decision ID is returned by \`create\`. If no answer arrives before expiration, the \`--default\` answer is applied automatically (or the decision expires without resolution).
+
 ### Reporting
 \`\`\`bash
 neo log <type> "<message>"   # visible in TUI only
@@ -99,7 +108,8 @@ neo log <type> "<message>"   # visible in TUI only
 const COMMANDS_COMPACT = `### Commands (reference)
 \`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
 \`neo runs [--short | <runId>]\` \u00b7 \`neo runs --short --status running\` \u00b7 \`neo cost --short\`
-\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\``;
+\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\`
+\`neo decision create "<question>" --options "..." [--default <key>]\` \u00b7 \`neo decision list\``;
 
 // ─── Instruction blocks ─────────────────────────────────
 
