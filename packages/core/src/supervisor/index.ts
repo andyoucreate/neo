@@ -2,8 +2,13 @@
 export { ActivityLog } from "./activity-log.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
+// ─── Decisions ─────────────────────────────────────────────
 export type { Decision, DecisionInput, DecisionOption } from "./decisions.js";
-export { DecisionStore, decisionOptionSchema, decisionSchema } from "./decisions.js";
+export {
+  DecisionStore,
+  decisionOptionSchema,
+  decisionSchema,
+} from "./decisions.js";
 export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
 export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
