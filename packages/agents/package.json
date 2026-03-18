@@ -12,7 +12,8 @@
   "files": [
     "agents",
     "prompts",
-    "SUPERVISOR.md"
+    "SUPERVISOR.md",
+    "GUIDE.md"
   ],
   "keywords": [
     "ai-agents",
