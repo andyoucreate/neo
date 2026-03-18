@@ -5,13 +5,7 @@ import { buildSandboxConfig } from "@/isolation/sandbox";
 import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import { type ParsedOutput, parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
-import type {
-  Middleware,
-  MiddlewareContext,
-  ResolvedAgent,
-  StepResult,
-  WorkflowStepDef,
-} from "@/types";
+import type { Middleware, MiddlewareContext, ResolvedAgent, StepResult } from "@/types";
 
 // ─── Constants ─────────────────────────────────────────
 
@@ -23,7 +17,6 @@ export interface SessionExecutionInput {
   runId: string;
   sessionId: string;
   agent: ResolvedAgent;
-  stepDef: WorkflowStepDef;
   repoConfig: RepoConfig;
   repoPath: string;
   prompt: string;
@@ -157,7 +150,6 @@ function buildFullPrompt(
 
 function buildMiddlewareContext(
   runId: string,
-  workflow: string,
   step: string,
   agent: string,
   repo: string,
@@ -166,7 +158,6 @@ function buildMiddlewareContext(
   const store = new Map<string, unknown>();
   return {
     runId,
-    workflow,
     step,
     agent,
     repo,
@@ -204,7 +195,6 @@ export class SessionExecutor {
     const {
       runId,
       agent,
-      stepDef,
       repoConfig,
       repoPath,
       prompt: taskPrompt,
@@ -233,7 +223,6 @@ export class SessionExecutor {
     const chain = buildMiddlewareChain(middleware);
     const middlewareContext = buildMiddlewareContext(
       runId,
-      stepDef.prompt ? "workflow" : "direct",
       "execute",
       agent.name,
       repoPath,
@@ -262,14 +251,13 @@ export class SessionExecutor {
       agent.definition.prompt,
       repoInstructions,
       gitInstructions,
-      stepDef.prompt ?? taskPrompt,
+      taskPrompt,
       memoryContext,
       cwdInstructions,
       reportingInstructions,
     );
 
     // Execute session with recovery
-    const recoveryOpts = stepDef.recovery;
     const agentEnv: Record<string, string> = {
       NEO_RUN_ID: runId,
       NEO_AGENT_NAME: agent.name,
@@ -285,11 +273,10 @@ export class SessionExecutor {
       env: agentEnv,
       initTimeoutMs: this.config.initTimeoutMs,
       maxDurationMs: this.config.maxDurationMs,
-      maxRetries: recoveryOpts?.maxRetries ?? this.config.maxRetries,
+      maxRetries: this.config.maxRetries,
       backoffBaseMs: this.config.backoffBaseMs,
       ...(sessionPath ? { sessionPath } : {}),
       ...(mcpServers ? { mcpServers } : {}),
-      ...(recoveryOpts?.nonRetryable ? { nonRetryable: recoveryOpts.nonRetryable } : {}),
       ...(onAttempt ? { onAttempt } : {}),
     });
 
