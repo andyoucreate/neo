@@ -373,7 +373,9 @@ export default defineCommand({
       case "pending":
         return handlePending(parsed);
       default:
-        printError(`Unknown action "${action}". Must be one of: create, list, get, answer, pending`);
+        printError(
+          `Unknown action "${action}". Must be one of: create, list, get, answer, pending`,
+        );
         process.exitCode = 1;
     }
   },
