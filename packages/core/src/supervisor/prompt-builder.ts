@@ -29,24 +29,26 @@ export interface ConsolidationPromptOptions extends PromptOptions {
   lastConsolidationTimestamp?: string | undefined;
 }
 
-// ─── Role (identity + behavioral contract) ──────────────
+// ─── Role (identity only — behavioral rules go in <instructions>) ──
 
 const ROLE = `You are the neo autonomous supervisor — accountable for delivery across parallel initiatives.
 
-You do not write code directly; you ensure the right work is assigned, executed, reviewed, and completed by the right agent.
+You do not write code directly; you ensure the right work is assigned, executed, reviewed, and completed by the right agent.`;
 
-<operating-principles>
+// ─── Operating principles (behavioral contract — lives in <instructions>) ──
+
+const OPERATING_PRINCIPLES = `### Operating principles
+
 - Own delivery end-to-end: any queued task without an active owner is your responsibility.
 - Operate like a strong engineering lead: provide clear context, dispatch deliberately, validate outcomes, and remove blockers quickly.
-- On run completion: ALWAYS read \`neo runs <runId>\`, verify acceptance criteria, then decide next action (done, follow-up, redispatch, escalate).
+- On run completion: read \`neo runs <runId>\`, verify acceptance criteria, then decide next action (done, follow-up, redispatch, escalate).
 - On run failure: diagnose root cause before retrying (prompt quality, branch conflict, known issue, environment/tooling), then fix the cause.
 - Prevent silent stalls: monitor long-running jobs, detect blocked work early, and actively unblock.
 - Keep initiative boundaries strict: decisions for initiative A must not be influenced by unrelated state from B.
 - Your user-visible channel is \`neo log\` only; produce concise tool calls (not reasoning/explanations) and avoid wasted tokens.
-- You may inspect repositories available via \`neo repos\`, read-only to launch agents.
-</operating-principles>`;
+- You may inspect repositories available via \`neo repos\`, read-only to launch agents.`;
 
-// ─── Commands reference ─────────────────────────────────
+// ─── Commands reference (data — lives in <reference>) ───
 
 const COMMANDS = `### Dispatching agents
 \`\`\`bash
@@ -93,10 +95,10 @@ neo log <type> "<message>"   # visible in TUI only
 
 const COMMANDS_COMPACT = `### Commands (reference)
 \`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
-\`neo runs [--short | <runId>]\` · \`neo runs --short --status running\` · \`neo cost --short\`
-\`neo memory write|update|forget|search|list\` · \`neo log <type> "<msg>"\``;
+\`neo runs [--short | <runId>]\` \u00b7 \`neo runs --short --status running\` \u00b7 \`neo cost --short\`
+\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\``;
 
-// ─── Shared instruction blocks ──────────────────────────
+// ─── Instruction blocks ─────────────────────────────────
 
 const HEARTBEAT_RULES = `### Heartbeat lifecycle
 
@@ -133,18 +135,20 @@ const REPORTING_RULES = `### Reporting
 \`neo log\` is your ONLY visible output. Use telegraphic format.
 
 <log-format>
-neo log decision "<ticket> → <action> | <1-line reason>"
+neo log decision "<ticket> \u2192 <action> | <1-line reason>"
 neo log action "<agent> <repo>:<branch> run:<runId> | <context>"
 neo log discovery "<what> in <where>"
 </log-format>
 
 <examples type="good">
-neo log decision "YC-42 → developer | clear spec, complexity 3"
+neo log decision "YC-42 \u2192 developer | clear spec, complexity 3"
 neo log action "developer standards:feat/YC-42-auth run:5900a64a | task T1"
 neo log discovery "CI requires node 20 in api-service"
 </examples>`;
 
-const MEMORY_RULES_CORE = `### Memory
+function buildMemoryRulesCore(supervisorDir: string): string {
+  const notesDir = `${supervisorDir}/notes`;
+  return `### Memory
 
 <memory-types>
 | Type | Store when | TTL |
@@ -160,17 +164,17 @@ const MEMORY_RULES_CORE = `### Memory
 - Focus is free-form working memory — rewrite at end of EVERY heartbeat (see <focus>).
 - NEVER store: file counts, line numbers, completed work details, data available via \`neo runs <id>\`.
 - After PR merge: forget related facts unless they are reusable architectural truths.
-- Pattern escalation: same failure 3+ times → write a \`procedure\`.
+- Pattern escalation: same failure 3+ times \u2192 write a \`procedure\`.
 - Every memory that references external context MUST include a retrieval command (in \`--category\` for tasks, in content for facts/procedures). You are stateless — if you can't retrieve it later, don't store it.
 </memory-rules>
 
 <task-workflow>
-Queue markers: ○ pending · [ACTIVE] in_progress · [BLOCKED] blocked.
+Queue markers: \u25cb pending \u00b7 [ACTIVE] in_progress \u00b7 [BLOCKED] blocked.
 Create tasks for: incoming tickets, architect decompositions, sub-tickets, follow-ups, CI fixes.
 - \`--tags "initiative:<name>"\` — groups related tasks
 - \`--tags "depends:mem_<id>"\` — blocks until dependency is done
-- \`--category\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` · \`"cat notes/plan-feature.md"\` · \`"API-retrieve-a-page <notionPageId>"\`
-Lifecycle: create → in_progress (on dispatch) → done | blocked | abandoned
+- \`--category\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` \u00b7 \`"cat ${notesDir}/plan-feature.md"\` \u00b7 \`"API-retrieve-a-page <notionPageId>"\`
+Lifecycle: create \u2192 in_progress (on dispatch) \u2192 done | blocked | abandoned
 </task-workflow>
 
 <focus>
@@ -182,16 +186,20 @@ Rewrite focus at the END of every heartbeat. Never leave it empty after a heartb
 </focus>
 
 <notes>
-Use notes/ for any initiative with 3+ tasks (persists across heartbeats).
-- Write: \`cat > notes/plan-<initiative>.md << 'EOF' ... EOF\`
-- Link to tasks: \`--category "cat notes/plan-<initiative>.md"\`
+Notes directory: \`${notesDir}/\`
+Use notes for any initiative with 3+ tasks (persists across heartbeats).
+- Write: \`cat > ${notesDir}/plan-<initiative>.md << 'EOF' ... EOF\`
+- Link to tasks: \`--category "cat ${notesDir}/plan-<initiative>.md"\`
 - Update after each task: check off milestones, add PR numbers, note blockers
 - Delete when initiative is done
 Use cases: architect decompositions, initiative tracking, debugging across heartbeats, review checklists.
 </notes>`;
+}
 
-const MEMORY_RULES_EXAMPLES = `<memory-examples>
-neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat notes/plan-YC-2670-kanban.md)"
+function buildMemoryRulesExamples(supervisorDir: string): string {
+  const notesDir = `${supervisorDir}/notes`;
+  return `<memory-examples>
+neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat ${notesDir}/plan-YC-2670-kanban.md)"
 neo memory write --type fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
 neo memory write --type fact --scope /repo "pnpm build must pass before push — CI does not rebuild, run 2g589f34a5a failed without it"
 neo memory write --type procedure --scope /repo "After architect run: parse milestones from JSON output, create one task per milestone with --tags initiative:<name>"
@@ -201,14 +209,134 @@ neo memory write --type task --scope /repo --severity high --category "neo runs 
 neo memory update <id> --outcome in_progress|done|blocked|abandoned
 neo memory forget <id>
 </memory-examples>`;
+}
 
-// ─── Section builders ───────────────────────────────────
+// ─── Prompt assembly helpers ────────────────────────────
+//
+// Prompt structure follows Anthropic best practices:
+//   <role>         — Identity only (2 sentences)
+//   <context>      — Data top: focus → work state → knowledge → environment → events (query last)
+//   <reference>    — Command documentation (stable reference data)
+//   <instructions> — All behavioral rules bottom: principles → lifecycle → reporting → memory → directive
+
+function buildRoleSection(heartbeatCount: number, label?: string): string {
+  const suffix = label ? ` (${label})` : "";
+  return `<role>\n${ROLE}\nHeartbeat #${heartbeatCount}${suffix}\n</role>`;
+}
 
 function getCommandsSection(heartbeatCount: number): string {
   return heartbeatCount <= 3 ? COMMANDS : COMMANDS_COMPACT;
 }
 
-function buildContextSections(opts: PromptOptions): string[] {
+function buildReferenceSection(heartbeatCount: number): string {
+  return `<reference>\n${getCommandsSection(heartbeatCount)}\n</reference>`;
+}
+
+/**
+ * Build the focus section from memory entries.
+ * Rendered at the top of <context> — first thing the supervisor reads to re-orient.
+ */
+function buildFocusSection(memories: MemoryEntry[]): string {
+  const focusEntries = memories.filter((m) => m.type === "focus");
+
+  if (focusEntries.length > 0) {
+    const lines = focusEntries.map((m) => `- ${m.content}`).join("\n");
+    return `<focus>\n${lines}\n</focus>`;
+  }
+
+  return "<focus>\n(empty \u2014 use neo memory write --type focus to set working context)\n</focus>";
+}
+
+/**
+ * Build the full context block shared by standard & consolidation prompts.
+ * Order: focus (orientation) \u2192 work state \u2192 knowledge \u2192 environment \u2192 events (query last).
+ * Compaction uses a subset via buildCompactionContext.
+ */
+function buildFullContext(opts: PromptOptions): string {
+  const parts: string[] = [];
+
+  // 1. Focus — orientation (first thing read after role)
+  parts.push(buildFocusSection(opts.memories));
+
+  // 2. Work state — what's happening right now
+  const workQueue = buildWorkQueueSection(opts.memories);
+  if (workQueue) {
+    parts.push(workQueue);
+  }
+
+  if (opts.activeRuns.length > 0) {
+    parts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
+  }
+
+  const recentActions = buildRecentActionsSection(opts.recentActions);
+  if (recentActions) {
+    parts.push(recentActions);
+  }
+
+  // 3. Knowledge — accumulated memory (facts, procedures, feedback)
+  parts.push(buildKnowledgeSection(opts.memories));
+
+  // 4. Environment — stable infra (repos, MCP, budget)
+  parts.push(...buildEnvironmentSections(opts));
+
+  // 5. Events — the "query" (last = highest attention per Anthropic guidelines)
+  parts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
+
+  return `<context>\n${parts.join("\n\n")}\n</context>`;
+}
+
+/**
+ * Build a lighter context for compaction heartbeats.
+ * No active runs, no recent actions, no events — just memory for cleanup review.
+ */
+function buildCompactionContext(opts: PromptOptions): string {
+  const parts: string[] = [];
+
+  parts.push(buildFocusSection(opts.memories));
+  parts.push(buildKnowledgeSection(opts.memories));
+
+  const workQueue = buildWorkQueueSection(opts.memories);
+  if (workQueue) {
+    parts.push(workQueue);
+  }
+
+  parts.push(...buildEnvironmentSections(opts));
+
+  return `<context>\n${parts.join("\n\n")}\n</context>`;
+}
+
+/**
+ * Build the base instruction parts shared by all prompt variants.
+ * Order: principles \u2192 lifecycle \u2192 reporting \u2192 memory \u2192 custom \u2192 (caller adds directive last)
+ */
+function buildBaseInstructions(
+  opts: PromptOptions,
+  options: { includeExamples: boolean },
+): string[] {
+  const parts: string[] = [];
+  parts.push(OPERATING_PRINCIPLES);
+  parts.push(HEARTBEAT_RULES);
+  parts.push(REPORTING_RULES);
+  parts.push(buildMemoryRulesCore(opts.supervisorDir));
+
+  if (options.includeExamples) {
+    parts.push(buildMemoryRulesExamples(opts.supervisorDir));
+  }
+
+  if (opts.customInstructions) {
+    parts.push(`### Custom instructions\n${opts.customInstructions}`);
+  }
+
+  return parts;
+}
+
+function wrapInstructions(parts: string[]): string {
+  return `<instructions>\n${parts.join("\n\n")}\n</instructions>`;
+}
+
+// ─── Context section builders ───────────────────────────
+
+function buildEnvironmentSections(opts: PromptOptions): string[] {
   const parts: string[] = [];
 
   if (opts.repos.length > 0) {
@@ -228,23 +356,16 @@ function buildContextSections(opts: PromptOptions): string[] {
   return parts;
 }
 
-function buildMemorySection(memories: MemoryEntry[]): string {
-  const focusEntries = memories.filter((m) => m.type === "focus");
+/**
+ * Build the knowledge section: facts, procedures, and feedback.
+ * Focus is excluded — it's rendered separately at context top level.
+ */
+function buildKnowledgeSection(memories: MemoryEntry[]): string {
   const factEntries = memories.filter((m) => m.type === "fact");
   const procedureEntries = memories.filter((m) => m.type === "procedure");
   const feedbackEntries = memories.filter((m) => m.type === "feedback");
 
   const parts: string[] = [];
-
-  // Focus (working context)
-  if (focusEntries.length > 0) {
-    const lines = focusEntries.map((m) => `- ${m.content}`).join("\n");
-    parts.push(`<focus>\n${lines}\n</focus>`);
-  } else {
-    parts.push(
-      "<focus>\n(empty — use neo memory write --type focus to set working context)\n</focus>",
-    );
-  }
 
   // Known facts — grouped by scope with staleness signal
   if (factEntries.length > 0) {
@@ -307,7 +428,7 @@ export function buildWorkQueueSection(memories: MemoryEntry[]): string {
 
   if (tasks.length === 0) {
     if (doneCount > 0) {
-      return `Work queue (0 remaining, ${doneCount} done) — all tasks complete. Pick up new work or wait for events.`;
+      return `Work queue (0 remaining, ${doneCount} done) \u2014 all tasks complete. Pick up new work or wait for events.`;
     }
     return "";
   }
@@ -319,7 +440,7 @@ export function buildWorkQueueSection(memories: MemoryEntry[]): string {
     lines.push(`  ... and ${tasks.length - MAX_TASKS} more pending`);
   }
 
-  const header = `Work queue (${tasks.length} remaining, ${doneCount} done) — dispatch the next eligible task:`;
+  const header = `Work queue (${tasks.length} remaining, ${doneCount} done) \u2014 dispatch the next eligible task:`;
   return `${header}\n${lines.join("\n")}`;
 }
 
@@ -377,7 +498,7 @@ function formatTaskLine(task: MemoryEntry): string {
   const severity = task.severity ? `[${task.severity}] ` : "";
   const scope = task.scope !== "global" ? ` (${getBasename(task.scope)})` : "";
   const run = task.runId ? ` [run ${task.runId.slice(0, 8)}]` : "";
-  const cat = task.category ? ` → ${task.category}` : "";
+  const cat = task.category ? ` \u2192 ${task.category}` : "";
   return `${marker} ${severity}${task.content}${scope}${run}${cat}`;
 }
 
@@ -388,7 +509,7 @@ function formatTaskMarker(outcome: string | undefined): string {
     case "blocked":
       return "[BLOCKED]";
     default:
-      return "○";
+      return "\u25cb";
   }
 }
 
@@ -459,16 +580,20 @@ function formatEvent(event: QueuedEvent): string {
   }
 }
 
+// ─── Event count helper ─────────────────────────────────
+
+function countEvents(grouped: GroupedEvents): number {
+  return grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
+}
+
 // ─── Idle prompt (minimal — no events, no runs, no tasks) ─
 
 /**
  * Check if this heartbeat has nothing to do.
  */
 export function isIdleHeartbeat(opts: PromptOptions): boolean {
-  const { messages, webhooks, runCompletions } = opts.grouped;
-  const totalEvents = messages.length + webhooks.length + runCompletions.length;
   const hasWork = buildWorkQueueSection(opts.memories) !== "";
-  return totalEvents === 0 && opts.activeRuns.length === 0 && !hasWork;
+  return countEvents(opts.grouped) === 0 && opts.activeRuns.length === 0 && !hasWork;
 }
 
 /**
@@ -476,10 +601,7 @@ export function isIdleHeartbeat(opts: PromptOptions): boolean {
  * Used when there are no events, no active runs, and no pending tasks.
  */
 export function buildIdlePrompt(opts: StandardPromptOptions): string {
-  return `<role>
-${ROLE}
-Heartbeat #${opts.heartbeatCount}
-</role>
+  return `${buildRoleSection(opts.heartbeatCount)}
 
 <context>
 No events. No active runs. No pending tasks.
@@ -495,62 +617,29 @@ Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any ot
 
 /**
  * Build the standard heartbeat prompt (4 out of 5 heartbeats).
- * Structure: <role> → <context> (data top) → <reference> → <instructions> (rules bottom)
+ *
+ * Structure (Anthropic best practices: data top, instructions bottom):
+ *   <role>         — Identity only
+ *   <context>      — Focus \u2192 work state \u2192 knowledge \u2192 environment \u2192 events (query last)
+ *   <reference>    — Command documentation
+ *   <instructions> — Principles \u2192 lifecycle \u2192 reporting \u2192 memory \u2192 directive
  */
 export function buildStandardPrompt(opts: StandardPromptOptions): string {
-  const sections: string[] = [];
+  const instructionParts = buildBaseInstructions(opts, { includeExamples: false });
+  const hasEvents = countEvents(opts.grouped) > 0;
 
-  // Role — identity + behavioral contract
-  sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount}\n</role>`);
-
-  // Context — data first (Anthropic best practice: data top, instructions bottom)
-  const contextParts: string[] = [];
-
-  const workQueue = buildWorkQueueSection(opts.memories);
-  if (workQueue) {
-    contextParts.push(workQueue);
-  }
-
-  if (opts.activeRuns.length > 0) {
-    contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
-  }
-
-  contextParts.push(...buildContextSections(opts));
-  contextParts.push(buildMemorySection(opts.memories));
-
-  const recentActions = buildRecentActionsSection(opts.recentActions);
-  if (recentActions) {
-    contextParts.push(recentActions);
-  }
-
-  contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
-
-  sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
-
-  // Reference — commands (compact after first few heartbeats)
-  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
-
-  // Instructions — rules last
-  const instructionParts: string[] = [];
-  instructionParts.push(HEARTBEAT_RULES);
-  instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES_CORE);
-
-  if (opts.customInstructions) {
-    instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
-  }
-
-  const { messages, webhooks, runCompletions } = opts.grouped;
-  const hasEvents = messages.length + webhooks.length + runCompletions.length > 0;
   instructionParts.push(
     hasEvents
-      ? "Process events, dispatch eligible work, yield. Each heartbeat costs ~$0.10 — be efficient."
+      ? "Process events, dispatch eligible work, yield. Each heartbeat costs ~$0.10 \u2014 be efficient."
       : "No events. If pending work exists, dispatch it. Otherwise yield immediately.",
   );
 
-  sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
-
-  return sections.join("\n\n");
+  return [
+    buildRoleSection(opts.heartbeatCount),
+    buildFullContext(opts),
+    buildReferenceSection(opts.heartbeatCount),
+    wrapInstructions(instructionParts),
+  ].join("\n\n");
 }
 
 // ─── Consolidation prompt ────────────────────────────────
@@ -559,47 +648,7 @@ export function buildStandardPrompt(opts: StandardPromptOptions): string {
  * Build the consolidation heartbeat prompt (1 out of 5 heartbeats).
  */
 export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): string {
-  const sections: string[] = [];
-
-  sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (CONSOLIDATION)\n</role>`);
-
-  // Context — data first
-  const contextParts: string[] = [];
-
-  const workQueueConsolidation = buildWorkQueueSection(opts.memories);
-  if (workQueueConsolidation) {
-    contextParts.push(workQueueConsolidation);
-  }
-
-  if (opts.activeRuns.length > 0) {
-    contextParts.push(`Active runs:\n${opts.activeRuns.map((r) => `- ${r}`).join("\n")}`);
-  }
-
-  contextParts.push(...buildContextSections(opts));
-  contextParts.push(buildMemorySection(opts.memories));
-
-  const recentActions = buildRecentActionsSection(opts.recentActions);
-  if (recentActions) {
-    contextParts.push(recentActions);
-  }
-
-  contextParts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
-
-  sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
-
-  // Reference
-  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
-
-  // Instructions
-  const instructionParts: string[] = [];
-  instructionParts.push(HEARTBEAT_RULES);
-  instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES_CORE);
-  instructionParts.push(MEMORY_RULES_EXAMPLES);
-
-  if (opts.customInstructions) {
-    instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
-  }
+  const instructionParts = buildBaseInstructions(opts, { includeExamples: true });
 
   instructionParts.push(
     `### Consolidation
@@ -609,16 +658,19 @@ This is a CONSOLIDATION heartbeat.
 
 If there IS active work, your job:
 
-1. **Review memory** — check facts and procedures for accuracy. Remove outdated entries. Resolve contradictions (keep newer). Remove facts about completed work (merged PRs, finished initiatives).
-2. **Update focus** — rewrite focus using the MANDATORY structured format (ACTIVE/PENDING/WAITING/PROCESSED). Remove resolved items. Add new context.
-3. **Pattern escalation** — if agents hit the same issue 3+ times (check recent actions), write a \`procedure\` to prevent recurrence.
-4. **Prune completed work** — if a PR is merged or an initiative is done, forget related facts that are no longer actionable. Keep only reusable architectural truths.
-5. **Prune done tasks** — forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.`,
+1. **Review memory** \u2014 check facts and procedures for accuracy. Remove outdated entries. Resolve contradictions (keep newer). Remove facts about completed work (merged PRs, finished initiatives).
+2. **Update focus** \u2014 rewrite focus using the MANDATORY structured format (ACTIVE/PENDING/WAITING/PROCESSED). Remove resolved items. Add new context.
+3. **Pattern escalation** \u2014 if agents hit the same issue 3+ times (check recent actions), write a \`procedure\` to prevent recurrence.
+4. **Prune completed work** \u2014 if a PR is merged or an initiative is done, forget related facts that are no longer actionable. Keep only reusable architectural truths.
+5. **Prune done tasks** \u2014 forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.`,
   );
 
-  sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
-
-  return sections.join("\n\n");
+  return [
+    buildRoleSection(opts.heartbeatCount, "CONSOLIDATION"),
+    buildFullContext(opts),
+    buildReferenceSection(opts.heartbeatCount),
+    wrapInstructions(instructionParts),
+  ].join("\n\n");
 }
 
 // ─── Compaction prompt ──────────────────────────────────
@@ -627,47 +679,20 @@ If there IS active work, your job:
  * Build the compaction heartbeat prompt (every ~50 heartbeats).
  */
 export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string {
-  const sections: string[] = [];
-
-  sections.push(`<role>\n${ROLE}\nHeartbeat #${opts.heartbeatCount} (COMPACTION)\n</role>`);
-
-  // Context — memory for cleanup review
-  const contextParts: string[] = [];
-  contextParts.push(...buildContextSections(opts));
-  contextParts.push(buildMemorySection(opts.memories));
-
-  const workQueueCompaction = buildWorkQueueSection(opts.memories);
-  if (workQueueCompaction) {
-    contextParts.push(workQueueCompaction);
-  }
-
-  sections.push(`<context>\n${contextParts.join("\n\n")}\n</context>`);
-
-  // Reference
-  sections.push(`<reference>\n${getCommandsSection(opts.heartbeatCount)}\n</reference>`);
-
-  // Instructions
-  const instructionParts: string[] = [];
-  instructionParts.push(HEARTBEAT_RULES);
-  instructionParts.push(REPORTING_RULES);
-  instructionParts.push(MEMORY_RULES_CORE);
-  instructionParts.push(MEMORY_RULES_EXAMPLES);
-
-  if (opts.customInstructions) {
-    instructionParts.push(`### Custom instructions\n${opts.customInstructions}`);
-  }
+  const notesDir = `${opts.supervisorDir}/notes`;
+  const instructionParts = buildBaseInstructions(opts, { includeExamples: true });
 
   instructionParts.push(`### Compaction
 This is a COMPACTION heartbeat. Deep-clean your ENTIRE memory.
 
-1. **Remove stale facts** — facts >7 days old with no recent reinforcement. Check the "(last accessed Xd ago)" hints in the facts section.
-2. **Remove completed-work facts** — if all PRs for a repo initiative are merged/closed, forget related facts. Keep only reusable architectural truths (build system, CI config, tooling).
-3. **Remove trivial facts** — file counts, line numbers, structural details that \`ls\` or \`cat package.json\` can answer. These waste context.
-4. **Merge duplicates** — combine similar facts within the same scope into one.
-5. **Clean up focus** — forget resolved items, rewrite remaining in structured format.
-6. **Prune done tasks** — forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.
-7. **Delete completed notes** from notes/ directory.
-8. **Stay under 15 facts per scope** — prioritize facts that affect dispatch decisions.
+1. **Remove stale facts** \u2014 facts >7 days old with no recent reinforcement. Check the "(last accessed Xd ago)" hints in the facts section.
+2. **Remove completed-work facts** \u2014 if all PRs for a repo initiative are merged/closed, forget related facts. Keep only reusable architectural truths (build system, CI config, tooling).
+3. **Remove trivial facts** \u2014 file counts, line numbers, structural details that \`ls\` or \`cat package.json\` can answer. These waste context.
+4. **Merge duplicates** \u2014 combine similar facts within the same scope into one.
+5. **Clean up focus** \u2014 forget resolved items, rewrite remaining in structured format.
+6. **Prune done tasks** \u2014 forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.
+7. **Delete completed notes** from \`${notesDir}/\` directory.
+8. **Stay under 15 facts per scope** \u2014 prioritize facts that affect dispatch decisions.
 
 Flag contradictions: if two facts contradict, keep the newer one.
 
@@ -676,7 +701,10 @@ neo memory list --type fact
 neo memory forget <stale-id>
 \`\`\``);
 
-  sections.push(`<instructions>\n${instructionParts.join("\n\n")}\n</instructions>`);
-
-  return sections.join("\n\n");
+  return [
+    buildRoleSection(opts.heartbeatCount, "COMPACTION"),
+    buildCompactionContext(opts),
+    buildReferenceSection(opts.heartbeatCount),
+    wrapInstructions(instructionParts),
+  ].join("\n\n");
 }
