@@ -158,6 +158,7 @@ export class SupervisorDaemon {
       sessionId: this.sessionId,
       eventQueue: this.eventQueue,
       activityLog: this.activityLog,
+      eventsPath,
       defaultInstructionsPath: this.defaultInstructionsPath,
     });
 

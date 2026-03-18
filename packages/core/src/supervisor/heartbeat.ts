@@ -15,7 +15,7 @@ import {
 } from "@/sdk-types";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
-import type { EventQueue } from "./event-queue.js";
+import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
@@ -106,6 +106,8 @@ export interface HeartbeatLoopOptions {
   sessionId: string;
   eventQueue: EventQueue;
   activityLog: ActivityLog;
+  /** Path to the inbox/events directory for markProcessed() calls */
+  eventsPath: string;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
   memoryDbPath?: string | undefined;
@@ -132,6 +134,7 @@ export class HeartbeatLoop {
   private sessionId: string;
   private readonly eventQueue: EventQueue;
   private readonly activityLog: ActivityLog;
+  private readonly _eventsPath: string;
 
   private customInstructions: string | undefined;
   private readonly defaultInstructionsPath: string | undefined;
@@ -145,8 +148,14 @@ export class HeartbeatLoop {
     this.sessionId = options.sessionId;
     this.eventQueue = options.eventQueue;
     this.activityLog = options.activityLog;
+    this._eventsPath = options.eventsPath;
     this.defaultInstructionsPath = options.defaultInstructionsPath;
     this.memoryDbPath = options.memoryDbPath;
+  }
+
+  /** Path to the inbox/events directory for markProcessed() calls */
+  get eventsPath(): string {
+    return this._eventsPath;
   }
 
   private getMemoryStore(): MemoryStore | null {
@@ -215,7 +224,7 @@ export class HeartbeatLoop {
     if (budgetCheck.exceeded) return;
 
     // Drain events and check for active work
-    const grouped = this.eventQueue.drainAndGroup();
+    const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
@@ -261,6 +270,12 @@ export class HeartbeatLoop {
 
     // Call SDK with timeout + shutdown abort
     const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+
+    // Mark events as processed so they are not replayed on restart
+    if (rawEvents.length > 0) {
+      const inboxPath = path.join(this.supervisorDir, "inbox.jsonl");
+      await this.eventQueue.markProcessed(inboxPath, this.eventsPath, rawEvents);
+    }
 
     // Post-response: mark entries consolidated and compact log buffer
     if (modeResult.isConsolidation) {
@@ -434,7 +449,7 @@ export class HeartbeatLoop {
    * Build the prompt for the current heartbeat mode.
    */
   private async buildHeartbeatModePrompt(opts: {
-    grouped: ReturnType<EventQueue["drainAndGroup"]>;
+    grouped: GroupedEvents;
     todayCost: number;
     heartbeatCount: number;
     unconsolidated: LogBufferEntry[];

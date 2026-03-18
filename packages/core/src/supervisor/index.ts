@@ -2,7 +2,7 @@
 export { ActivityLog } from "./activity-log.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
-export type { GroupedEvents, GroupedMessage } from "./event-queue.js";
+export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
 export type { HeartbeatLoopOptions } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
