@@ -18,6 +18,8 @@ export type {
 } from "@/config/index";
 export {
   budgetConfigSchema,
+  ConfigStore,
+  ConfigWatcher,
   concurrencyConfigSchema,
   gitStrategySchema,
   globalConfigSchema,

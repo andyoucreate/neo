@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
-import type { GlobalConfig } from "@/config";
+import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
 import { getDataDir, getRunsDir } from "@/paths";
 import {
   isAssistantMessage,
@@ -129,6 +129,10 @@ export interface HeartbeatLoopOptions {
   memoryDbPath?: string | undefined;
   /** Optional callback to emit webhook events at lifecycle points */
   onWebhookEvent?: WebhookEventEmitter | undefined;
+  /** Repository path for config watching (enables hot-reload) */
+  repoPath?: string | undefined;
+  /** Debounce time in ms for config file changes (default: 500) */
+  configWatcherDebounceMs?: number | undefined;
 }
 
 /**
@@ -160,6 +164,11 @@ export class HeartbeatLoop {
   private readonly memoryDbPath: string | undefined;
   private readonly onWebhookEvent: WebhookEventEmitter | undefined;
 
+  /** ConfigWatcher for hot-reload support */
+  private configWatcher: ConfigWatcher | null = null;
+  private readonly repoPath: string | undefined;
+  private readonly configWatcherDebounceMs: number | undefined;
+
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
     this.supervisorDir = options.supervisorDir;
@@ -171,6 +180,8 @@ export class HeartbeatLoop {
     this.defaultInstructionsPath = options.defaultInstructionsPath;
     this.memoryDbPath = options.memoryDbPath;
     this.onWebhookEvent = options.onWebhookEvent;
+    this.repoPath = options.repoPath;
+    this.configWatcherDebounceMs = options.configWatcherDebounceMs;
   }
 
   /** Path to the inbox/events directory for markProcessed() calls */
@@ -191,6 +202,10 @@ export class HeartbeatLoop {
 
   async start(): Promise<void> {
     this.customInstructions = await this.loadInstructions();
+
+    // Initialize and start config watcher for hot-reload
+    await this.initConfigWatcher();
+
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop started");
     await this.emitSupervisorStarted();
 
@@ -232,6 +247,52 @@ export class HeartbeatLoop {
   stop(): void {
     this.stopping = true;
     this.activeAbort?.abort(new Error("Supervisor shutting down"));
+    this.eventQueue.interrupt();
+
+    // Stop config watcher
+    if (this.configWatcher) {
+      this.configWatcher.stop();
+      this.configWatcher = null;
+    }
+  }
+
+  /**
+   * Initialize and start the ConfigWatcher for hot-reload support.
+   * Subscribes to config file changes and logs reload events.
+   */
+  private async initConfigWatcher(): Promise<void> {
+    // Create a ConfigStore for the watcher
+    const configStore = new ConfigStore(this.repoPath);
+    await configStore.load();
+
+    // Build options only with defined values to satisfy exactOptionalPropertyTypes
+    const watcherOptions =
+      this.configWatcherDebounceMs !== undefined
+        ? { debounceMs: this.configWatcherDebounceMs }
+        : undefined;
+
+    this.configWatcher = new ConfigWatcher(configStore, watcherOptions);
+
+    // Subscribe to config changes
+    this.configWatcher.on("change", () => {
+      this.handleConfigChange();
+    });
+
+    this.configWatcher.start();
+    await this.activityLog.log("event", "ConfigWatcher started for hot-reload");
+  }
+
+  /**
+   * Handle config file changes. Logs the reload and triggers a heartbeat.
+   */
+  private handleConfigChange(): void {
+    // Log the config change
+    this.activityLog.log("event", "Configuration reloaded (hot-reload)").catch(() => {
+      // Non-critical — logging errors should not crash the loop
+    });
+
+    // Interrupt the event queue wait to trigger an immediate heartbeat
+    // This ensures the supervisor reacts quickly to config changes
     this.eventQueue.interrupt();
   }
 
