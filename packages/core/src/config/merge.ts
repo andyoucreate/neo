@@ -71,24 +71,52 @@ function deepMerge<T extends Record<string, unknown>>(target: T, source: Partial
   return result;
 }
 
+// ─── Deep freeze utility ────────────────────────────────────
+
+/**
+ * Recursively freezes an object and all nested objects.
+ */
+function deepFreeze<T>(obj: T): Readonly<T> {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+
+  // Freeze arrays and their elements
+  if (Array.isArray(obj)) {
+    for (const item of obj) {
+      deepFreeze(item);
+    }
+    return Object.freeze(obj) as Readonly<T>;
+  }
+
+  // Freeze object properties recursively
+  for (const value of Object.values(obj)) {
+    deepFreeze(value);
+  }
+
+  return Object.freeze(obj) as Readonly<T>;
+}
+
 // ─── Config merging ────────────────────────────────────────
 
 /**
  * Merges multiple config layers with precedence: repo > global > defaults.
  *
+ * @param defaults - Base configuration defaults
  * @param globalConfig - Global config from ~/.neo/config.yml (optional)
  * @param repoConfig - Repo-level overrides from <repo>/.neo/config.yml (optional)
- * @returns Fully resolved NeoConfig
+ * @returns Fully resolved, frozen NeoConfig
  *
  * @example
- * const config = mergeConfigs(globalConfig, repoOverrides);
+ * const config = mergeConfigs(defaultConfig, globalConfig, repoOverrides);
  */
 export function mergeConfigs(
+  defaults: NeoConfig,
   globalConfig?: Partial<NeoConfig> | null,
   repoConfig?: RepoOverrideConfig | null,
-): NeoConfig {
+): Readonly<NeoConfig> {
   // Start with defaults
-  let result = { ...defaultConfig };
+  let result = { ...defaults };
 
   // Merge global config (second priority)
   if (globalConfig) {
@@ -100,5 +128,5 @@ export function mergeConfigs(
     result = deepMerge(result, repoConfig as Partial<NeoConfig>);
   }
 
-  return result;
+  return deepFreeze(result);
 }

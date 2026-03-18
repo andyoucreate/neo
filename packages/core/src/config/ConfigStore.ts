@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { getConfigValue } from "./dotNotation";
-import { mergeConfigs } from "./merge";
+import { defaultConfig, mergeConfigs } from "./merge";
 import type { NeoConfig, RepoOverrideConfig } from "./schema";
 import { neoConfigSchema, repoOverrideConfigSchema } from "./schema";
 
@@ -40,7 +40,7 @@ export class ConfigStore {
     const globalConfig = await this.loadGlobalConfig();
     const repoConfig = await this.loadRepoConfig();
 
-    this.config = mergeConfigs(globalConfig, repoConfig);
+    this.config = mergeConfigs(defaultConfig, globalConfig, repoConfig);
   }
 
   /**
