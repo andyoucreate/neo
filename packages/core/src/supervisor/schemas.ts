@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export type { Decision, DecisionOption } from "./decisions.js";
+// ─── Decision schemas (re-exported for centralized access) ────
+export {
+  decisionOptionSchema,
+  decisionSchema,
+} from "./decisions.js";
+
 // ─── Wake reason (why daemon woke from idle) ─────────────
 
 export const wakeReasonSchema = z.enum(["events", "timer", "active_runs", "forced"]);
