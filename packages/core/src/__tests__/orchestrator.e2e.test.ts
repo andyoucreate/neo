@@ -1,0 +1,407 @@
+import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { NeoConfig, NeoEvent, ResolvedAgent, WorkflowDefinition } from "@/index";
+import { Orchestrator } from "@/orchestrator";
+import { cleanupTestRepo, createTestFile, createTestRepo } from "./fixtures/e2e-setup.js";
+
+// ─── SDK Mock (dry-run mode) ─────────────────────────────
+
+interface MockMessage {
+  type: string;
+  subtype?: string;
+  session_id?: string;
+  result?: string;
+  total_cost_usd?: number;
+  duration_ms?: number;
+  num_turns?: number;
+}
+
+let mockMessages: MockMessage[] = [];
+
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: (_args: unknown) => {
+    const messages = mockMessages;
+    return {
+      async *[Symbol.asyncIterator]() {
+        for (const msg of messages) {
+          yield msg;
+        }
+      },
+    };
+  },
+}));
+
+// ─── Git/Clone Mocks ─────────────────────────────────────
+
+let mockSessionPath = "/tmp/mock-session";
+
+vi.mock("@/isolation/clone", () => ({
+  createSessionClone: () =>
+    Promise.resolve({
+      path: mockSessionPath,
+      branch: "feat/e2e-test",
+      repoPath: mockSessionPath,
+    }),
+  removeSessionClone: () => Promise.resolve(undefined),
+  listSessionClones: () => Promise.resolve([]),
+}));
+
+vi.mock("@/isolation/git", () => ({
+  pushSessionBranch: () => Promise.resolve(undefined),
+}));
+
+// ─── Test directories ────────────────────────────────────
+
+const TMP_BASE = path.join(import.meta.dirname, "__tmp_orchestrator_e2e__");
+const TEST_REPO_DIR = path.join(TMP_BASE, "test-repo");
+const GLOBAL_DATA_DIR = path.join(TMP_BASE, ".neo-global");
+const GLOBAL_RUNS_DIR = path.join(GLOBAL_DATA_DIR, "runs");
+const GLOBAL_JOURNALS_DIR = path.join(GLOBAL_DATA_DIR, "journals");
+const SESSIONS_DIR = path.join(TMP_BASE, "sessions");
+
+vi.mock("@/paths", async () => {
+  const p = await import("node:path");
+  const base = p.join(import.meta.dirname, "__tmp_orchestrator_e2e__");
+  const dataDir = p.join(base, ".neo-global");
+  return {
+    getDataDir: () => dataDir,
+    getJournalsDir: () => p.join(dataDir, "journals"),
+    getRunsDir: () => p.join(dataDir, "runs"),
+    toRepoSlug: (repo: { name?: string; path: string }) => {
+      const raw = repo.name ?? p.basename(repo.path);
+      return raw
+        .toLowerCase()
+        .replace(/[^a-z0-9._-]/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "");
+    },
+    getRepoRunsDir: (slug: string) => p.join(dataDir, "runs", slug),
+    getSupervisorsDir: () => p.join(dataDir, "supervisors"),
+  };
+});
+
+// ─── Helpers ─────────────────────────────────────────────
+
+function makeConfig(repoPath: string): NeoConfig {
+  return {
+    repos: [
+      {
+        path: repoPath,
+        defaultBranch: "main",
+        branchPrefix: "feat",
+        pushRemote: "origin",
+        gitStrategy: "branch",
+      },
+    ],
+    concurrency: { maxSessions: 5, maxPerRepo: 2, queueMax: 50 },
+    budget: { dailyCapUsd: 100, alertThresholdPct: 80 },
+    recovery: { maxRetries: 1, backoffBaseMs: 10 },
+    sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000, dir: SESSIONS_DIR },
+    webhooks: [],
+    idempotency: { enabled: false, key: "prompt", ttlMs: 60_000 },
+    supervisor: {
+      port: 7777,
+      heartbeatTimeoutMs: 300_000,
+      maxConsecutiveFailures: 3,
+      maxEventsPerSec: 10,
+      dailyCapUsd: 50,
+      consolidationIntervalMs: 300_000,
+      compactionIntervalMs: 3_600_000,
+      eventTimeoutMs: 300_000,
+    },
+    memory: { embeddings: true },
+  };
+}
+
+function makeAgent(): ResolvedAgent {
+  return {
+    name: "e2e-developer",
+    definition: {
+      description: "E2E test developer agent",
+      prompt: "You are a test agent for E2E testing.",
+      tools: ["Read", "Write", "Edit", "Bash"],
+      model: "sonnet",
+    },
+    sandbox: "writable",
+    source: "built-in",
+  };
+}
+
+function makeWorkflow(): WorkflowDefinition {
+  return {
+    name: "e2e-workflow",
+    description: "E2E test workflow",
+    steps: {
+      implement: {
+        agent: "e2e-developer",
+        prompt: "Implement the requested feature",
+      },
+    },
+  };
+}
+
+function successMessages(sessionId = "e2e-session-123"): MockMessage[] {
+  return [
+    { type: "system", subtype: "init", session_id: sessionId },
+    {
+      type: "result",
+      subtype: "success",
+      session_id: sessionId,
+      result: "E2E task completed successfully",
+      total_cost_usd: 0.02,
+      duration_ms: 500,
+      num_turns: 2,
+    },
+  ];
+}
+
+// ─── Setup / Teardown ────────────────────────────────────
+
+beforeEach(async () => {
+  mockMessages = successMessages();
+
+  // Create all required directories
+  await mkdir(TMP_BASE, { recursive: true });
+  await mkdir(GLOBAL_DATA_DIR, { recursive: true });
+  await mkdir(GLOBAL_RUNS_DIR, { recursive: true });
+  await mkdir(GLOBAL_JOURNALS_DIR, { recursive: true });
+  await mkdir(SESSIONS_DIR, { recursive: true });
+
+  // Create a real git repository for E2E testing
+  await createTestRepo(TEST_REPO_DIR);
+  await createTestFile(TEST_REPO_DIR, "README.md", "# E2E Test Repository\n");
+
+  // Point mock session path to the test repo
+  mockSessionPath = TEST_REPO_DIR;
+
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+});
+
+afterEach(async () => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+
+  // Clean up all test directories
+  await cleanupTestRepo(TEST_REPO_DIR);
+  await rm(TMP_BASE, { recursive: true, force: true });
+});
+
+// ─── E2E Tests: Orchestrator Happy Path ──────────────────
+
+describe("orchestrator E2E: happy path lifecycle", () => {
+  it("completes full lifecycle: init → running → complete", async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    // Track status transitions via events
+    const statusTransitions: string[] = [];
+    const events: NeoEvent[] = [];
+
+    orchestrator.on("session:start", (e) => {
+      statusTransitions.push("running");
+      events.push(e);
+    });
+
+    orchestrator.on("session:complete", (e) => {
+      statusTransitions.push("complete");
+      events.push(e);
+    });
+
+    // Start orchestrator
+    await orchestrator.start();
+    statusTransitions.push("init");
+
+    // Dispatch a task
+    const result = await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Create a hello world function",
+      branch: "feat/e2e-test",
+    });
+
+    // Verify status transitions occurred in correct order
+    expect(statusTransitions).toEqual(["init", "running", "complete"]);
+
+    // Verify task result
+    expect(result.status).toBe("success");
+    expect(result.workflow).toBe("e2e-workflow");
+    expect(result.repo).toBe(TEST_REPO_DIR);
+    expect(result.runId).toBeDefined();
+    expect(result.costUsd).toBe(0.02);
+    expect(result.durationMs).toBeGreaterThanOrEqual(0);
+
+    // Verify step result
+    const implementStep = result.steps.implement;
+    expect(implementStep).toBeDefined();
+    expect(implementStep?.status).toBe("success");
+    expect(implementStep?.agent).toBe("e2e-developer");
+    expect(implementStep?.costUsd).toBe(0.02);
+
+    // Verify events were emitted correctly
+    const startEvent = events.find((e) => e.type === "session:start");
+    const completeEvent = events.find((e) => e.type === "session:complete");
+
+    expect(startEvent).toBeDefined();
+    expect(completeEvent).toBeDefined();
+
+    if (startEvent?.type === "session:start") {
+      expect(startEvent.workflow).toBe("e2e-workflow");
+      expect(startEvent.agent).toBe("e2e-developer");
+      expect(startEvent.repo).toBe(TEST_REPO_DIR);
+    }
+
+    if (completeEvent?.type === "session:complete") {
+      expect(completeEvent.status).toBe("success");
+      expect(completeEvent.runId).toBe(result.runId);
+    }
+
+    // Cleanup
+    await orchestrator.shutdown();
+  });
+
+  it("properly cleans up session after completion", async () => {
+    const cloneMod = await import("@/isolation/clone");
+    const removeCloneSpy = vi.spyOn(cloneMod, "removeSessionClone");
+
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test cleanup",
+      branch: "feat/e2e-cleanup",
+    });
+
+    // Verify cleanup was called
+    expect(removeCloneSpy).toHaveBeenCalled();
+
+    // Verify no active sessions remain
+    expect(orchestrator.activeSessions).toHaveLength(0);
+
+    await orchestrator.shutdown();
+  });
+
+  it("tracks cost correctly through the lifecycle", async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    const costEvents: NeoEvent[] = [];
+    orchestrator.on("cost:update", (e) => costEvents.push(e));
+
+    await orchestrator.start();
+
+    // Initial cost should be 0
+    expect(orchestrator.status.costToday).toBe(0);
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test cost tracking",
+      branch: "feat/e2e-cost",
+    });
+
+    // Cost should be updated
+    expect(orchestrator.status.costToday).toBe(0.02);
+
+    // Verify cost event was emitted
+    expect(costEvents).toHaveLength(1);
+    const costEvent = costEvents[0];
+    if (costEvent?.type === "cost:update") {
+      expect(costEvent.sessionCost).toBe(0.02);
+      expect(costEvent.todayTotal).toBe(0.02);
+    }
+
+    await orchestrator.shutdown();
+  });
+
+  it("maintains correct orchestrator status throughout lifecycle", async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    // Before start
+    const initialStatus = orchestrator.status;
+    expect(initialStatus.paused).toBe(false);
+    expect(initialStatus.activeSessions).toHaveLength(0);
+    expect(initialStatus.queueDepth).toBe(0);
+    expect(initialStatus.costToday).toBe(0);
+    expect(initialStatus.uptime).toBe(0);
+
+    // After start
+    await orchestrator.start();
+    vi.advanceTimersByTime(100);
+
+    const runningStatus = orchestrator.status;
+    expect(runningStatus.paused).toBe(false);
+    expect(runningStatus.uptime).toBeGreaterThanOrEqual(100);
+
+    // After dispatch
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test status",
+      branch: "feat/e2e-status",
+    });
+
+    const afterDispatchStatus = orchestrator.status;
+    expect(afterDispatchStatus.activeSessions).toHaveLength(0);
+    expect(afterDispatchStatus.costToday).toBe(0.02);
+
+    // After shutdown
+    await orchestrator.shutdown();
+    expect(orchestrator.status.paused).toBe(true);
+  });
+
+  it("handles multiple sequential dispatches correctly", async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    // First dispatch
+    const result1 = await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "First task",
+      branch: "feat/e2e-first",
+    });
+
+    // Second dispatch
+    const result2 = await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Second task",
+      branch: "feat/e2e-second",
+    });
+
+    // Both should succeed
+    expect(result1.status).toBe("success");
+    expect(result2.status).toBe("success");
+
+    // Should have different runIds
+    expect(result1.runId).not.toBe(result2.runId);
+
+    // Cost should accumulate
+    expect(orchestrator.status.costToday).toBe(0.04);
+
+    await orchestrator.shutdown();
+  });
+});
