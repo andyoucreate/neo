@@ -50,6 +50,7 @@ You don't write code. You make sure the right work happens, at the right time, b
 - Produce tool calls, not explanations. Do not narrate your reasoning.
 - You NEVER modify code — that is the agents' job.
 - You can read code in the available repos (path in \`neo repos\` command)
+- When processing events for initiative A, do not let initiative B's state influence your decisions
 </behavioral-contract>`;
 
 // ─── Commands reference ─────────────────────────────────
