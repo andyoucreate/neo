@@ -150,7 +150,7 @@ export class HeartbeatLoop {
   private stopping = false;
   private consecutiveFailures = 0;
   private activeAbort: AbortController | null = null;
-  private readonly config: GlobalConfig;
+  private config: GlobalConfig;
   private readonly supervisorDir: string;
   private readonly statePath: string;
   private sessionId: string;
@@ -166,6 +166,7 @@ export class HeartbeatLoop {
 
   /** ConfigWatcher for hot-reload support */
   private configWatcher: ConfigWatcher | null = null;
+  private configStore: ConfigStore | null = null;
   private readonly repoPath: string | undefined;
   private readonly configWatcherDebounceMs: number | undefined;
 
@@ -262,8 +263,8 @@ export class HeartbeatLoop {
    */
   private async initConfigWatcher(): Promise<void> {
     // Create a ConfigStore for the watcher
-    const configStore = new ConfigStore(this.repoPath);
-    await configStore.load();
+    this.configStore = new ConfigStore(this.repoPath);
+    await this.configStore.load();
 
     // Build options only with defined values to satisfy exactOptionalPropertyTypes
     const watcherOptions =
@@ -271,7 +272,7 @@ export class HeartbeatLoop {
         ? { debounceMs: this.configWatcherDebounceMs }
         : undefined;
 
-    this.configWatcher = new ConfigWatcher(configStore, watcherOptions);
+    this.configWatcher = new ConfigWatcher(this.configStore, watcherOptions);
 
     // Subscribe to config changes
     this.configWatcher.on("change", () => {
@@ -283,9 +284,15 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Handle config file changes. Logs the reload and triggers a heartbeat.
+   * Handle config file changes. Propagates reloaded config to the running
+   * loop and triggers an immediate heartbeat.
    */
   private handleConfigChange(): void {
+    // Propagate reloaded config to the running loop
+    if (this.configStore) {
+      this.config = this.configStore.getAll();
+    }
+
     // Log the config change
     this.activityLog.log("event", "Configuration reloaded (hot-reload)").catch(() => {
       // Non-critical — logging errors should not crash the loop

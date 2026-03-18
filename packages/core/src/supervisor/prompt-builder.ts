@@ -89,6 +89,18 @@ neo memory search "keyword"
 neo memory list --type fact
 \`\`\`
 
+### Configuration
+\`\`\`bash
+neo config get <key>                    # read a value (dot notation)
+neo config set <key> <value> --global   # update global config (~/.neo/config.yml)
+neo config list                         # show full merged config
+\`\`\`
+
+Keys use dot notation (e.g., \`budget.dailyCapUsd\`, \`supervisor.dailyCapUsd\`, \`concurrency.maxSessions\`).
+Changes are hot-reloaded — the new values take effect at the next heartbeat.
+
+Use cases: raise budget cap mid-run, adjust concurrency, change heartbeat timeout.
+
 ### Reporting
 \`\`\`bash
 neo log <type> "<message>"   # visible in TUI only
@@ -97,7 +109,8 @@ neo log <type> "<message>"   # visible in TUI only
 const COMMANDS_COMPACT = `### Commands (reference)
 \`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
 \`neo runs [--short | <runId>]\` \u00b7 \`neo runs --short --status running\` \u00b7 \`neo cost --short\`
-\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\``;
+\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\`
+\`neo config get <key>\` \u00b7 \`neo config set <key> <value> --global\` \u00b7 \`neo config list\``;
 
 // ─── Instruction blocks ─────────────────────────────────
 
