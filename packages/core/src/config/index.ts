@@ -26,3 +26,11 @@ export {
 // ─── Re-export dot-notation utilities ────────────────────
 
 export { getConfigValue, setConfigValue } from "./dotNotation";
+
+// ─── Re-export merge utilities ───────────────────────────
+
+export { defaultConfig, mergeConfigs } from "./merge";
+
+// ─── Re-export ConfigStore ───────────────────────────────
+
+export { ConfigStore } from "./ConfigStore";
