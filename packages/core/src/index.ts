@@ -170,6 +170,3 @@ export {
   testWebhooks,
   webhookEntrySchema,
 } from "@/webhook-config";
-// ─── Workflows ─────────────────────────────────────────
-export { loadWorkflow, workflowGateDefSchema, workflowStepDefSchema } from "@/workflows/loader";
-export { WorkflowRegistry } from "@/workflows/registry";

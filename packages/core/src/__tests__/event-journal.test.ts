@@ -11,7 +11,6 @@ function makeEvent(overrides?: Partial<NeoEvent>): NeoEvent {
     type: "session:start",
     sessionId: "session-1",
     runId: "run-1",
-    workflow: "hotfix",
     step: "fix",
     agent: "developer",
     repo: "/tmp/repo",

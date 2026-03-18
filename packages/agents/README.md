@@ -1,8 +1,8 @@
 # @neotx/agents
 
-Built-in agent definitions and workflow templates for `@neotx/core`.
+Built-in agent definitions for `@neotx/core`.
 
-This package contains YAML configuration files and Markdown prompts that define the 9 built-in agents and 5 workflows used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
+This package contains YAML configuration files and Markdown prompts that define the 9 built-in agents used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
 
 ## Contents
 
@@ -18,14 +18,8 @@ packages/agents/
 │   ├── reviewer-quality.yml
 │   ├── reviewer-security.yml
 │   └── reviewer.yml
-├── prompts/          # Markdown system prompts
-│   └── *.md
-└── workflows/        # Workflow YAML definitions
-    ├── feature.yml
-    ├── hotfix.yml
-    ├── refine.yml
-    ├── review-fast.yml
-    └── review.yml
+└── prompts/          # Markdown system prompts
+    └── *.md
 ```
 
 ## Built-in Agents
@@ -51,82 +45,6 @@ packages/agents/
 
 - **opus**: Used for complex reasoning (architecture, security, implementation)
 - **sonnet**: Used for focused review tasks (quality, performance, coverage)
-
-## Built-in Workflows
-
-### feature
-
-Full development cycle: plan, implement, review, and fix.
-
-```yaml
-steps:
-  plan:
-    agent: architect
-    sandbox: readonly
-  implement:
-    agent: developer
-    dependsOn: [plan]
-  review:
-    agent: reviewer-quality
-    dependsOn: [implement]
-    sandbox: readonly
-  fix:
-    agent: fixer
-    dependsOn: [review]
-    condition: "output(review).hasIssues == true"
-```
-
-### review
-
-Parallel 4-lens code review. All reviewers run concurrently.
-
-```yaml
-steps:
-  quality:
-    agent: reviewer-quality
-    sandbox: readonly
-  security:
-    agent: reviewer-security
-    sandbox: readonly
-  perf:
-    agent: reviewer-perf
-    sandbox: readonly
-  coverage:
-    agent: reviewer-coverage
-    sandbox: readonly
-```
-
-### review-fast
-
-Single-pass lightweight review. One agent covers all 4 lenses — ideal for small PRs or budget-constrained runs.
-
-```yaml
-steps:
-  review:
-    agent: reviewer
-    sandbox: readonly
-```
-
-### hotfix
-
-Fast-track single-agent implementation. Skips planning for urgent fixes.
-
-```yaml
-steps:
-  implement:
-    agent: developer
-```
-
-### refine
-
-Ticket evaluation and decomposition for backlog grooming.
-
-```yaml
-steps:
-  evaluate:
-    agent: refiner
-    sandbox: readonly
-```
 
 ## Creating Custom Agents
 
@@ -210,7 +128,7 @@ promptAppend: |
 Each agent has a corresponding Markdown prompt in `prompts/`. The prompt defines:
 
 - The agent's role and responsibilities
-- Workflow and execution protocol
+- Execution protocol
 - Output format expectations
 - Hard rules and constraints
 - Escalation conditions
@@ -257,8 +175,6 @@ The `@neotx/core` orchestrator:
 2. Loads all YAML files from `.neo/agents/` as custom agents
 3. Resolves extensions and merges configurations
 4. Reads and injects prompts into agent sessions
-5. Loads workflows from `packages/agents/workflows/` and `.neo/workflows/`
-
 Custom agents in `.neo/agents/` override or extend the built-ins from this package.
 
 ## License

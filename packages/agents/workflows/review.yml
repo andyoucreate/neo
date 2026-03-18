@@ -1,6 +1,0 @@
-name: review
-description: "Single-pass code review covering quality, security, performance, and test coverage"
-steps:
-  review:
-    agent: reviewer
-    sandbox: readonly

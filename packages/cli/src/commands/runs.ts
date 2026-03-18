@@ -25,14 +25,12 @@ function repoName(run: PersistedRun): string {
 }
 
 function agentName(run: PersistedRun): string {
-  // First try the step's agent field (available after step starts)
+  // Use run.agent directly (new schema)
+  if (run.agent) return run.agent;
+
+  // Fall back to step's agent field for older runs
   const stepAgent = Object.values(run.steps)[0]?.agent;
-  if (stepAgent) return stepAgent;
-
-  // Fall back to extracting from workflow name (e.g. "_run_reviewer" → "reviewer")
-  if (run.workflow.startsWith("_run_")) return run.workflow.slice(5);
-
-  return run.workflow;
+  return stepAgent ?? "unknown";
 }
 
 function showRunDetail(match: PersistedRun, short: boolean): void {

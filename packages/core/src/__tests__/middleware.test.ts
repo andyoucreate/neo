@@ -15,7 +15,6 @@ function makeContext(overrides?: Partial<MiddlewareContext>): MiddlewareContext 
   const store = new Map<string, unknown>();
   return {
     runId: "run-1",
-    workflow: "test-wf",
     step: "step-1",
     agent: "test-agent",
     repo: "/tmp/repo",

@@ -667,7 +667,7 @@ export class HeartbeatLoop {
             const run = JSON.parse(raw) as PersistedRun;
             if (run.status === "running" || run.status === "paused") {
               active.push(
-                `${run.runId} [${run.status}] ${run.workflow} on ${path.basename(run.repo)}`,
+                `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
               );
             }
           } catch {

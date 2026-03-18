@@ -29,10 +29,7 @@ import type {
   ResolvedAgent,
   StepResult,
   TaskResult,
-  WorkflowDefinition,
-  WorkflowStepDef,
 } from "@/types";
-import { WorkflowRegistry } from "@/workflows/registry";
 
 // ─── Constants ─────────────────────────────────────────
 
@@ -46,8 +43,6 @@ const textEncoder = new TextEncoder();
 export interface OrchestratorOptions {
   middleware?: Middleware[] | undefined;
   journalDir?: string | undefined;
-  builtInWorkflowDir?: string | undefined;
-  customWorkflowDir?: string | undefined;
   /** Skip orphan recovery on start — workers should set this to true to avoid false orphan detection on concurrent launches. */
   skipOrphanRecovery?: boolean | undefined;
 }
@@ -59,8 +54,6 @@ interface DispatchContext {
   runId: string;
   sessionId: string;
   startedAt: number;
-  stepName: string;
-  stepDef: WorkflowStepDef;
   agent: ResolvedAgent;
   repoConfig: RepoConfig;
   activeSession: ActiveSession;
@@ -79,7 +72,6 @@ export class Orchestrator extends NeoEventEmitter {
   private readonly config: NeoConfig;
   private readonly semaphore: Semaphore;
   private readonly userMiddleware: Middleware[];
-  private readonly workflows = new Map<string, WorkflowDefinition>();
   private readonly registeredAgents = new Map<string, ResolvedAgent>();
   private readonly _activeSessions = new Map<string, ActiveSession>();
   private readonly idempotencyCache = new Map<string, IdempotencyEntry>();
@@ -87,8 +79,6 @@ export class Orchestrator extends NeoEventEmitter {
   private readonly repoIndex = new Map<string, RepoConfig>();
   private readonly runStore = new RunStore();
   private readonly journalDir: string;
-  private readonly builtInWorkflowDir: string | undefined;
-  private readonly customWorkflowDir: string | undefined;
   private costJournal: CostJournal | null = null;
   private eventJournal: EventJournal | null = null;
   private webhookDispatcher: WebhookDispatcher | null = null;
@@ -105,8 +95,6 @@ export class Orchestrator extends NeoEventEmitter {
     this.config = config;
     this.userMiddleware = options.middleware ?? [];
     this.journalDir = options.journalDir ?? getJournalsDir();
-    this.builtInWorkflowDir = options.builtInWorkflowDir;
-    this.customWorkflowDir = options.customWorkflowDir;
     this.skipOrphanRecovery = options.skipOrphanRecovery ?? false;
     for (const repo of config.repos) {
       const resolvedPath = path.resolve(repo.path);
@@ -143,10 +131,6 @@ export class Orchestrator extends NeoEventEmitter {
   }
 
   // ─── Registration ──────────────────────────────────────
-
-  registerWorkflow(definition: WorkflowDefinition): void {
-    this.workflows.set(definition.name, definition);
-  }
 
   registerAgent(agent: ResolvedAgent): void {
     this.registeredAgents.set(agent.name, agent);
@@ -248,15 +232,6 @@ export class Orchestrator extends NeoEventEmitter {
     // Restore today's cost from journal
     this._costToday = await this.costJournal.getDayTotal();
 
-    // Load workflows from registry if dirs are configured
-    if (this.builtInWorkflowDir) {
-      const registry = new WorkflowRegistry(this.builtInWorkflowDir, this.customWorkflowDir);
-      await registry.load();
-      for (const workflow of registry.list()) {
-        this.registerWorkflow(workflow);
-      }
-    }
-
     if (!this.skipOrphanRecovery) {
       await this.recoverOrphanedRuns();
     }
@@ -353,22 +328,19 @@ export class Orchestrator extends NeoEventEmitter {
   private buildDispatchContext(input: DispatchInput): DispatchContext {
     const runId = input.runId ?? randomUUID();
     const sessionId = randomUUID();
-    const workflow = this.workflows.get(input.workflow);
-    if (!workflow) {
-      const available = [...this.workflows.keys()].join(", ") || "none";
+    const agent = this.registeredAgents.get(input.agent);
+    if (!agent) {
+      const available = [...this.registeredAgents.keys()].join(", ") || "none";
       throw new Error(
-        `Workflow "${input.workflow}" not found. Available workflows: ${available}. Check the workflow name or register it first.`,
+        `Agent "${input.agent}" not found. Available agents: ${available}. Register the agent first.`,
       );
     }
-    const [stepName, stepDef] = this.getFirstStep(workflow, input);
-    const agent = this.resolveStepAgent(stepDef, workflow.name);
     const repoConfig = this.resolveRepo(input.repo);
 
     const activeSession: ActiveSession = {
       sessionId,
       runId,
-      workflow: input.workflow,
-      step: stepName,
+      step: "execute",
       agent: agent.name,
       repo: input.repo,
       status: "queued",
@@ -381,8 +353,6 @@ export class Orchestrator extends NeoEventEmitter {
       runId,
       sessionId,
       startedAt: Date.now(),
-      stepName,
-      stepDef,
       agent,
       repoConfig,
       activeSession,
@@ -397,7 +367,7 @@ export class Orchestrator extends NeoEventEmitter {
     await this.persistRun({
       version: 1,
       runId,
-      workflow: input.workflow,
+      agent: agent.name,
       repo: input.repo,
       prompt: input.prompt,
       pid: process.pid,
@@ -504,14 +474,13 @@ export class Orchestrator extends NeoEventEmitter {
     ctx: DispatchContext,
     sessionPath: string | undefined,
   ): Promise<StepResult> {
-    const { input, runId, sessionId, stepName, stepDef, agent, repoConfig, activeSession } = ctx;
+    const { input, runId, sessionId, agent, repoConfig, activeSession } = ctx;
 
     this.emit({
       type: "session:start",
       sessionId,
       runId,
-      workflow: input.workflow,
-      step: stepName,
+      step: "execute",
       agent: agent.name,
       repo: input.repo,
       metadata: input.metadata,
@@ -535,16 +504,14 @@ export class Orchestrator extends NeoEventEmitter {
 
     // Build execution input
     const strategy = input.gitStrategy ?? repoConfig.gitStrategy ?? "branch";
-    const mcpServers = this.resolveMcpServers(stepDef, agent);
+    const mcpServers = this.resolveMcpServers(agent);
     const memoryContext = this.loadMemoryContext(input.repo);
-    const recoveryOpts = stepDef.recovery;
 
     const result = await executor.execute(
       {
         runId,
         sessionId,
         agent,
-        stepDef,
         repoConfig,
         repoPath: input.repo,
         prompt: input.prompt,
@@ -566,7 +533,7 @@ export class Orchestrator extends NeoEventEmitter {
               runId,
               error: `Retrying with strategy: ${strategy}`,
               attempt: attempt - 1,
-              maxRetries: recoveryOpts?.maxRetries ?? this.config.recovery.maxRetries,
+              maxRetries: this.config.recovery.maxRetries,
               willRetry: true,
               metadata: input.metadata,
               timestamp: new Date().toISOString(),
@@ -600,14 +567,14 @@ export class Orchestrator extends NeoEventEmitter {
     stepResult: StepResult,
     idempotencyKey: string | null,
   ): Promise<TaskResult> {
-    const { input, runId, stepName, activeSession } = ctx;
+    const { input, runId, agent, activeSession } = ctx;
 
     const taskResult: TaskResult = {
       runId,
-      workflow: input.workflow,
+      agent: agent.name,
       repo: input.repo,
       status: stepResult.status === "success" ? "success" : "failure",
-      steps: { [stepName]: stepResult },
+      steps: { execute: stepResult },
       branch:
         stepResult.status === "success" && activeSession.sessionPath ? input.branch : undefined,
       costUsd: stepResult.costUsd,
@@ -626,7 +593,7 @@ export class Orchestrator extends NeoEventEmitter {
     await this.persistRun({
       version: 1,
       runId,
-      workflow: input.workflow,
+      agent: agent.name,
       repo: input.repo,
       prompt: input.prompt,
       pid: process.pid,
@@ -686,8 +653,7 @@ export class Orchestrator extends NeoEventEmitter {
       const costEntry: CostEntry = {
         timestamp: new Date().toISOString(),
         runId: ctx.runId,
-        workflow: ctx.input.workflow,
-        step: ctx.stepName,
+        step: "execute",
         sessionId,
         agent: ctx.agent.name,
         costUsd: sessionCost,
@@ -763,8 +729,8 @@ export class Orchestrator extends NeoEventEmitter {
       throw new Error(`Validation error: repo path does not exist: ${input.repo}`);
     }
 
-    if (!this.workflows.has(input.workflow)) {
-      throw new Error(`Validation error: workflow "${input.workflow}" not found in registry`);
+    if (!this.registeredAgents.has(input.agent)) {
+      throw new Error(`Validation error: agent "${input.agent}" not found in registry`);
     }
 
     if (input.metadata !== undefined) {
@@ -801,49 +767,9 @@ export class Orchestrator extends NeoEventEmitter {
 
     const key = idempotency.key ?? "metadata";
     if (key === "prompt") {
-      return `${input.workflow}:${input.repo}:${input.prompt}`;
+      return `${input.agent}:${input.repo}:${input.prompt}`;
     }
-    return `${input.workflow}:${input.repo}:${JSON.stringify(input.metadata ?? {})}`;
-  }
-
-  private getFirstStep(
-    workflow: WorkflowDefinition,
-    input: DispatchInput,
-  ): [string, WorkflowStepDef] {
-    if (input.step) {
-      const step = workflow.steps[input.step];
-      if (!step || step.type === "gate") {
-        throw new Error(
-          `Step "${input.step}" not found in workflow "${workflow.name}" or is a gate step. Check the step name in the workflow definition.`,
-        );
-      }
-      return [input.step, step as WorkflowStepDef];
-    }
-
-    for (const [name, step] of Object.entries(workflow.steps)) {
-      if (step.type === "gate") continue;
-      const stepDef = step as WorkflowStepDef;
-      if (!stepDef.dependsOn || stepDef.dependsOn.length === 0) {
-        return [name, stepDef];
-      }
-    }
-
-    const entries = Object.entries(workflow.steps);
-    const first = entries[0];
-    if (!first) {
-      throw new Error(`Workflow "${workflow.name}" has no steps`);
-    }
-    return [first[0], first[1] as WorkflowStepDef];
-  }
-
-  private resolveStepAgent(step: WorkflowStepDef, workflowName: string): ResolvedAgent {
-    const agent = this.registeredAgents.get(step.agent);
-    if (!agent) {
-      throw new Error(
-        `Agent "${step.agent}" required by workflow "${workflowName}" not found in registry. Register the agent or check the workflow definition.`,
-      );
-    }
-    return agent;
+    return `${input.agent}:${input.repo}:${JSON.stringify(input.metadata ?? {})}`;
   }
 
   private resolveRepo(repoPath: string): RepoConfig {
@@ -866,23 +792,13 @@ export class Orchestrator extends NeoEventEmitter {
 
   // ─── Private: MCP server resolution ────────────────────
 
-  private resolveMcpServers(
-    stepDef: WorkflowStepDef,
-    agent: ResolvedAgent,
-  ): Record<string, McpServerConfig> | undefined {
+  private resolveMcpServers(agent: ResolvedAgent): Record<string, McpServerConfig> | undefined {
     const configServers = this.config.mcpServers;
     if (!configServers) return undefined;
 
-    // Collect unique server names from step definition and agent definition
-    const names = new Set<string>();
-    if (stepDef.mcpServers) {
-      for (const name of stepDef.mcpServers) names.add(name);
-    }
-    if (agent.definition.mcpServers) {
-      for (const name of agent.definition.mcpServers) names.add(name);
-    }
-
-    if (names.size === 0) return undefined;
+    // Collect unique server names from agent definition
+    const names = agent.definition.mcpServers;
+    if (!names || names.length === 0) return undefined;
 
     const resolved: Record<string, McpServerConfig> = {};
     for (const name of names) {

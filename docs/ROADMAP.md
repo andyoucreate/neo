@@ -17,13 +17,9 @@ Phase 5   Runner & Recovery                 ░░░░░░░░
 Phase 6   Middleware                         ░░░░░░
 Phase 7   Events & Cost                     ░░░░░░
 Phase 8   Orchestrator                      ░░░░░░░░░░
-Phase 9a  Workflow: Graph & Loader          ░░░░░░
-Phase 9b  Workflow: Persistence & Context   ░░░░░░
-Phase 9c  Workflow: Executor                ░░░░░░░░░░
-Phase 9d  Workflow: Gates & Built-ins       ░░░░░░
-Phase 10  CLI                               ░░░░░░░░░░░░
-Phase 11  Metrics                           ░░░░
-Phase 12  Polish & Publish                  ░░░░░░
+Phase 9   CLI                               ░░░░░░░░░░░░
+Phase 10  Metrics                           ░░░░
+Phase 11  Polish & Publish                  ░░░░░░
 ```
 
 ### Dependency graph
@@ -44,23 +40,12 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
                               ▼
                          Phase 8
                               │
-                    ┌─────────┤
-                    ▼         ▼
-                  9a  +  9b (parallel)
-                    │         │
-                    └────┬────┘
-                         ▼
-                        9c
-                         │
-                         ▼
-                        9d
-                         │
-                ┌────────┼────────┐
-                ▼        ▼        ▼
-           Phase 10  Phase 11  Phase 12
+                ┌─────────────┼─────────────┐
+                ▼             ▼             ▼
+           Phase 9       Phase 10      Phase 11
 ```
 
-**Parallelizable:** Phases 2, 3, 4 are independent after Phase 1. Phases 6, 7 are independent of each other. Phases 9a and 9b are independent.
+**Parallelizable:** Phases 2, 3, 4 are independent after Phase 1. Phases 6, 7 are independent of each other.
 
 ---
 
@@ -193,82 +178,24 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
 | Public API export | `core/src/index.ts` |
 | Integration tests (mocked SDK, end-to-end dispatch) | `core/src/__tests__/orchestrator.test.ts` |
 
-**Checkpoint:** `neo.dispatch({ workflow: "hotfix", repo: ".", prompt: "..." })` runs a single-step workflow end-to-end.
+**Checkpoint:** `neo.dispatch({ agent: "developer", repo: ".", prompt: "..." })` runs a single-agent dispatch end-to-end.
 
 ---
 
-## Milestone 3 — Workflow Engine (Phase 9)
+## Milestone 3 — CLI & Ship (Phases 9–11)
 
-> **Goal:** DAG-based multi-step workflows with persistence, conditions, and gates.
+> **Goal:** Users can `npx neotx dispatch --agent developer --prompt "Add auth"`.
 
-### Phase 9a — Graph & Loader (pure logic, no I/O)
-
-| Task | Files |
-|------|-------|
-| Load workflow YAML, validate with Zod | `core/src/workflows/loader.ts` |
-| Adjacency list, topological sort, cycle detection | `core/src/workflows/graph.ts` |
-| Constraint enforcement (parallel writable, agent refs) | `core/src/workflows/validator.ts` |
-| Condition expression parser (`status()`, `output()`, etc.) | `core/src/workflows/condition.ts` |
-| Template resolution (`{{steps.plan.rawOutput}}`) | `core/src/workflows/template.ts` |
-| Tests: all pure, no mocks needed | `core/src/__tests__/workflows/graph.test.ts` |
-
-**Checkpoint:** `loadWorkflow("feature.yml")` + `buildGraph(def)` work. 100% unit-testable.
-
-### Phase 9b — Persistence & Context (parallel with 9a)
-
-| Task | Files |
-|------|-------|
-| Serialize/deserialize PersistedRun to JSON | `core/src/workflows/persistence.ts` |
-| WorkflowContext class (create, load, update) | `core/src/workflows/context.ts` |
-| Run targeting (`--step`, `--from`, `--retry`) | `core/src/workflows/context.ts` |
-| Branch naming from repo config | `core/src/workflows/branch.ts` |
-| Tests: round-trip, targeting logic, branch names | `core/src/__tests__/workflows/persistence.test.ts` |
-
-**Checkpoint:** `createRun()`, `loadRun(id)`, `saveRun(run)`, `computeTargets(run, flags)` all work.
-
-### Phase 9c — Executor (requires 9a + 9b)
-
-| Task | Files |
-|------|-------|
-| Main execution loop (ready set → condition → run → persist → repeat) | `core/src/workflows/executor.ts` |
-| Per-step recovery config merge | `core/src/workflows/executor.ts` |
-| Wire into `Orchestrator.dispatch()` | `core/src/orchestrator.ts` |
-| Tests (mocked SDK): linear, parallel, --step, --from, --retry | `core/src/__tests__/workflows/executor.test.ts` |
-
-**Checkpoint:** `neo.dispatch({ workflow: "feature" })` runs a full DAG (mocked agents).
-
-### Phase 9d — Gates & Built-in Workflows (requires 9c)
-
-| Task | Files |
-|------|-------|
-| Gate logic: emit event, await approve/reject/timeout | `core/src/workflows/gate.ts` |
-| Step-by-step mode: persist + exit at gate | `core/src/workflows/gate.ts` |
-| `neo gate approve/reject` updates persisted state | `core/src/workflows/gate.ts` |
-| `feature.yml` — architect → gate → dev → review → fix | `packages/agents/workflows/feature.yml` |
-| `review.yml` — 4 parallel reviewers | `packages/agents/workflows/review.yml` |
-| `hotfix.yml` — developer only | `packages/agents/workflows/hotfix.yml` |
-| `refine.yml` — refiner with outputSchema | `packages/agents/workflows/refine.yml` |
-| Tests: gate approve/reject/timeout, built-in validation | `core/src/__tests__/workflows/gate.test.ts` |
-
-**Checkpoint:** `neo run feature --step plan` works end-to-end. Gates block and resume correctly.
-
----
-
-## Milestone 4 — CLI & Ship (Phases 10–12)
-
-> **Goal:** Users can `npx neotx run feature --prompt "Add auth"`.
-
-### Phase 10 — CLI
+### Phase 9 — CLI
 
 | Task | Files |
 |------|-------|
 | Entry point, arg parsing (`parseArgs`) | `cli/src/index.ts` |
 | Output formatter (human + `--output json`) | `cli/src/output.ts` |
 | `neo init` — interactive wizard | `cli/src/commands/init.ts` |
-| `neo run` — dispatch with all flags | `cli/src/commands/run.ts` |
-| `neo gate approve/reject` | `cli/src/commands/gate.ts` |
+| `neo dispatch` — dispatch with all flags | `cli/src/commands/dispatch.ts` |
 | `neo runs` — list + inspect | `cli/src/commands/runs.ts` |
-| `neo agents` / `neo workflows` — list | `cli/src/commands/agents.ts`, `workflows.ts` |
+| `neo agents` — list agents | `cli/src/commands/agents.ts` |
 | `neo status` / `neo kill` | `cli/src/commands/status.ts`, `kill.ts` |
 | `neo logs` / `neo cost` | `cli/src/commands/logs.ts`, `cost.ts` |
 | `neo doctor` — prerequisite checks | `cli/src/commands/doctor.ts` |
@@ -277,19 +204,19 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
 
 **Checkpoint:** All CLI commands work. `neo doctor` passes. Skills installed.
 
-### Phase 11 — Metrics
+### Phase 10 — Metrics
 
 | Task | Files |
 |------|-------|
 | Aggregate from cost journal | `core/src/metrics/collector.ts` |
 | Success rate, avg cost, duration, retry rate | `core/src/metrics/collector.ts` |
-| `costByDay()`, `costByWorkflow()` | `core/src/metrics/collector.ts` |
+| `costByDay()`, `costByAgent()` | `core/src/metrics/collector.ts` |
 | Prometheus export format | `core/src/metrics/prometheus.ts` |
 | Wire into Orchestrator as `neo.metrics` | `core/src/orchestrator.ts` |
 
-**Checkpoint:** `neo.metrics.successRate("feature")` returns data. `neo cost --today` works.
+**Checkpoint:** `neo.metrics.successRate("developer")` returns data. `neo cost --today` works.
 
-### Phase 12 — Polish & Publish
+### Phase 11 — Polish & Publish
 
 | Task | Files |
 |------|-------|
@@ -299,7 +226,7 @@ Phase 3 ──→ Phase 4 ──→ Phase 5
 | `neo doctor` refinements | `cli/src/commands/doctor.ts` |
 | Publish to npm | `@neotx/core`, `neotx`, `@neotx/agents` |
 
-**Checkpoint:** `npx neotx init && npx neotx run feature --prompt "Add auth"` works from zero.
+**Checkpoint:** `npx neotx init && npx neotx dispatch --agent developer --prompt "Add auth"` works from zero.
 
 ---
 
@@ -309,11 +236,9 @@ These features were explicitly deferred to keep V1 focused:
 
 | Feature | Why deferred | Revisit when |
 |---------|-------------|--------------|
-| **Workflow composition** (workflows as steps) | Adds nesting complexity (prefixed steps, shared worktree) | Users request reusable workflow fragments |
-| **Fork** (`--fork` with new prompt) | Advanced use case, adds branching + persistence complexity | `--retry` proves insufficient for common recovery |
-| **TypeScript builder API** | YAML covers 95% of use cases, builder is a second format to maintain | Users need truly dynamic workflows (computed step counts, etc.) |
+| **DAG workflows** | Multi-step orchestration adds complexity | Single-agent dispatch proves insufficient |
 | **Streaming events** | Events work, streaming adds SSE/WebSocket complexity | Users build real-time dashboards |
-| **Plugin system** (custom step types, output formats) | Middleware + events cover most extension needs | Community requests specific extension points |
+| **Plugin system** (custom output formats) | Middleware + events cover most extension needs | Community requests specific extension points |
 
 ---
 
@@ -324,9 +249,8 @@ These features were explicitly deferred to keep V1 focused:
 | [00-vision.md](plans/00-vision.md) | Philosophy, what neo does and doesn't do |
 | [01-architecture.md](plans/01-architecture.md) | Package structure, `.neo/` directory, design constraints |
 | [02-core-api.md](plans/02-core-api.md) | Orchestrator API, events, dispatch, middleware, metrics |
-| [03-data-model.md](plans/03-data-model.md) | All TypeScript types (config, agents, workflows, events) |
-| [04-workflow-engine.md](plans/04-workflow-engine.md) | DAG concepts, execution modes, conditions, git strategy |
+| [03-data-model.md](plans/03-data-model.md) | All TypeScript types (config, agents, events) |
 | [05-middleware.md](plans/05-middleware.md) | Middleware interface, built-in middleware, custom examples |
 | [06-implementation-roadmap.md](plans/06-implementation-roadmap.md) | Detailed task lists per phase |
-| [07-decisions.md](plans/07-decisions.md) | 22 Architecture Decision Records |
+| [07-decisions.md](plans/07-decisions.md) | Architecture Decision Records |
 | [08-supervisor-skills.md](plans/08-supervisor-skills.md) | 7 Claude Code skills for the supervisor |

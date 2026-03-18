@@ -1,7 +1,7 @@
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NeoConfig, NeoEvent, ResolvedAgent, WorkflowDefinition } from "@/index";
+import type { NeoConfig, NeoEvent, ResolvedAgent } from "@/index";
 import { Orchestrator } from "@/orchestrator";
 import { cleanupTestRepo, createTestFile, createTestRepo } from "./fixtures/e2e-setup.js";
 
@@ -183,19 +183,6 @@ function makeAgent(): ResolvedAgent {
   };
 }
 
-function makeWorkflow(): WorkflowDefinition {
-  return {
-    name: "e2e-workflow",
-    description: "E2E test workflow",
-    steps: {
-      implement: {
-        agent: "e2e-developer",
-        prompt: "Implement the requested feature",
-      },
-    },
-  };
-}
-
 function successMessages(sessionId = "e2e-session-123"): MockMessage[] {
   return [
     { type: "system", subtype: "init", session_id: sessionId },
@@ -252,7 +239,6 @@ describe("orchestrator E2E: agent timeout handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const failEvents: NeoEvent[] = [];
@@ -261,7 +247,7 @@ describe("orchestrator E2E: agent timeout handling", () => {
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test timeout handling",
       branch: "feat/e2e-timeout",
@@ -290,23 +276,22 @@ describe("orchestrator E2E: agent timeout handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test timeout details",
       branch: "feat/e2e-timeout-details",
     });
 
     expect(result.status).toBe("failure");
-    const implementStep = result.steps.implement;
-    expect(implementStep).toBeDefined();
-    expect(implementStep?.status).toBe("failure");
-    expect(implementStep?.error).toContain("timeout");
+    const executeStep = result.steps.execute;
+    expect(executeStep).toBeDefined();
+    expect(executeStep?.status).toBe("failure");
+    expect(executeStep?.error).toContain("timeout");
 
     await orchestrator.shutdown();
   });
@@ -319,7 +304,6 @@ describe("orchestrator E2E: agent failure propagation", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const failEvents: NeoEvent[] = [];
@@ -328,7 +312,7 @@ describe("orchestrator E2E: agent failure propagation", () => {
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test agent crash",
       branch: "feat/e2e-crash",
@@ -336,10 +320,10 @@ describe("orchestrator E2E: agent failure propagation", () => {
 
     // Task should fail with error propagated
     expect(result.status).toBe("failure");
-    const implementStep = result.steps.implement;
-    expect(implementStep).toBeDefined();
-    expect(implementStep?.status).toBe("failure");
-    expect(implementStep?.error).toContain("Agent crashed unexpectedly");
+    const executeStep = result.steps.execute;
+    expect(executeStep).toBeDefined();
+    expect(executeStep?.status).toBe("failure");
+    expect(executeStep?.error).toContain("Agent crashed unexpectedly");
 
     // Verify session:fail event was emitted
     expect(failEvents).toHaveLength(1);
@@ -357,21 +341,20 @@ describe("orchestrator E2E: agent failure propagation", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test max turns exceeded",
       branch: "feat/e2e-max-turns",
     });
 
     expect(result.status).toBe("failure");
-    const implementStep = result.steps.implement;
-    expect(implementStep?.error).toContain("error_max_turns");
+    const executeStep = result.steps.execute;
+    expect(executeStep?.error).toContain("error_max_turns");
 
     await orchestrator.shutdown();
   });
@@ -385,13 +368,12 @@ describe("orchestrator E2E: agent failure propagation", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test cleanup after failure",
       branch: "feat/e2e-cleanup-fail",
@@ -414,7 +396,6 @@ describe("orchestrator E2E: budget exhaustion mid-run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const failEvents: NeoEvent[] = [];
@@ -423,15 +404,15 @@ describe("orchestrator E2E: budget exhaustion mid-run", () => {
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test budget exceeded",
       branch: "feat/e2e-budget",
     });
 
     expect(result.status).toBe("failure");
-    const implementStep = result.steps.implement;
-    expect(implementStep?.error).toContain("budget_exceeded");
+    const executeStep = result.steps.execute;
+    expect(executeStep?.error).toContain("budget_exceeded");
 
     // Should emit session:fail event
     expect(failEvents).toHaveLength(1);
@@ -446,14 +427,13 @@ describe("orchestrator E2E: budget exhaustion mid-run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     // First successful run
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "First task",
       branch: "feat/e2e-first",
@@ -466,7 +446,7 @@ describe("orchestrator E2E: budget exhaustion mid-run", () => {
     mockBehavior = { mode: "budget_exceeded" };
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Budget exceeded task",
       branch: "feat/e2e-budget-fail",
@@ -489,14 +469,13 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     // Start a dispatch in background
     const dispatchPromise = orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test graceful shutdown",
       branch: "feat/e2e-shutdown",
@@ -517,7 +496,6 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const shutdownEvents: NeoEvent[] = [];
@@ -536,7 +514,6 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
@@ -547,7 +524,7 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
     // New dispatch should be rejected
     await expect(
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Should be rejected",
         branch: "feat/e2e-rejected",
@@ -565,14 +542,13 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     // Run a successful dispatch first to verify baseline
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test baseline",
       branch: "feat/e2e-baseline",
@@ -602,7 +578,6 @@ describe("orchestrator E2E: error recovery behavior", () => {
       }),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const failEvents: NeoEvent[] = [];
@@ -611,7 +586,7 @@ describe("orchestrator E2E: error recovery behavior", () => {
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test no retry on max_turns",
       branch: "feat/e2e-no-retry",
