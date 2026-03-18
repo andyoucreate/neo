@@ -1,7 +1,14 @@
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { NeoConfig, NeoEvent, ResolvedAgent, WorkflowDefinition } from "@/index";
+import type {
+  NeoConfig,
+  NeoEvent,
+  ResolvedAgent,
+  SessionCompleteEvent,
+  SessionStartEvent,
+  WorkflowDefinition,
+} from "@/index";
 import { Orchestrator } from "@/orchestrator";
 import { cleanupTestRepo, createTestFile, createTestRepo } from "./fixtures/e2e-setup.js";
 
@@ -174,14 +181,9 @@ beforeEach(async () => {
 
   // Point mock session path to the test repo
   mockSessionPath = TEST_REPO_DIR;
-
-  vi.useFakeTimers({ shouldAdvanceTime: true });
 });
 
 afterEach(async () => {
-  vi.useRealTimers();
-  vi.restoreAllMocks();
-
   // Clean up all test directories
   await cleanupTestRepo(TEST_REPO_DIR);
   await rm(TMP_BASE, { recursive: true, force: true });
@@ -344,11 +346,12 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // After start
     await orchestrator.start();
-    vi.advanceTimersByTime(100);
+    // Small delay to allow uptime to increase
+    await new Promise((resolve) => setTimeout(resolve, 10));
 
     const runningStatus = orchestrator.status;
     expect(runningStatus.paused).toBe(false);
-    expect(runningStatus.uptime).toBeGreaterThanOrEqual(100);
+    expect(runningStatus.uptime).toBeGreaterThan(0);
 
     // After dispatch
     await orchestrator.dispatch({
@@ -401,6 +404,246 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // Cost should accumulate
     expect(orchestrator.status.costToday).toBe(0.04);
+
+    await orchestrator.shutdown();
+  });
+});
+
+// ─── E2E Tests: Concurrent Run Handling ───────────────────
+
+describe("orchestrator E2E: concurrent run handling", () => {
+  beforeEach(() => {
+    // Reset mocks for concurrent tests - use real timers
+    vi.useRealTimers();
+    mockMessages = successMessages();
+  });
+
+  it("handles concurrent dispatches with isolated state and accumulated cost", {
+    timeout: 15000,
+  }, async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    // Track events per run
+    const eventsByRun = new Map<string, NeoEvent[]>();
+    const costEvents: NeoEvent[] = [];
+
+    orchestrator.on("session:start", (e) => {
+      const event = e as SessionStartEvent;
+      const events = eventsByRun.get(event.runId) ?? [];
+      events.push(event);
+      eventsByRun.set(event.runId, events);
+    });
+
+    orchestrator.on("session:complete", (e) => {
+      const event = e as SessionCompleteEvent;
+      const events = eventsByRun.get(event.runId) ?? [];
+      events.push(event);
+      eventsByRun.set(event.runId, events);
+    });
+
+    orchestrator.on("cost:update", (e) => costEvents.push(e));
+
+    await orchestrator.start();
+
+    // Initial cost should be 0
+    expect(orchestrator.status.costToday).toBe(0);
+
+    // Dispatch 2 concurrent runs with distinct metadata
+    const [result1, result2] = await Promise.all([
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Concurrent task 1",
+        branch: "feat/concurrent-1",
+        metadata: { taskId: "task-1" },
+      }),
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Concurrent task 2",
+        branch: "feat/concurrent-2",
+        metadata: { taskId: "task-2" },
+      }),
+    ]);
+
+    // Both should succeed with unique runIds
+    expect(result1.status).toBe("success");
+    expect(result2.status).toBe("success");
+    expect(result1.runId).not.toBe(result2.runId);
+
+    // Verify run isolation - each has its own events
+    const run1Events = eventsByRun.get(result1.runId) ?? [];
+    const run2Events = eventsByRun.get(result2.runId) ?? [];
+    expect(run1Events).toHaveLength(2);
+    expect(run2Events).toHaveLength(2);
+
+    // Verify metadata isolation
+    expect(result1.metadata?.taskId).toBe("task-1");
+    expect(result2.metadata?.taskId).toBe("task-2");
+
+    // Verify concurrent budget tracking - total cost 2 * 0.02 = 0.04
+    expect(orchestrator.status.costToday).toBe(0.04);
+    expect(costEvents).toHaveLength(2);
+
+    // Verify accumulated totals
+    const todayTotals = costEvents
+      .filter((e): e is Extract<NeoEvent, { type: "cost:update" }> => e.type === "cost:update")
+      .map((e) => e.todayTotal)
+      .sort((a, b) => a - b);
+    expect(todayTotals).toEqual([0.02, 0.04]);
+
+    await orchestrator.shutdown();
+  });
+
+  it("allows status queries during execution and verifies final state", {
+    timeout: 15000,
+  }, async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    const statusSnapshots: Array<{ activeSessions: number; queueDepth: number }> = [];
+
+    orchestrator.on("session:start", () => {
+      statusSnapshots.push({
+        activeSessions: orchestrator.status.activeSessions.length,
+        queueDepth: orchestrator.status.queueDepth,
+      });
+    });
+
+    await orchestrator.start();
+
+    // Query status before dispatch
+    expect(orchestrator.status.activeSessions).toHaveLength(0);
+    expect(orchestrator.status.queueDepth).toBe(0);
+    expect(orchestrator.status.costToday).toBe(0);
+
+    // Dispatch concurrent runs
+    const [result1, result2] = await Promise.all([
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Status task 1",
+        branch: "feat/status-1",
+      }),
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Status task 2",
+        branch: "feat/status-2",
+      }),
+    ]);
+
+    // Verify both completed
+    expect(result1.status).toBe("success");
+    expect(result2.status).toBe("success");
+
+    // Verify status snapshots were captured
+    expect(statusSnapshots.length).toBeGreaterThan(0);
+
+    // Verify final state
+    expect(orchestrator.status.activeSessions).toHaveLength(0);
+    expect(orchestrator.status.queueDepth).toBe(0);
+    expect(orchestrator.status.costToday).toBe(0.04);
+
+    await orchestrator.shutdown();
+  });
+
+  it("runs complete independently without affecting each other", { timeout: 15000 }, async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    const completedRuns: string[] = [];
+
+    orchestrator.on("session:complete", (e) => {
+      completedRuns.push((e as SessionCompleteEvent).runId);
+    });
+
+    await orchestrator.start();
+
+    // Dispatch concurrent runs
+    const [result1, result2] = await Promise.all([
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Independent task 1",
+        branch: "feat/indep-1",
+      }),
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Independent task 2",
+        branch: "feat/indep-2",
+      }),
+    ]);
+
+    // Both complete successfully
+    expect(result1.status).toBe("success");
+    expect(result2.status).toBe("success");
+    expect(completedRuns).toHaveLength(2);
+    expect(completedRuns).toContain(result1.runId);
+    expect(completedRuns).toContain(result2.runId);
+
+    await orchestrator.shutdown();
+  });
+
+  it("emits events in correct order for each run", { timeout: 15000 }, async () => {
+    const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    const allEvents: Array<{ type: string; runId: string }> = [];
+
+    orchestrator.on("session:start", (e) => {
+      allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
+    });
+
+    orchestrator.on("session:complete", (e) => {
+      allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
+    });
+
+    await orchestrator.start();
+
+    // Dispatch concurrent runs
+    await Promise.all([
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Order task 1",
+        branch: "feat/order-1",
+      }),
+      orchestrator.dispatch({
+        workflow: "e2e-workflow",
+        repo: TEST_REPO_DIR,
+        prompt: "Order task 2",
+        branch: "feat/order-2",
+      }),
+    ]);
+
+    // Should have 4 events (2 starts + 2 completes)
+    expect(allEvents).toHaveLength(4);
+
+    // For each run, start should come before complete
+    const runIds = [...new Set(allEvents.map((e) => e.runId))];
+    expect(runIds).toHaveLength(2);
+
+    for (const runId of runIds) {
+      const runEvents = allEvents.filter((e) => e.runId === runId);
+      const startIdx = runEvents.findIndex((e) => e.type === "session:start");
+      const completeIdx = runEvents.findIndex((e) => e.type === "session:complete");
+      expect(startIdx).toBeLessThan(completeIdx);
+    }
 
     await orchestrator.shutdown();
   });

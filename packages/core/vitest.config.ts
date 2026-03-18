@@ -10,6 +10,9 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     passWithNoTests: true,
+    // E2E tests share mocks for @anthropic-ai/claude-agent-sdk
+    // Run files sequentially to avoid mock conflicts
+    fileParallelism: false,
     coverage: {
       provider: "v8",
       reporter: ["text", "lcov", "html"],
