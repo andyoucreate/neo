@@ -4,7 +4,7 @@ export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
-export type { HeartbeatLoopOptions } from "./heartbeat.js";
+export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
 // ─── Log buffer ─────────────────────────────────────────
 export {
@@ -49,23 +49,31 @@ export {
   buildWorkQueueSection,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
+export { StatusReader } from "./StatusReader.js";
+// ─── Status ─────────────────────────────────────────────
 export type {
   ActivityEntry,
+  ActivityQueryOptions,
+  ActivityTypeFilter,
   InboxMessage,
   InternalEventKind,
   LogBufferEntry,
   QueuedEvent,
   SupervisorDaemonState,
+  SupervisorStatus,
   WakeReason,
   WebhookIncomingEvent,
 } from "./schemas.js";
 // ─── Schemas ────────────────────────────────────────────
 export {
   activityEntrySchema,
+  activityQueryOptionsSchema,
+  activityTypeFilterSchema,
   inboxMessageSchema,
   internalEventKindSchema,
   logBufferEntrySchema,
   supervisorDaemonStateSchema,
+  supervisorStatusSchema,
   wakeReasonSchema,
   webhookIncomingEventSchema,
 } from "./schemas.js";
@@ -79,3 +87,20 @@ export {
 } from "./shutdown.js";
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
+// ─── Webhook events ──────────────────────────────────────
+export type {
+  HeartbeatEvent,
+  RunCompletedEvent,
+  RunDispatchedEvent,
+  SupervisorStartedEvent,
+  SupervisorStoppedEvent,
+  SupervisorWebhookEvent,
+} from "./webhookEvents.js";
+export {
+  heartbeatEventSchema,
+  runCompletedEventSchema,
+  runDispatchedEventSchema,
+  supervisorStartedEventSchema,
+  supervisorStoppedEventSchema,
+  supervisorWebhookEventSchema,
+} from "./webhookEvents.js";
