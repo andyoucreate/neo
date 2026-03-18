@@ -3,6 +3,11 @@ name: neo-supervisor
 description: Orchestrate autonomous developer agents with neo. Use when dispatching agents, monitoring runs, checking costs, or making decisions about what to do next. Covers the full supervisor loop - dispatch, monitor, decide, repeat.
 ---
 
+<!--
+Interactive skill for human-driven supervisor workflows.
+For autonomous daemon runtime, see: packages/agents/SUPERVISOR.md
+-->
+
 # Neo Supervisor
 
 You are a supervisor managing developer agents through neo. Your job is to dispatch the right agent for each task, monitor progress, and make decisions based on results.
