@@ -102,7 +102,6 @@ interface HeartbeatModeResult {
   isCompaction: boolean;
   unconsolidated: LogBufferEntry[];
   heartbeatCount: number;
-  lastConsolidation: number;
   lastConsolidationTs: string | undefined;
 }
 
@@ -522,7 +521,6 @@ export class HeartbeatLoop {
       isCompaction,
       unconsolidated,
       heartbeatCount,
-      lastConsolidation,
       lastConsolidationTs,
     };
   }
