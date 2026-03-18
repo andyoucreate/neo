@@ -410,24 +410,15 @@ for (const agent of registry.list()) {
   orchestrator.registerAgent(agent);
 }
 
-// Register a workflow
-orchestrator.registerWorkflow({
-  name: "implement",
-  steps: {
-    code: { agent: "developer" },
-    review: { agent: "reviewer", dependsOn: ["code"], sandbox: "readonly" },
-  },
-});
-
 // Listen to events
 orchestrator.on("session:complete", (event) => {
   console.log(`Done: $${event.costUsd.toFixed(4)}`);
 });
 
-// Dispatch
+// Dispatch a single agent
 await orchestrator.start();
 const result = await orchestrator.dispatch({
-  workflow: "implement",
+  agent: "developer",
   repo: "/path/to/repo",
   prompt: "Add rate limiting to the API",
   priority: "high",
@@ -493,7 +484,7 @@ import { Orchestrator, loadGlobalConfig, AgentRegistry } from "@neotx/core";
 // The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
 // updates ticket status, and posts results to Slack
 const result = await orchestrator.dispatch({
-  workflow: "_run_developer",
+  agent: "developer",
   repo: "/path/to/repo",
   prompt: ticketDescription,
   metadata: { ticket: "PROJ-42", assignee: "openclaw-supervisor" },

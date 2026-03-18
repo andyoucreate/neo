@@ -107,11 +107,9 @@ Read these documents before starting:
 Implement ALL types from `03-data-model.md`:
 - `NeoConfig`, `RepoConfig`, `McpServerConfig`
 - `AgentConfig`, `AgentModel`, `AgentToolEntry`, `AgentTool`, `ResolvedAgent`
-- `WorkflowDefinition`, `WorkflowStepDef`, `WorkflowGateDef`
 - `PersistedRun`, `StepResult`
 - `DispatchInput`, `Priority`, `TaskResult`
 - `ActiveSession`, `OrchestratorStatus`
-- `WorkflowContext`
 - All event types (`SessionStartEvent`, `SessionCompleteEvent`, etc.)
 - `NeoEvent` union type
 - `Middleware`, `MiddlewareHandler`, `MiddlewareEvent`, `MiddlewareContext`, `MiddlewareResult`
