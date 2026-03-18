@@ -27,6 +27,19 @@ import {
   isIdleHeartbeat,
 } from "./prompt-builder.js";
 import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
+import {
+  type HeartbeatEvent,
+  heartbeatEventSchema,
+  type RunCompletedEvent,
+  type RunDispatchedEvent,
+  runCompletedEventSchema,
+  runDispatchedEventSchema,
+  type SupervisorStartedEvent,
+  type SupervisorStoppedEvent,
+  type SupervisorWebhookEvent,
+  supervisorStartedEventSchema,
+  supervisorStoppedEventSchema,
+} from "./webhookEvents.js";
 
 // ─── Default values for deprecated config fields ─────────
 // These maintain backward compatibility while allowing config removal.
@@ -99,6 +112,9 @@ interface StateUpdateResult {
 
 // ─── HeartbeatLoop ───────────────────────────────────────
 
+/** Callback for emitting webhook events */
+export type WebhookEventEmitter = (event: SupervisorWebhookEvent) => void | Promise<void>;
+
 export interface HeartbeatLoopOptions {
   config: GlobalConfig;
   supervisorDir: string;
@@ -111,6 +127,8 @@ export interface HeartbeatLoopOptions {
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
   memoryDbPath?: string | undefined;
+  /** Optional callback to emit webhook events at lifecycle points */
+  onWebhookEvent?: WebhookEventEmitter | undefined;
 }
 
 /**
@@ -140,6 +158,7 @@ export class HeartbeatLoop {
   private readonly defaultInstructionsPath: string | undefined;
   private memoryStore: MemoryStore | null = null;
   private readonly memoryDbPath: string | undefined;
+  private readonly onWebhookEvent: WebhookEventEmitter | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -151,6 +170,7 @@ export class HeartbeatLoop {
     this._eventsPath = options.eventsPath;
     this.defaultInstructionsPath = options.defaultInstructionsPath;
     this.memoryDbPath = options.memoryDbPath;
+    this.onWebhookEvent = options.onWebhookEvent;
   }
 
   /** Path to the inbox/events directory for markProcessed() calls */
@@ -172,6 +192,7 @@ export class HeartbeatLoop {
   async start(): Promise<void> {
     this.customInstructions = await this.loadInstructions();
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop started");
+    await this.emitSupervisorStarted();
 
     while (!this.stopping) {
       try {
@@ -204,6 +225,7 @@ export class HeartbeatLoop {
       await this.eventQueue.waitForEvent(this.config.supervisor.eventTimeoutMs);
     }
 
+    await this.emitSupervisorStopped("shutdown");
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop stopped");
   }
 
@@ -310,6 +332,26 @@ export class HeartbeatLoop {
         isConsolidation: modeResult.isConsolidation,
       },
     );
+
+    // Emit heartbeat completed webhook event
+    await this.emitHeartbeatCompleted({
+      heartbeatNumber: modeResult.heartbeatCount + 1,
+      runsActive: activeRuns.length,
+      todayUsd: budgetCheck.todayCost + costUsd,
+      limitUsd: this.config.supervisor.dailyCapUsd,
+    });
+
+    // Emit run completed events for any run completions processed
+    for (const event of rawEvents) {
+      if (event.kind === "run_complete") {
+        await this.emitRunCompleted({
+          runId: event.runId,
+          status: "completed", // Default; actual status would come from run data
+          costUsd: 0, // Would need to read from persisted run
+          durationMs: 0, // Would need to calculate from persisted run
+        });
+      }
+    }
   }
 
   /**
@@ -713,15 +755,157 @@ export class HeartbeatLoop {
     if (!isToolResultMessage(msg)) return;
     const result = msg.result ?? "";
     const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
-    if (runMatch) {
-      await this.activityLog.log("dispatch", `Agent dispatched: ${runMatch[1]}`, {
+    const runId = runMatch?.[1];
+    if (runId) {
+      await this.activityLog.log("dispatch", `Agent dispatched: ${runId}`, {
         heartbeatId,
-        runId: runMatch[1],
+        runId,
+      });
+
+      // Emit run dispatched webhook event
+      // Extract additional info from the result if available
+      const agentMatch = /agent[:\s]+(\S+)/i.exec(result);
+      const repoMatch = /repo[:\s]+(\S+)/i.exec(result);
+      const branchMatch = /branch[:\s]+(\S+)/i.exec(result);
+
+      const agent = agentMatch?.[1] ?? "unknown";
+      const repo = repoMatch?.[1] ?? "unknown";
+      const branch = branchMatch?.[1] ?? "unknown";
+
+      await this.emitRunDispatched({
+        runId,
+        agent,
+        repo,
+        branch,
+        prompt: result.slice(0, 500),
       });
     }
   }
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // ─── Webhook event emission ───────────────────────────────
+
+  /**
+   * Emit a webhook event if a callback is configured.
+   * Validates the event against its schema before emission.
+   */
+  private async emitWebhookEvent(event: SupervisorWebhookEvent): Promise<void> {
+    if (!this.onWebhookEvent) return;
+
+    try {
+      // Validate event against schema before emission
+      switch (event.type) {
+        case "supervisor_started":
+          supervisorStartedEventSchema.parse(event);
+          break;
+        case "heartbeat":
+          heartbeatEventSchema.parse(event);
+          break;
+        case "run_dispatched":
+          runDispatchedEventSchema.parse(event);
+          break;
+        case "run_completed":
+          runCompletedEventSchema.parse(event);
+          break;
+        case "supervisor_stopped":
+          supervisorStoppedEventSchema.parse(event);
+          break;
+      }
+
+      await this.onWebhookEvent(event);
+    } catch (error) {
+      // Log validation/emission errors but don't fail the heartbeat
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.activityLog.log("error", `Webhook event emission failed: ${msg}`, {
+        eventType: event.type,
+      });
+    }
+  }
+
+  /** Emit SupervisorStartedEvent */
+  private async emitSupervisorStarted(): Promise<void> {
+    const event: SupervisorStartedEvent = {
+      type: "supervisor_started",
+      supervisorId: this.sessionId,
+      startedAt: new Date().toISOString(),
+    };
+    await this.emitWebhookEvent(event);
+  }
+
+  /** Emit SupervisorStoppedEvent */
+  private async emitSupervisorStopped(
+    reason: "shutdown" | "budget_exceeded" | "error" | "manual",
+  ): Promise<void> {
+    const event: SupervisorStoppedEvent = {
+      type: "supervisor_stopped",
+      supervisorId: this.sessionId,
+      stoppedAt: new Date().toISOString(),
+      reason,
+    };
+    await this.emitWebhookEvent(event);
+  }
+
+  /** Emit HeartbeatEvent */
+  private async emitHeartbeatCompleted(opts: {
+    heartbeatNumber: number;
+    runsActive: number;
+    todayUsd: number;
+    limitUsd: number;
+  }): Promise<void> {
+    const event: HeartbeatEvent = {
+      type: "heartbeat",
+      supervisorId: this.sessionId,
+      heartbeatNumber: opts.heartbeatNumber,
+      timestamp: new Date().toISOString(),
+      runsActive: opts.runsActive,
+      budget: {
+        todayUsd: opts.todayUsd,
+        limitUsd: opts.limitUsd,
+      },
+    };
+    await this.emitWebhookEvent(event);
+  }
+
+  /** Emit RunDispatchedEvent from tool result detection */
+  private async emitRunDispatched(opts: {
+    runId: string;
+    agent: string;
+    repo: string;
+    branch: string;
+    prompt: string;
+  }): Promise<void> {
+    const event: RunDispatchedEvent = {
+      type: "run_dispatched",
+      supervisorId: this.sessionId,
+      runId: opts.runId,
+      agent: opts.agent,
+      repo: opts.repo,
+      branch: opts.branch,
+      prompt: opts.prompt.slice(0, 500), // Truncate to schema max
+    };
+    await this.emitWebhookEvent(event);
+  }
+
+  /** Emit RunCompletedEvent when processing run_complete events */
+  private async emitRunCompleted(opts: {
+    runId: string;
+    status: "completed" | "failed" | "cancelled";
+    output?: string;
+    costUsd: number;
+    durationMs: number;
+  }): Promise<void> {
+    const event: RunCompletedEvent = {
+      type: "run_completed",
+      supervisorId: this.sessionId,
+      runId: opts.runId,
+      status: opts.status,
+      output: opts.output?.slice(0, 1000), // Truncate to schema max
+      costUsd: opts.costUsd,
+      durationMs: opts.durationMs,
+    };
+    await this.emitWebhookEvent(event);
   }
 }

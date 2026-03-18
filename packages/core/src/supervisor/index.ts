@@ -4,7 +4,7 @@ export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
-export type { HeartbeatLoopOptions } from "./heartbeat.js";
+export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
 // ─── Log buffer ─────────────────────────────────────────
 export {
