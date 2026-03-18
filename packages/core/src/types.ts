@@ -29,44 +29,12 @@ export interface ResolvedAgent {
   source: "built-in" | "custom" | "extended";
 }
 
-// ─── Workflows ───────────────────────────────────────────
-
-export interface WorkflowDefinition {
-  name: string;
-  description?: string | undefined;
-  steps: Record<string, WorkflowStepDef | WorkflowGateDef>;
-}
-
-export interface WorkflowStepDef {
-  type?: "step" | undefined;
-  agent: string;
-  dependsOn?: string[] | undefined;
-  prompt?: string | undefined;
-  sandbox?: "writable" | "readonly" | undefined;
-  maxTurns?: number | undefined;
-  mcpServers?: string[] | undefined;
-  recovery?:
-    | {
-        maxRetries?: number | undefined;
-        nonRetryable?: string[] | undefined;
-      }
-    | undefined;
-}
-
-export interface WorkflowGateDef {
-  type: "gate";
-  dependsOn?: string[] | undefined;
-  description: string;
-  timeout?: string | undefined;
-  autoApprove?: boolean | undefined;
-}
-
 // ─── Run Persistence ─────────────────────────────────────
 
 export interface PersistedRun {
   version: 1;
   runId: string;
-  workflow: string;
+  agent: string;
   repo: string;
   prompt: string;
   branch?: string | undefined;
@@ -100,7 +68,7 @@ export interface StepResult {
 export type Priority = "critical" | "high" | "medium" | "low";
 
 export interface DispatchInput {
-  workflow: string;
+  agent: string;
   repo: string;
   prompt: string;
   runId?: string | undefined;
@@ -122,7 +90,7 @@ export interface DispatchInput {
 
 export interface TaskResult {
   runId: string;
-  workflow: string;
+  agent: string;
   repo: string;
   status: "success" | "failure" | "timeout" | "cancelled";
   steps: Record<string, StepResult>;
@@ -141,7 +109,6 @@ export interface TaskResult {
 export interface ActiveSession {
   sessionId: string;
   runId: string;
-  workflow: string;
   step: string;
   agent: string;
   repo: string;
@@ -160,11 +127,11 @@ export interface OrchestratorStatus {
   uptime: number;
 }
 
-// ─── Workflow Context ────────────────────────────────────
+// ─── Run Context ─────────────────────────────────────────
 
-export interface WorkflowContext {
+export interface RunContext {
   runId: string;
-  workflow: string;
+  agent: string;
   repo: string;
   prompt: string;
   steps: Record<string, StepResult>;
@@ -177,7 +144,6 @@ export interface SessionStartEvent {
   type: "session:start";
   sessionId: string;
   runId: string;
-  workflow: string;
   step: string;
   agent: string;
   repo: string;
@@ -227,8 +193,8 @@ export interface AgentMessageEvent {
   timestamp: string;
 }
 
-export interface WorkflowStepStartEvent {
-  type: "workflow:step_start";
+export interface StepStartEvent {
+  type: "step:start";
   runId: string;
   step: string;
   agent: string;
@@ -236,8 +202,8 @@ export interface WorkflowStepStartEvent {
   timestamp: string;
 }
 
-export interface WorkflowStepCompleteEvent {
-  type: "workflow:step_complete";
+export interface StepCompleteEvent {
+  type: "step:complete";
   runId: string;
   step: string;
   status: "success" | "failure" | "skipped";
@@ -252,7 +218,7 @@ export interface GateWaitingEvent {
   runId: string;
   gate: string;
   description: string;
-  context: WorkflowContext;
+  context: RunContext;
   approve: () => void;
   reject: (reason: string) => void;
   metadata?: Record<string, unknown> | undefined;
@@ -303,8 +269,8 @@ export type NeoEvent =
   | SessionFailEvent
   | AgentToolUseEvent
   | AgentMessageEvent
-  | WorkflowStepStartEvent
-  | WorkflowStepCompleteEvent
+  | StepStartEvent
+  | StepCompleteEvent
   | GateWaitingEvent
   | CostUpdateEvent
   | BudgetAlertEvent
@@ -346,7 +312,6 @@ export interface MiddlewareContextMap {
 
 export interface MiddlewareContext {
   runId: string;
-  workflow: string;
   step: string;
   agent: string;
   repo: string;
@@ -369,7 +334,6 @@ export type MiddlewareResult =
 export interface CostEntry {
   timestamp: string;
   runId: string;
-  workflow: string;
   step: string;
   sessionId: string;
   agent: string;
