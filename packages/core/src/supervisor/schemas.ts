@@ -100,6 +100,23 @@ export const internalEventKindSchema = z.enum(["consolidation_timer", "active_ru
 
 export type InternalEventKind = z.infer<typeof internalEventKindSchema>;
 
+// ─── Supervisor status (API response) ──────────────────
+
+export const supervisorStatusSchema = z.object({
+  pid: z.number(),
+  sessionId: z.string(),
+  status: z.enum(["running", "idle", "stopping"]),
+  startedAt: z.string(),
+  lastHeartbeat: z.string(),
+  heartbeatCount: z.number(),
+  todayCostUsd: z.number(),
+  totalCostUsd: z.number(),
+  activeRunCount: z.number(),
+  recentActivitySummary: z.array(z.string()),
+});
+
+export type SupervisorStatus = z.infer<typeof supervisorStatusSchema>;
+
 // ─── Queued event (union of all event sources) ──────────
 
 export type QueuedEvent =
