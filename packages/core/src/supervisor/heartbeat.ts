@@ -15,7 +15,7 @@ import {
 } from "@/sdk-types";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
-import type { EventQueue } from "./event-queue.js";
+import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
@@ -215,7 +215,7 @@ export class HeartbeatLoop {
     if (budgetCheck.exceeded) return;
 
     // Drain events and check for active work
-    const grouped = this.eventQueue.drainAndGroup();
+    const { grouped } = this.eventQueue.drainAndGroup();
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
@@ -434,7 +434,7 @@ export class HeartbeatLoop {
    * Build the prompt for the current heartbeat mode.
    */
   private async buildHeartbeatModePrompt(opts: {
-    grouped: ReturnType<EventQueue["drainAndGroup"]>;
+    grouped: GroupedEvents;
     todayCost: number;
     heartbeatCount: number;
     unconsolidated: LogBufferEntry[];

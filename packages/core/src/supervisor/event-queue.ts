@@ -18,6 +18,11 @@ export interface GroupedEvents {
   runCompletions: QueuedEvent[];
 }
 
+export interface DrainAndGroupResult {
+  grouped: GroupedEvents;
+  rawEvents: QueuedEvent[];
+}
+
 /**
  * In-memory event queue with deduplication, rate limiting, and file watching.
  *
@@ -88,15 +93,16 @@ export class EventQueue {
   /**
    * Drain and group events: deduplicates messages by content,
    * keeps webhooks and run completions separate.
+   * Returns both grouped events AND original raw events for later marking as processed.
    */
-  drainAndGroup(): GroupedEvents {
-    const events = this.drain();
+  drainAndGroup(): DrainAndGroupResult {
+    const rawEvents = this.drain();
 
     const messageMap = new Map<string, GroupedMessage>();
     const webhooks: QueuedEvent[] = [];
     const runCompletions: QueuedEvent[] = [];
 
-    for (const event of events) {
+    for (const event of rawEvents) {
       if (event.kind === "message") {
         const key = event.data.text.trim().toLowerCase();
         const existing = messageMap.get(key);
@@ -113,9 +119,12 @@ export class EventQueue {
     }
 
     return {
-      messages: [...messageMap.values()],
-      webhooks,
-      runCompletions,
+      grouped: {
+        messages: [...messageMap.values()],
+        webhooks,
+        runCompletions,
+      },
+      rawEvents,
     };
   }
 
