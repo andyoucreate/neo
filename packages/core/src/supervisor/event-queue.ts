@@ -132,10 +132,9 @@ export class EventQueue {
     for (const p of [inboxPath, eventsPath]) {
       try {
         await writeFile(p, "", { flag: "a" });
-      } catch (err) {
+      } catch {
         // Non-critical: file creation may fail due to permissions or missing parent directory.
         // watchJsonlFile will handle this gracefully by skipping the watch.
-        console.error(`[EventQueue] Failed to ensure file exists: ${p}`, err);
       }
     }
     this.watchJsonlFile(inboxPath, "message");
@@ -192,15 +191,12 @@ export class EventQueue {
   private watchJsonlFile(filePath: string, kind: "message" | "webhook"): void {
     try {
       const watcher = watch(filePath, () => {
-        this.readNewLines(filePath, kind).catch((err) => {
-          // Non-critical: file may have been deleted or become unreadable between watch trigger and read
-          console.error(`[EventQueue] Failed to read new lines from ${filePath}:`, err);
-        });
+        // Non-critical: file may have been deleted or become unreadable between watch trigger and read
+        this.readNewLines(filePath, kind).catch(() => {});
       });
       this.watchers.push(watcher);
-    } catch (err) {
+    } catch {
       // Non-critical: file may not exist yet — watcher will be set up when file is created
-      console.error(`[EventQueue] Cannot watch file (may not exist yet): ${filePath}`, err);
     }
   }
 
@@ -316,10 +312,9 @@ export class EventQueue {
         await writeFile(filePath, updated.join("\n"), "utf-8");
         this.fileOffsets.set(filePath, updated.join("\n").length);
       }
-    } catch (err) {
+    } catch {
       // Non-critical: marking as processed may fail but events are already handled.
       // Worst case: duplicate processing on restart (idempotent operations).
-      console.error(`[EventQueue] Failed to mark events as processed in ${filePath}:`, err);
     }
   }
 }
