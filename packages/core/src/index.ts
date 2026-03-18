@@ -27,6 +27,7 @@ export type {
 } from "@/config";
 export {
   addRepoToGlobalConfig,
+  ConfigStore,
   globalConfigSchema,
   listReposFromGlobalConfig,
   loadConfig,
@@ -35,6 +36,7 @@ export {
   neoConfigSchema,
   removeRepoFromGlobalConfig,
   repoConfigSchema,
+  repoOverrideConfigSchema,
 } from "@/config";
 // ─── Cost ──────────────────────────────────────────────
 export { CostJournal } from "@/cost/journal";
