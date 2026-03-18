@@ -350,6 +350,17 @@ Agents support:
 - **Tool customization** with `$inherited`
 - **Per-agent settings**: `maxTurns`, `mcpServers`
 
+### Workflows
+
+4 built-in workflows that orchestrate agents in sequence:
+
+| Workflow | Description |
+|----------|-------------|
+| `feature` | Full development cycle: plan → implement → review → fix (conditional) |
+| `hotfix` | Fast-track single-agent implementation. Skips planning for urgent fixes. |
+| `refine` | Ticket evaluation and decomposition for backlog grooming. |
+| `review` | Single-pass code review covering quality, security, performance, and test coverage. |
+
 ---
 
 ## Configuration
@@ -427,7 +438,7 @@ orchestrator.on("session:complete", (event) => {
 // Dispatch
 await orchestrator.start();
 const result = await orchestrator.dispatch({
-  workflow: "implement",
+  workflow: "feature",
   repo: "/path/to/repo",
   prompt: "Add rate limiting to the API",
   priority: "high",
@@ -493,7 +504,7 @@ import { Orchestrator, loadGlobalConfig, AgentRegistry } from "@neotx/core";
 // The OpenClaw supervisor pulls tickets from Linear, dispatches neo agents,
 // updates ticket status, and posts results to Slack
 const result = await orchestrator.dispatch({
-  workflow: "_run_developer",
+  workflow: "hotfix",
   repo: "/path/to/repo",
   prompt: ticketDescription,
   metadata: { ticket: "PROJ-42", assignee: "openclaw-supervisor" },
