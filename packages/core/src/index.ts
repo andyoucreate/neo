@@ -121,6 +121,7 @@ export type { SupervisorState } from "@/supervisor";
 export { supervisorStateSchema } from "@/supervisor";
 export type {
   ActivityEntry,
+  ActivityQueryOptions,
   HeartbeatLoopOptions,
   InboxMessage,
   QueuedEvent,
