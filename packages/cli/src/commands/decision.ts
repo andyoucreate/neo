@@ -1,11 +1,22 @@
-import type { Decision } from "@neotx/core";
+import type { Decision, DecisionOption } from "@neotx/core";
 import { DecisionStore, getSupervisorDecisionsPath } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess, printTable } from "../output.js";
 
+const DEFAULT_EXPIRES_MS = 24 * 60 * 60 * 1000; // 24 hours
+
 interface ParsedArgs {
+  action: string;
   value: string | undefined;
+  question: string | undefined;
+  options: string | undefined;
+  defaultAnswer: string | undefined;
+  expiresIn: string | undefined;
+  type: string | undefined;
+  context: string | undefined;
   name: string;
+  id: string | undefined;
+  answer: string | undefined;
   json: boolean;
 }
 
@@ -36,9 +47,109 @@ function formatTimeAgo(timestamp: string): string {
   return `${hours}h ago`;
 }
 
+function parseDurationMs(input: string): number | undefined {
+  const match = input.match(/^(\d+)(h|m|d)$/);
+  if (!match) return undefined;
+
+  const value = Number(match[1]);
+  const unit = match[2];
+  switch (unit) {
+    case "d":
+      return value * 24 * 60 * 60 * 1000;
+    case "h":
+      return value * 60 * 60 * 1000;
+    case "m":
+      return value * 60 * 1000;
+    default:
+      return undefined;
+  }
+}
+
+function parseOptions(optionsArg: string): DecisionOption[] | undefined {
+  // Format: "key1:label1,key2:label2" or "key1:label1:description1,key2:label2:description2"
+  if (!optionsArg.trim()) return undefined;
+
+  const options: DecisionOption[] = [];
+  const parts = optionsArg.split(",");
+
+  for (const part of parts) {
+    const segments = part.trim().split(":");
+    const key = segments[0];
+    const label = segments[1];
+    if (!key || !label) {
+      throw new Error(
+        `Invalid option format: "${part}". Expected "key:label" or "key:label:description"`,
+      );
+    }
+    const descParts = segments.slice(2);
+    options.push({
+      key: key.trim(),
+      label: label.trim(),
+      description: descParts.length > 0 ? descParts.join(":").trim() : undefined,
+    });
+  }
+
+  return options.length > 0 ? options : undefined;
+}
+
 function openStore(name: string): DecisionStore {
   const filePath = getSupervisorDecisionsPath(name);
   return new DecisionStore(filePath);
+}
+
+async function handleCreate(args: ParsedArgs): Promise<void> {
+  if (!args.question) {
+    printError(
+      "Usage: neo decision create <question> --options 'key1:label1,key2:label2' [--default <key>] [--expires-in 24h]",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  let options: DecisionOption[] | undefined;
+  if (args.options) {
+    try {
+      options = parseOptions(args.options);
+    } catch (error) {
+      printError(error instanceof Error ? error.message : String(error));
+      process.exitCode = 1;
+      return;
+    }
+  }
+
+  let expiresAt: string | undefined;
+  if (args.expiresIn) {
+    const ms = parseDurationMs(args.expiresIn);
+    if (!ms) {
+      printError('Invalid --expires-in format. Use e.g. "24h", "30m", or "7d".');
+      process.exitCode = 1;
+      return;
+    }
+    expiresAt = new Date(Date.now() + ms).toISOString();
+  } else {
+    // Default to 24 hours
+    expiresAt = new Date(Date.now() + DEFAULT_EXPIRES_MS).toISOString();
+  }
+
+  const store = openStore(args.name);
+  try {
+    const id = await store.create({
+      question: args.question,
+      options,
+      defaultAnswer: args.defaultAnswer,
+      expiresAt,
+      type: args.type ?? "generic",
+      source: "supervisor",
+      context: args.context,
+    });
+    printSuccess(`Decision created: ${id}`);
+    console.log(id); // Output just the ID for easy parsing in scripts
+  } catch (error) {
+    printError(
+      `Failed to create decision: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    process.exitCode = 1;
+  }
 }
 
 async function handleList(args: ParsedArgs): Promise<void> {
@@ -188,13 +299,39 @@ export default defineCommand({
   args: {
     action: {
       type: "positional",
-      description: "Action: list, get, answer, pending",
+      description: "Action: create, list, get, answer, pending",
       required: true,
     },
     value: {
       type: "positional",
-      description: "Decision ID (for get/answer)",
+      description: "Decision ID (for get/answer) or question text (for create)",
       required: false,
+    },
+    options: {
+      type: "string",
+      alias: "o",
+      description:
+        'Options in format "key1:label1,key2:label2" or "key1:label1:desc1,key2:label2:desc2"',
+    },
+    "default-answer": {
+      type: "string",
+      alias: "d",
+      description: "Default answer key (used if decision expires)",
+    },
+    "expires-in": {
+      type: "string",
+      alias: "e",
+      description: "Expiration duration (e.g. 24h, 30m, 7d). Default: 24h",
+    },
+    type: {
+      type: "string",
+      alias: "t",
+      description: "Decision type (default: generic)",
+    },
+    context: {
+      type: "string",
+      alias: "c",
+      description: "Additional context for the decision",
     },
     name: {
       type: "string",
@@ -210,12 +347,23 @@ export default defineCommand({
   async run({ args }) {
     const action = args.action as string;
     const parsed: ParsedArgs = {
+      action,
       value: args.value as string | undefined,
+      question: args.value as string | undefined, // For create action
+      options: args.options as string | undefined,
+      defaultAnswer: args["default-answer"] as string | undefined,
+      expiresIn: args["expires-in"] as string | undefined,
+      type: args.type as string | undefined,
+      context: args.context as string | undefined,
       name: args.name as string,
+      id: args.value as string | undefined, // For get/answer actions
+      answer: undefined,
       json: args.json as boolean,
     };
 
     switch (action) {
+      case "create":
+        return handleCreate(parsed);
       case "list":
         return handleList(parsed);
       case "get":
@@ -225,7 +373,7 @@ export default defineCommand({
       case "pending":
         return handlePending(parsed);
       default:
-        printError(`Unknown action "${action}". Must be one of: list, get, answer, pending`);
+        printError(`Unknown action "${action}". Must be one of: create, list, get, answer, pending`);
         process.exitCode = 1;
     }
   },
