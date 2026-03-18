@@ -505,7 +505,7 @@ function partitionTasks(tasks: MemoryEntry[]): {
 
 function renderInitiativeSummary(group: TaskGroup): string {
   const { active, pending } = partitionTasks(group.tasks);
-  const nextEligible = pending.sort(bySeverity)[0];
+  const nextEligible = [...pending].sort(bySeverity)[0];
   const cat = nextEligible?.category ? ` -> ${nextEligible.category}` : "";
   const nextLabel = nextEligible
     ? ` (next: ${nextEligible.content.slice(0, 30)}${nextEligible.content.length > 30 ? "..." : ""} [${nextEligible.severity ?? "medium"}])`
@@ -517,7 +517,7 @@ function renderCompactInitiative(group: TaskGroup, lines: string[], rendered: nu
   lines.push(`  ${renderInitiativeSummary(group)}`);
 
   const { active, blocked, pending } = partitionTasks(group.tasks);
-  const nextEligible = pending.sort(bySeverity)[0];
+  const nextEligible = [...pending].sort(bySeverity)[0];
 
   for (const task of [...active, ...blocked]) {
     if (rendered >= MAX_TASKS) break;

@@ -801,4 +801,71 @@ describe("buildWorkQueueSection edge cases", () => {
     expect(result).toContain("○ Pending task");
     expect(result).toContain("2 remaining");
   });
+
+  it("uses compact mode for initiatives with 3+ tasks and shows initiative summary", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "T1: Setup database",
+        outcome: "pending",
+        severity: "high",
+        tags: ["initiative:data-pipeline"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "T2: Create migrations",
+        outcome: "pending",
+        severity: "medium",
+        tags: ["initiative:data-pipeline"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "T3: Add seed data",
+        outcome: "pending",
+        severity: "low",
+        tags: ["initiative:data-pipeline"],
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+
+    // Compact mode should show initiative summary line
+    expect(result).toContain("[data-pipeline] 0 active, 3 pending");
+    // Should show next eligible task in summary (highest severity first = T1)
+    expect(result).toContain("(next: T1: Setup database [high])");
+  });
+
+  it("sorts pending tasks by severity in (next: ...) summary", () => {
+    const memories = [
+      makeMemory({
+        type: "task",
+        content: "Low priority task",
+        outcome: "pending",
+        severity: "low",
+        tags: ["initiative:sort-test"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "Critical priority task",
+        outcome: "pending",
+        severity: "critical",
+        tags: ["initiative:sort-test"],
+      }),
+      makeMemory({
+        type: "task",
+        content: "Medium priority task",
+        outcome: "pending",
+        severity: "medium",
+        tags: ["initiative:sort-test"],
+      }),
+    ];
+
+    const result = buildWorkQueueSection(memories);
+
+    // Critical task should appear in (next: ...) because it has highest severity
+    expect(result).toContain("(next: Critical priority task [critical])");
+    // Low and medium should NOT appear in (next: ...)
+    expect(result).not.toContain("(next: Low priority task");
+    expect(result).not.toContain("(next: Medium priority task");
+  });
 });
