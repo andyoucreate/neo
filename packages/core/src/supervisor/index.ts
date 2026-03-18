@@ -87,3 +87,20 @@ export {
 } from "./shutdown.js";
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
+// ─── Webhook events ──────────────────────────────────────
+export type {
+  HeartbeatEvent,
+  RunCompletedEvent,
+  RunDispatchedEvent,
+  SupervisorStartedEvent,
+  SupervisorStoppedEvent,
+  SupervisorWebhookEvent,
+} from "./webhookEvents.js";
+export {
+  heartbeatEventSchema,
+  runCompletedEventSchema,
+  runDispatchedEventSchema,
+  supervisorStartedEventSchema,
+  supervisorStoppedEventSchema,
+  supervisorWebhookEventSchema,
+} from "./webhookEvents.js";
