@@ -15,6 +15,7 @@ import {
 } from "@/sdk-types";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
+import { DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
@@ -26,7 +27,7 @@ import {
   buildStandardPrompt,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
-import type { LogBufferEntry, SupervisorDaemonState } from "./schemas.js";
+import type { LogBufferEntry, QueuedEvent, SupervisorDaemonState } from "./schemas.js";
 import {
   type HeartbeatEvent,
   heartbeatEventSchema,
@@ -162,6 +163,7 @@ export class HeartbeatLoop {
   private memoryStore: MemoryStore | null = null;
   private readonly memoryDbPath: string | undefined;
   private readonly onWebhookEvent: WebhookEventEmitter | undefined;
+  private decisionStore: DecisionStore | null = null;
 
   /** ConfigWatcher for hot-reload support */
   private configWatcher: ConfigWatcher | null = null;
@@ -198,6 +200,13 @@ export class HeartbeatLoop {
       }
     }
     return this.memoryStore;
+  }
+
+  private getDecisionStore(): DecisionStore {
+    if (!this.decisionStore) {
+      this.decisionStore = new DecisionStore(path.join(this.supervisorDir, "decisions.jsonl"));
+    }
+    return this.decisionStore;
   }
 
   async start(): Promise<void> {
@@ -317,6 +326,18 @@ export class HeartbeatLoop {
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
+
+    // Process decision answers from inbox messages
+    const decisionStore = this.getDecisionStore();
+    await this.processDecisionAnswers(rawEvents, decisionStore);
+
+    // Auto-answer expired decisions
+    await decisionStore.expire();
+
+    // Get pending decisions for prompt context (prepared for T3)
+    // T3 will integrate this into buildHeartbeatModePrompt
+    const _pendingDecisions = await decisionStore.pending();
+    void _pendingDecisions; // Suppress unused variable warning until T3
 
     // Handle skip logic for idle/active-work scenarios
     const skipResult = await this.handleSkipLogic({
@@ -864,6 +885,41 @@ export class HeartbeatLoop {
 
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Process decision:answer events from inbox messages.
+   * Expected format: "decision:answer <decisionId> <answer>"
+   */
+  private async processDecisionAnswers(
+    rawEvents: QueuedEvent[],
+    store: DecisionStore,
+  ): Promise<void> {
+    for (const event of rawEvents) {
+      if (event.kind !== "message") continue;
+
+      const text = event.data.text.trim();
+      const match = /^decision:answer\s+(\S+)\s+(.+)$/i.exec(text);
+      if (!match) continue;
+
+      const decisionId = match[1];
+      const answer = match[2];
+      if (!decisionId || !answer) continue;
+
+      try {
+        await store.answer(decisionId, answer);
+        await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
+          decisionId,
+          answer,
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
+          decisionId,
+          answer,
+        });
+      }
+    }
   }
 
   /**
