@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import {
-  type ActivityEntry,
-  type ActivityQueryOptions,
-  activityEntrySchema,
-  type SupervisorStatus,
-  supervisorStatusSchema,
+import type {
+  ActivityEntry,
+  ActivityQueryOptions,
+  SupervisorDaemonState,
+  SupervisorStatus,
 } from "./schemas.js";
+import { activityEntrySchema, supervisorDaemonStateSchema } from "./schemas.js";
 
 const STATE_FILE = "state.json";
 const ACTIVITY_FILE = "activity.jsonl";
@@ -48,13 +48,36 @@ export class StatusReader {
       return null;
     }
 
-    const result = supervisorStatusSchema.safeParse(parsed);
+    const result = supervisorDaemonStateSchema.safeParse(parsed);
     if (!result.success) {
       // Schema validation failed — state file is incompatible
       return null;
     }
 
-    return result.data;
+    const daemon = result.data;
+
+    // Map daemon status to API status
+    const statusMap: Record<SupervisorDaemonState["status"], SupervisorStatus["status"]> = {
+      running: "running",
+      draining: "stopping",
+      stopped: "idle",
+    };
+
+    // Read recent activity for summary
+    const recentActivity = this.queryActivity({ limit: 5 });
+
+    return {
+      pid: daemon.pid,
+      sessionId: daemon.sessionId,
+      startedAt: daemon.startedAt,
+      heartbeatCount: daemon.heartbeatCount,
+      totalCostUsd: daemon.totalCostUsd,
+      todayCostUsd: daemon.todayCostUsd,
+      status: statusMap[daemon.status],
+      lastHeartbeat: daemon.lastHeartbeat ?? daemon.startedAt,
+      activeRunCount: 0, // TODO: count active runs from .neo/runs/
+      recentActivitySummary: recentActivity.map((e) => `[${e.type}] ${e.summary}`),
+    };
   }
 
   /**
