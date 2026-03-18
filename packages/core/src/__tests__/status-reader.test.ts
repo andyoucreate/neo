@@ -2,22 +2,31 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { StatusReader } from "@/supervisor/StatusReader";
-import type { ActivityEntry, SupervisorStatus } from "@/supervisor/schemas";
+import type { ActivityEntry, SupervisorDaemonState } from "@/supervisor/schemas";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_status_reader_test__");
 
-function makeStatus(overrides?: Partial<SupervisorStatus>): SupervisorStatus {
+/**
+ * Creates a valid SupervisorDaemonState fixture.
+ * StatusReader.getStatus() validates against supervisorDaemonStateSchema,
+ * not SupervisorStatus, so we must provide all required daemon fields.
+ */
+function makeDaemonState(overrides?: Partial<SupervisorDaemonState>): SupervisorDaemonState {
   return {
     pid: 12345,
     sessionId: "sess-123",
+    port: 3000,
+    cwd: "/tmp/test",
     status: "running",
     startedAt: "2026-03-15T10:00:00.000Z",
     lastHeartbeat: "2026-03-15T10:30:00.000Z",
     heartbeatCount: 10,
     todayCostUsd: 1.5,
     totalCostUsd: 25.0,
-    activeRunCount: 2,
-    recentActivitySummary: ["Started run-1", "Completed run-2"],
+    idleSkipCount: 0,
+    activeWorkSkipCount: 0,
+    lastConsolidationHeartbeat: 0,
+    lastCompactionHeartbeat: 0,
     ...overrides,
   };
 }
@@ -63,8 +72,8 @@ describe("StatusReader.getStatus", () => {
   });
 
   it("returns parsed status for valid state file", async () => {
-    const status = makeStatus({ pid: 99999 });
-    await writeFile(path.join(TMP_DIR, "state.json"), JSON.stringify(status), "utf-8");
+    const daemonState = makeDaemonState({ pid: 99999 });
+    await writeFile(path.join(TMP_DIR, "state.json"), JSON.stringify(daemonState), "utf-8");
     const reader = new StatusReader(TMP_DIR);
     const result = await reader.getStatus();
     expect(result).not.toBeNull();
