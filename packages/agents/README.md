@@ -2,7 +2,7 @@
 
 Built-in agent definitions and workflow templates for `@neotx/core`.
 
-This package contains YAML configuration files and Markdown prompts that define the 9 built-in agents and 5 workflows used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
+This package contains YAML configuration files and Markdown prompts that define the 5 built-in agents and 4 workflows used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
 
 ## Contents
 
@@ -13,18 +13,17 @@ packages/agents/
 │   ├── developer.yml
 │   ├── fixer.yml
 │   ├── refiner.yml
-│   ├── reviewer-coverage.yml
-│   ├── reviewer-perf.yml
-│   ├── reviewer-quality.yml
-│   ├── reviewer-security.yml
 │   └── reviewer.yml
 ├── prompts/          # Markdown system prompts
-│   └── *.md
+│   ├── architect.md
+│   ├── developer.md
+│   ├── fixer.md
+│   ├── refiner.md
+│   └── reviewer.md
 └── workflows/        # Workflow YAML definitions
     ├── feature.yml
     ├── hotfix.yml
     ├── refine.yml
-    ├── review-fast.yml
     └── review.yml
 ```
 
@@ -32,15 +31,11 @@ packages/agents/
 
 | Agent | Model | Sandbox | Tools | Role |
 |-------|-------|---------|-------|------|
-| **architect** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Strategic planner. Analyzes features, designs architecture, decomposes work into atomic tasks. Never writes code. |
-| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated clones. |
+| **architect** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Strategic planner and decomposer. Analyzes features, designs architecture, creates roadmaps, and decomposes work into atomic tasks. Never writes code. |
+| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated clones. Follows strict scope discipline. |
 | **fixer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms. |
-| **refiner** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Ticket quality evaluator. Assesses clarity and splits vague tickets into precise sub-tickets. |
-| **reviewer-quality** | sonnet | readonly | Read, Glob, Grep, Bash | Code quality reviewer. Catches bugs and DRY violations. Approves by default. |
-| **reviewer-security** | opus | readonly | Read, Glob, Grep, Bash | Security auditor. Flags directly exploitable vulnerabilities. Approves by default. |
-| **reviewer-perf** | sonnet | readonly | Read, Glob, Grep, Bash | Performance reviewer. Flags N+1 queries and O(n²) on unbounded data. Approves by default. |
-| **reviewer-coverage** | sonnet | readonly | Read, Glob, Grep, Bash | Test coverage reviewer. Recommends missing tests. Never blocks merge. |
-| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Single-pass unified reviewer. Covers all 4 lenses in one sweep. Lightweight alternative to parallel review. |
+| **refiner** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Ticket quality evaluator and decomposer. Reads the target codebase to assess ticket clarity and split vague tickets into precise, implementable sub-tickets. |
+| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Thorough single-pass code reviewer. Covers quality, standards, security, performance, and test coverage. Challenges code by default — approves only when standards are met. |
 
 ### Sandbox Modes
 
@@ -67,7 +62,7 @@ steps:
     agent: developer
     dependsOn: [plan]
   review:
-    agent: reviewer-quality
+    agent: reviewer
     dependsOn: [implement]
     sandbox: readonly
   fix:
@@ -78,27 +73,7 @@ steps:
 
 ### review
 
-Parallel 4-lens code review. All reviewers run concurrently.
-
-```yaml
-steps:
-  quality:
-    agent: reviewer-quality
-    sandbox: readonly
-  security:
-    agent: reviewer-security
-    sandbox: readonly
-  perf:
-    agent: reviewer-perf
-    sandbox: readonly
-  coverage:
-    agent: reviewer-coverage
-    sandbox: readonly
-```
-
-### review-fast
-
-Single-pass lightweight review. One agent covers all 4 lenses — ideal for small PRs or budget-constrained runs.
+Single-pass code review covering quality, security, performance, and test coverage.
 
 ```yaml
 steps:
