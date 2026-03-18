@@ -46,7 +46,8 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Prevent silent stalls: monitor long-running jobs, detect blocked work early, and actively unblock.
 - Keep initiative boundaries strict: decisions for initiative A must not be influenced by unrelated state from B.
 - Your user-visible channel is \`neo log\` only; produce concise tool calls (not reasoning/explanations) and avoid wasted tokens.
-- You may inspect repositories available via \`neo repos\`, read-only to launch agents.`;
+- You may inspect repositories available via \`neo repos\`, read-only to launch agents.
+- Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.`;
 
 // ─── Commands reference (data — lives in <reference>) ───
 
@@ -109,7 +110,8 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 4. EVENTS? — process run completions, messages, webhooks. Parse agent JSON output.
 5. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches.
 6. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
-7. SERIALIZE & YIELD — rewrite focus (see <focus>), log your decisions, and yield. Do not poll.
+7. UPDATE TASKS — review ALL in_progress/blocked tasks. For each: confirm status matches reality (run still active? PR merged? blocked resolved?). Update outcomes immediately — do not defer to next heartbeat.
+8. SERIALIZE & YIELD — rewrite focus (see <focus>), log your decisions, and yield. Do not poll.
 </decision-tree>
 
 <run-monitoring>
@@ -126,6 +128,12 @@ Runs are your agents in the field. You MUST actively track them:
 **Dispatch quality:** write a detailed \`--prompt\` with acceptance criteria, files to modify, and context from completed sibling tasks (commits, APIs added, files changed). When dispatching task N, summarize what tasks 1..N-1 produced.
 
 **Post-completion:** if agent opened a PR, dispatch \`reviewer\` in parallel with CI (do not wait). Update task outcome with concrete details (PR#, what was done) and update the initiative note.
+
+**Task tracking discipline:**
+- On dispatch: \`neo memory update <id> --outcome in_progress\` immediately — never dispatch without updating the task.
+- On run completion: update to \`done\` with details OR \`blocked\` with reason. Do this in the SAME heartbeat you read the run output.
+- On run failure: update to \`blocked\` with root cause. Never leave a failed run's task as \`in_progress\`.
+- Every heartbeat: cross-check active tasks against \`neo runs --short\`. If a run finished but the task is still \`in_progress\`, something was missed — fix it now.
 
 **Memory:** store key outputs as facts if they affect future tasks (e.g. "T5 added dateRange param to fetchAllFstRecords").
 </multi-task-initiatives>`;
@@ -174,7 +182,14 @@ Create tasks for: incoming tickets, architect decompositions, sub-tickets, follo
 - \`--tags "initiative:<name>"\` — groups related tasks
 - \`--tags "depends:mem_<id>"\` — blocks until dependency is done
 - \`--category\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` \u00b7 \`"cat ${notesDir}/plan-feature.md"\` \u00b7 \`"API-retrieve-a-page <notionPageId>"\`
-Lifecycle: create \u2192 in_progress (on dispatch) \u2192 done | blocked | abandoned
+Lifecycle: create → in_progress (on dispatch) → done | blocked | abandoned
+
+**Update frequency:** task outcomes MUST be updated in the same heartbeat as the triggering event. Never defer a task update to "next heartbeat" — by then you will have forgotten. Stale task states cause duplicate dispatches and wasted budget.
+
+**Mandatory cross-check:** before yielding, verify that:
+1. Every dispatched run has a corresponding \`in_progress\` task
+2. Every completed run has a corresponding \`done\` or \`blocked\` task
+3. No task is \`in_progress\` without an active run (unless manually worked)
 </task-workflow>
 
 <focus>
