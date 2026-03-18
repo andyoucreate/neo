@@ -100,13 +100,6 @@ async function main(): Promise<void> {
     // Create orchestrator — skip orphan recovery to prevent false positives on concurrent launches
     const orchestrator = new Orchestrator(config, { skipOrphanRecovery: true });
     orchestrator.registerAgent(agent);
-    orchestrator.registerWorkflow({
-      name: `_run_${request.agentName}`,
-      description: `Detached dispatch to ${request.agentName}`,
-      steps: {
-        run: { agent: request.agentName },
-      },
-    });
 
     // Update persisted run with PID
     await updatePersistedRun(runPath, { pid: process.pid });
@@ -124,7 +117,7 @@ async function main(): Promise<void> {
     writeLog("[worker] Dispatching...");
     const result = await orchestrator.dispatch({
       runId,
-      workflow: `_run_${request.agentName}`,
+      agent: request.agentName,
       repo: request.repo,
       prompt: request.prompt,
       ...(request.branch ? { branch: request.branch } : {}),

@@ -89,7 +89,7 @@ async function runDetached(params: DetachParams): Promise<void> {
   const persistedRun: PersistedRun = {
     version: 1,
     runId,
-    workflow: `_run_${params.agentName}`,
+    agent: params.agentName,
     repo: params.repo,
     prompt: params.prompt,
     status: "running",
@@ -254,13 +254,6 @@ export default defineCommand({
     // ─── Foreground mode (default) ──────────────────────
     const orchestrator = new Orchestrator(config, { skipOrphanRecovery: true });
     orchestrator.registerAgent(agent);
-    orchestrator.registerWorkflow({
-      name: `_run_${args.agent}`,
-      description: `Direct dispatch to ${args.agent}`,
-      steps: {
-        run: { agent: args.agent },
-      },
-    });
 
     if (!jsonOutput) {
       orchestrator.on("*", printProgress);
@@ -271,7 +264,7 @@ export default defineCommand({
 
       const gitStrategy = args["git-strategy"] as "pr" | "branch" | undefined;
       const result = await orchestrator.dispatch({
-        workflow: `_run_${args.agent}`,
+        agent: args.agent,
         repo,
         prompt: args.prompt,
         ...(args.branch ? { branch: args.branch } : {}),
