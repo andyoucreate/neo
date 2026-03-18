@@ -10,7 +10,6 @@ function makeEntry(overrides?: Partial<CostEntry>): CostEntry {
   return {
     timestamp: "2026-03-14T10:00:00.000Z",
     runId: "run-1",
-    workflow: "hotfix",
     step: "fix",
     sessionId: "session-1",
     agent: "developer",

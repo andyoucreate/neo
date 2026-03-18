@@ -7,7 +7,6 @@ import { CostJournal } from "@/cost/journal";
 import { EventJournal } from "@/events/journal";
 import { Orchestrator } from "@/orchestrator";
 import type { Middleware, NeoEvent } from "@/types";
-import { WorkflowRegistry } from "@/workflows/registry";
 
 // ─── SDK Mock (network boundary only) ────────────────────
 
@@ -57,7 +56,6 @@ vi.mock("@/isolation/clone", () => ({
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_e2e__");
 const AGENTS_DIR = path.join(TMP_DIR, "agents");
 const PROMPTS_DIR = path.join(TMP_DIR, "prompts");
-const WORKFLOWS_DIR = path.join(TMP_DIR, "workflows");
 const JOURNALS_DIR = path.join(TMP_DIR, "journals");
 const REPO_DIR = path.join(TMP_DIR, "repo");
 const GLOBAL_RUNS_DIR = path.join(TMP_DIR, "global-runs");
@@ -159,39 +157,6 @@ prompt: ../prompts/fixer.md
   );
 }
 
-async function writeWorkflowFixtures(): Promise<void> {
-  await mkdir(WORKFLOWS_DIR, { recursive: true });
-
-  await writeFile(
-    path.join(WORKFLOWS_DIR, "hotfix.yml"),
-    `name: hotfix
-description: "Fast-track single-agent implementation"
-steps:
-  implement:
-    agent: developer
-`,
-  );
-
-  await writeFile(
-    path.join(WORKFLOWS_DIR, "feature.yml"),
-    `name: feature
-description: "Plan, implement, and review a feature"
-steps:
-  plan:
-    agent: architect
-    sandbox: readonly
-  implement:
-    agent: developer
-    dependsOn: [plan]
-    prompt: "Implement based on plan"
-  review:
-    agent: reviewer
-    dependsOn: [implement]
-    sandbox: readonly
-`,
-  );
-}
-
 async function writeConfigFixture(): Promise<void> {
   const config = `
 repos:
@@ -250,7 +215,6 @@ beforeEach(async () => {
   await mkdir(REPO_DIR, { recursive: true });
   await mkdir(JOURNALS_DIR, { recursive: true });
   await writeAgentFixtures();
-  await writeWorkflowFixtures();
   await writeConfigFixture();
 
   vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -331,22 +295,6 @@ prompt: "Custom prompt"
   });
 });
 
-// ─── Workflow registry ───────────────────────────────────
-
-describe("e2e: workflow registry", () => {
-  it("loads workflows from directory", async () => {
-    const registry = new WorkflowRegistry(WORKFLOWS_DIR);
-    await registry.load();
-
-    expect(registry.list()).toHaveLength(2);
-    expect(registry.has("hotfix")).toBe(true);
-    expect(registry.has("feature")).toBe(true);
-
-    const feature = registry.get("feature");
-    expect(Object.keys(feature?.steps ?? {})).toEqual(["plan", "implement", "review"]);
-  });
-});
-
 // ─── Full orchestrator lifecycle ─────────────────────────
 
 describe("e2e: orchestrator lifecycle", () => {
@@ -354,7 +302,6 @@ describe("e2e: orchestrator lifecycle", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     // Load and register agents
@@ -372,18 +319,18 @@ describe("e2e: orchestrator lifecycle", () => {
     const orchestrator = await buildOrchestrator();
 
     const result = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Fix the login bug",
     });
 
     expect(result.status).toBe("success");
-    expect(result.workflow).toBe("hotfix");
+    expect(result.agent).toBe("developer");
     expect(result.repo).toBe(REPO_DIR);
     expect(result.costUsd).toBe(0.05);
-    expect(result.steps.implement).toBeDefined();
-    expect(result.steps.implement?.agent).toBe("developer");
+    expect(result.steps.execute).toBeDefined();
+    expect(result.steps.execute?.agent).toBe("developer");
 
     // Run file should be persisted in slug subdir
     const runsDir = path.join(GLOBAL_RUNS_DIR, "repo");
@@ -403,7 +350,7 @@ describe("e2e: orchestrator lifecycle", () => {
     orchestrator.on("*", (e) => events.push(e));
 
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Add logging",
@@ -427,13 +374,13 @@ describe("e2e: orchestrator lifecycle", () => {
 
     // Disable idempotency for this test
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Task 1",
     });
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Task 2",
@@ -451,7 +398,7 @@ describe("e2e: orchestrator lifecycle", () => {
 
     await expect(
       orchestrator.dispatch({
-        workflow: "hotfix",
+        agent: "developer",
         repo: REPO_DIR,
         prompt: "Should fail",
       }),
@@ -466,7 +413,7 @@ describe("e2e: orchestrator lifecycle", () => {
     orchestrator.resume();
 
     const result = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Should work after resume",
@@ -484,39 +431,16 @@ describe("e2e: orchestrator lifecycle", () => {
     expect(orchestrator.status.paused).toBe(true);
   });
 
-  it("handles unknown workflow gracefully", async () => {
+  it("handles unknown agent gracefully", async () => {
     const orchestrator = await buildOrchestrator();
 
     await expect(
       orchestrator.dispatch({
-        workflow: "nonexistent",
+        agent: "nonexistent",
         repo: REPO_DIR,
         prompt: "Test",
       }),
-    ).rejects.toThrow('workflow "nonexistent" not found');
-
-    await orchestrator.shutdown();
-  });
-
-  it("handles missing agent gracefully", async () => {
-    const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
-    const orchestrator = new Orchestrator(config, { journalDir: JOURNALS_DIR });
-
-    // Register workflow referencing a non-registered agent
-    orchestrator.registerWorkflow({
-      name: "broken",
-      steps: {
-        step1: { agent: "ghost-agent", prompt: "Do nothing" },
-      },
-    });
-
-    await expect(
-      orchestrator.dispatch({
-        workflow: "broken",
-        repo: REPO_DIR,
-        prompt: "Test",
-      }),
-    ).rejects.toThrow('Agent "ghost-agent"');
+    ).rejects.toThrow('agent "nonexistent" not found');
 
     await orchestrator.shutdown();
   });
@@ -531,7 +455,6 @@ describe("e2e: middleware integration", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
       middleware: [Orchestrator.middleware.budgetGuard()],
     });
 
@@ -545,7 +468,7 @@ describe("e2e: middleware integration", () => {
 
     // First dispatch succeeds (45 < 50 cap)
     const result1 = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Expensive task",
@@ -566,7 +489,6 @@ describe("e2e: middleware integration", () => {
 
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
       middleware: [mw],
     });
     await orchestrator.shutdown();
@@ -575,7 +497,6 @@ describe("e2e: middleware integration", () => {
   it("custom middleware receives correct context", async () => {
     const receivedContexts: Array<{
       runId: string;
-      workflow: string;
       step: string;
       agent: string;
     }> = [];
@@ -586,7 +507,6 @@ describe("e2e: middleware integration", () => {
       async handler(_event, context) {
         receivedContexts.push({
           runId: context.runId,
-          workflow: context.workflow,
           step: context.step,
           agent: context.agent,
         });
@@ -597,7 +517,6 @@ describe("e2e: middleware integration", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
       middleware: [spy],
     });
 
@@ -609,7 +528,7 @@ describe("e2e: middleware integration", () => {
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Test middleware context",
@@ -630,8 +549,7 @@ describe("e2e: journal integration", () => {
     await journal.append({
       timestamp: new Date().toISOString(),
       runId: "run-1",
-      workflow: "hotfix",
-      step: "implement",
+      step: "execute",
       sessionId: "session-1",
       agent: "developer",
       costUsd: 0.05,
@@ -642,8 +560,7 @@ describe("e2e: journal integration", () => {
     await journal.append({
       timestamp: new Date().toISOString(),
       runId: "run-2",
-      workflow: "hotfix",
-      step: "implement",
+      step: "execute",
       sessionId: "session-2",
       agent: "developer",
       costUsd: 0.1,
@@ -662,8 +579,7 @@ describe("e2e: journal integration", () => {
       type: "session:start",
       sessionId: "s1",
       runId: "r1",
-      workflow: "hotfix",
-      step: "implement",
+      step: "execute",
       agent: "developer",
       repo: REPO_DIR,
       timestamp: new Date().toISOString(),
@@ -693,7 +609,6 @@ describe("e2e: idempotency", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);
@@ -710,7 +625,7 @@ describe("e2e: idempotency", () => {
     const orchestrator = await buildOrchestrator();
 
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Fix the bug",
@@ -718,7 +633,7 @@ describe("e2e: idempotency", () => {
 
     await expect(
       orchestrator.dispatch({
-        workflow: "hotfix",
+        agent: "developer",
         repo: REPO_DIR,
         prompt: "Fix the bug",
       }),
@@ -731,13 +646,13 @@ describe("e2e: idempotency", () => {
     const orchestrator = await buildOrchestrator();
 
     const r1 = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Fix bug A",
     });
     const r2 = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Fix bug B",
@@ -758,7 +673,6 @@ describe("e2e: concurrent dispatches", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);
@@ -771,13 +685,13 @@ describe("e2e: concurrent dispatches", () => {
     // Dispatch multiple tasks concurrently (different prompts and branches)
     const results = await Promise.all([
       orchestrator.dispatch({
-        workflow: "hotfix",
+        agent: "developer",
         repo: REPO_DIR,
         branch: "feat/test-branch-a",
         prompt: "Task A",
       }),
       orchestrator.dispatch({
-        workflow: "hotfix",
+        agent: "developer",
         repo: REPO_DIR,
         branch: "feat/test-branch-b",
         prompt: "Task B",
@@ -812,7 +726,6 @@ describe("e2e: recovery on failure", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);
@@ -826,14 +739,14 @@ describe("e2e: recovery on failure", () => {
     orchestrator.on("session:fail", (e) => events.push(e));
 
     const result = await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "This will fail",
     });
 
     expect(result.status).toBe("failure");
-    expect(result.steps.implement?.error).toBeDefined();
+    expect(result.steps.execute?.error).toBeDefined();
 
     // Persisted run should be marked as failed
     const runsDir = path.join(GLOBAL_RUNS_DIR, "repo");
@@ -855,7 +768,6 @@ describe("e2e: budget alerts", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);
@@ -869,7 +781,7 @@ describe("e2e: budget alerts", () => {
     orchestrator.on("budget:alert", (e) => alerts.push(e));
 
     await orchestrator.dispatch({
-      workflow: "hotfix",
+      agent: "developer",
       repo: REPO_DIR,
       branch: "feat/test-branch",
       prompt: "Expensive operation",
@@ -906,15 +818,8 @@ describe("e2e: readonly agent", () => {
       source: "built-in",
     });
 
-    orchestrator.registerWorkflow({
-      name: "review",
-      steps: {
-        review: { agent: "reviewer" },
-      },
-    });
-
     const result = await orchestrator.dispatch({
-      workflow: "review",
+      agent: "reviewer",
       repo: REPO_DIR,
       prompt: "Review the codebase",
       branch: "feat/test-review",
@@ -939,7 +844,7 @@ describe("e2e: run persistence", () => {
       JSON.stringify({
         version: 1,
         runId: "orphan-1",
-        workflow: "hotfix",
+        agent: "developer",
         repo: REPO_DIR,
         prompt: "Orphaned task",
         status: "running",
@@ -952,7 +857,6 @@ describe("e2e: run persistence", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);
@@ -978,7 +882,6 @@ describe("e2e: status reporting", () => {
     const config = await loadConfig(path.join(TMP_DIR, "config.yml"));
     const orchestrator = new Orchestrator(config, {
       journalDir: JOURNALS_DIR,
-      builtInWorkflowDir: WORKFLOWS_DIR,
     });
 
     const agentRegistry = new AgentRegistry(AGENTS_DIR);

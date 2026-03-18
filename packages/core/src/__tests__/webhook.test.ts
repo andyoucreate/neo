@@ -8,7 +8,6 @@ function makeEvent(overrides?: Partial<NeoEvent>): NeoEvent {
     type: "session:start",
     sessionId: "session-1",
     runId: "run-1",
-    workflow: "hotfix",
     step: "fix",
     agent: "developer",
     repo: "/tmp/repo",
@@ -112,7 +111,7 @@ describe("WebhookDispatcher", () => {
       description: "Review required",
       context: {
         runId: "run-1",
-        workflow: "deploy",
+        agent: "deployer",
         repo: "/tmp",
         prompt: "deploy",
         steps: {},

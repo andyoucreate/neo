@@ -15,7 +15,7 @@ function makeRun(overrides?: Partial<PersistedRun>): PersistedRun {
   return {
     version: 1,
     runId: "run-123",
-    workflow: "hotfix",
+    agent: "developer",
     repo: "/tmp/my-repo",
     prompt: "Fix the bug",
     status: "running",
@@ -55,7 +55,7 @@ describe("RunStore", () => {
         const parsed = JSON.parse(content);
 
         expect(parsed.runId).toBe(testRunId);
-        expect(parsed.workflow).toBe("hotfix");
+        expect(parsed.agent).toBe("developer");
         expect(parsed.status).toBe("running");
       } finally {
         // Cleanup test file

@@ -2,13 +2,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  DispatchInput,
-  NeoConfig,
-  NeoEvent,
-  ResolvedAgent,
-  WorkflowDefinition,
-} from "@/index";
+import type { DispatchInput, NeoConfig, NeoEvent, ResolvedAgent } from "@/index";
 import { Orchestrator } from "@/orchestrator";
 
 // ─── SDK Mock ───────────────────────────────────────────
@@ -127,23 +121,9 @@ function makeAgent(overrides?: Partial<ResolvedAgent>): ResolvedAgent {
   };
 }
 
-function makeWorkflow(overrides?: Partial<WorkflowDefinition>): WorkflowDefinition {
-  return {
-    name: "hotfix",
-    description: "Hotfix workflow",
-    steps: {
-      fix: {
-        agent: "test-developer",
-        prompt: "Fix the bug",
-      },
-    },
-    ...overrides,
-  };
-}
-
 function makeInput(overrides?: Partial<DispatchInput>): DispatchInput {
   return {
-    workflow: "hotfix",
+    agent: "test-developer",
     repo: TMP_DIR,
     prompt: "Fix the bug",
     branch: "feat/test-branch",
@@ -168,7 +148,6 @@ function successMessages(sessionId = "session-123"): MockMessage[] {
 
 function createOrchestrator(configOverrides?: Partial<NeoConfig>): Orchestrator {
   const orchestrator = new Orchestrator(makeConfig(configOverrides));
-  orchestrator.registerWorkflow(makeWorkflow());
   orchestrator.registerAgent(makeAgent());
   return orchestrator;
 }
@@ -191,20 +170,20 @@ afterEach(async () => {
 // ─── dispatch() end-to-end ──────────────────────────────
 
 describe("dispatch", () => {
-  it("runs a single-step workflow end-to-end", async () => {
+  it("runs agent session end-to-end", async () => {
     const orchestrator = createOrchestrator();
     const result = await orchestrator.dispatch(makeInput());
 
     expect(result.status).toBe("success");
-    expect(result.workflow).toBe("hotfix");
+    expect(result.agent).toBe("test-developer");
     expect(result.repo).toBe(TMP_DIR);
     expect(result.runId).toBeDefined();
     expect(result.costUsd).toBe(0.05);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
-    const fixStep = result.steps.fix;
-    expect(fixStep).toBeDefined();
-    expect(fixStep?.status).toBe("success");
-    expect(fixStep?.agent).toBe("test-developer");
+    const executeStep = result.steps.execute;
+    expect(executeStep).toBeDefined();
+    expect(executeStep?.status).toBe("success");
+    expect(executeStep?.agent).toBe("test-developer");
   });
 
   it("persists run state to global runs dir", async () => {
@@ -222,7 +201,7 @@ describe("dispatch", () => {
 
     const persisted = JSON.parse(await readFile(runFile, "utf-8"));
     expect(persisted.status).toBe("completed");
-    expect(persisted.workflow).toBe("hotfix");
+    expect(persisted.agent).toBe("test-developer");
     expect(persisted.pid).toBe(process.pid);
   });
 
@@ -278,31 +257,8 @@ describe("dispatch", () => {
     const result = await orchestrator.dispatch(makeInput());
 
     expect(result.status).toBe("failure");
-    expect(result.steps.fix?.status).toBe("failure");
-    expect(result.steps.fix?.error).toBeDefined();
-  });
-
-  it("rejects dispatch targeting a gate step directly", async () => {
-    const orchestrator = new Orchestrator(makeConfig());
-    orchestrator.registerAgent(makeAgent());
-    orchestrator.registerWorkflow(
-      makeWorkflow({
-        steps: {
-          fix: {
-            agent: "test-developer",
-            prompt: "Fix the bug",
-          },
-          approval: {
-            type: "gate",
-            description: "Approval gate",
-          },
-        },
-      }),
-    );
-
-    await expect(orchestrator.dispatch(makeInput({ step: "approval" }))).rejects.toThrow(
-      "gate step",
-    );
+    expect(result.steps.execute?.status).toBe("failure");
+    expect(result.steps.execute?.error).toBeDefined();
   });
 
   it("preserves metadata in task result", async () => {
@@ -323,24 +279,6 @@ describe("dispatch", () => {
     expect(result1.runId).toBeDefined();
     expect(result2.runId).toBeDefined();
     expect(result1.runId).not.toBe(result2.runId);
-  });
-
-  it("uses the workflow step prompt when available", async () => {
-    const orchestrator = new Orchestrator(makeConfig());
-    orchestrator.registerAgent(makeAgent());
-    orchestrator.registerWorkflow(
-      makeWorkflow({
-        steps: {
-          fix: {
-            agent: "test-developer",
-            prompt: "Step-specific prompt",
-          },
-        },
-      }),
-    );
-
-    const result = await orchestrator.dispatch(makeInput());
-    expect(result.status).toBe("success");
   });
 });
 
@@ -490,7 +428,7 @@ describe("start", () => {
     const orphanedRun = {
       version: 1,
       runId: "orphan-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "running",
@@ -514,7 +452,7 @@ describe("start", () => {
     const aliveRun = {
       version: 1,
       runId: "alive-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "running",
@@ -542,7 +480,7 @@ describe("start", () => {
     const deadRun = {
       version: 1,
       runId: "dead-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "running",
@@ -567,7 +505,7 @@ describe("start", () => {
     const completedRun = {
       version: 1,
       runId: "completed-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "completed",
@@ -596,7 +534,7 @@ describe("start", () => {
     const otherWorkerRun = {
       version: 1,
       runId: "concurrent-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "running",
@@ -627,7 +565,7 @@ describe("start", () => {
     const noPidRun = {
       version: 1,
       runId: "no-pid-run-1",
-      workflow: "hotfix",
+      agent: "test-developer",
       repo: TMP_DIR,
       prompt: "Fix something",
       status: "running",
@@ -683,11 +621,11 @@ describe("input validation", () => {
     ).rejects.toThrow("repo path does not exist");
   });
 
-  it("rejects non-existent workflow", async () => {
+  it("rejects non-existent agent", async () => {
     const orchestrator = createOrchestrator();
 
-    await expect(orchestrator.dispatch(makeInput({ workflow: "nonexistent" }))).rejects.toThrow(
-      'workflow "nonexistent" not found',
+    await expect(orchestrator.dispatch(makeInput({ agent: "nonexistent" }))).rejects.toThrow(
+      'agent "nonexistent" not found',
     );
   });
 
@@ -773,7 +711,6 @@ describe("events", () => {
     expect(completeEvent).toBeDefined();
 
     if (startEvent?.type === "session:start") {
-      expect(startEvent.workflow).toBe("hotfix");
       expect(startEvent.agent).toBe("test-developer");
     }
 
@@ -982,36 +919,8 @@ describe("MCP server resolution", () => {
         },
       }),
     );
-    orchestrator.registerWorkflow(
-      makeWorkflow({
-        name: "mcp-workflow",
-        steps: { run: { agent: "mcp-dev" } },
-      }),
-    );
 
-    const result = await orchestrator.dispatch(makeInput({ workflow: "mcp-workflow" }));
-    expect(result.status).toBe("success");
-  });
-
-  it("resolves MCP servers from workflow step definition", async () => {
-    const orchestrator = new Orchestrator(
-      makeConfig({
-        mcpServers: {
-          notion: { type: "stdio", command: "npx", args: ["-y", "@notionhq/notion-mcp-server"] },
-        },
-      }),
-    );
-    orchestrator.registerAgent(makeAgent({ name: "step-mcp-dev" }));
-    orchestrator.registerWorkflow(
-      makeWorkflow({
-        name: "step-mcp-workflow",
-        steps: {
-          run: { agent: "step-mcp-dev", mcpServers: ["notion"] },
-        },
-      }),
-    );
-
-    const result = await orchestrator.dispatch(makeInput({ workflow: "step-mcp-workflow" }));
+    const result = await orchestrator.dispatch(makeInput({ agent: "mcp-dev" }));
     expect(result.status).toBe("success");
   });
 
@@ -1029,15 +938,6 @@ describe("readonly agent", () => {
     const cloneMod = await import("@/isolation/clone");
 
     const orchestrator = new Orchestrator(makeConfig());
-    orchestrator.registerWorkflow(
-      makeWorkflow({
-        steps: {
-          review: {
-            agent: "test-reviewer",
-          },
-        },
-      }),
-    );
     orchestrator.registerAgent(
       makeAgent({
         name: "test-reviewer",
@@ -1053,7 +953,7 @@ describe("readonly agent", () => {
 
     const createSpy = vi.spyOn(cloneMod, "createSessionClone");
 
-    const result = await orchestrator.dispatch(makeInput({ workflow: "hotfix" }));
+    const result = await orchestrator.dispatch(makeInput({ agent: "test-reviewer" }));
 
     expect(result.status).toBe("success");
     // All agents get an isolated clone on the requested branch

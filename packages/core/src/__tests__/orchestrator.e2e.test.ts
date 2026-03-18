@@ -7,7 +7,6 @@ import type {
   ResolvedAgent,
   SessionCompleteEvent,
   SessionStartEvent,
-  WorkflowDefinition,
 } from "@/index";
 import { Orchestrator } from "@/orchestrator";
 import {
@@ -141,19 +140,6 @@ function makeAgent(): ResolvedAgent {
   };
 }
 
-function makeWorkflow(): WorkflowDefinition {
-  return {
-    name: "e2e-workflow",
-    description: "E2E test workflow",
-    steps: {
-      implement: {
-        agent: "e2e-developer",
-        prompt: "Implement the requested feature",
-      },
-    },
-  };
-}
-
 function successMessages(sessionId = "e2e-session-123"): MockMessage[] {
   return [
     { type: "system", subtype: "init", session_id: sessionId },
@@ -202,7 +188,6 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     // Track status transitions via events
@@ -225,7 +210,7 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // Dispatch a task
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Create a hello world function",
       branch: "feat/e2e-test",
@@ -236,18 +221,18 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // Verify task result
     expect(result.status).toBe("success");
-    expect(result.workflow).toBe("e2e-workflow");
+    expect(result.agent).toBe("e2e-developer");
     expect(result.repo).toBe(TEST_REPO_DIR);
     expect(result.runId).toBeDefined();
     expect(result.costUsd).toBe(0.02);
     expect(result.durationMs).toBeGreaterThanOrEqual(0);
 
     // Verify step result
-    const implementStep = result.steps.implement;
-    expect(implementStep).toBeDefined();
-    expect(implementStep?.status).toBe("success");
-    expect(implementStep?.agent).toBe("e2e-developer");
-    expect(implementStep?.costUsd).toBe(0.02);
+    const executeStep = result.steps.execute;
+    expect(executeStep).toBeDefined();
+    expect(executeStep?.status).toBe("success");
+    expect(executeStep?.agent).toBe("e2e-developer");
+    expect(executeStep?.costUsd).toBe(0.02);
 
     // Verify events were emitted correctly
     const startEvent = events.find((e) => e.type === "session:start");
@@ -257,7 +242,7 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     expect(completeEvent).toBeDefined();
 
     if (startEvent?.type === "session:start") {
-      expect(startEvent.workflow).toBe("e2e-workflow");
+      expect(startEvent.agent).toBe("e2e-developer");
       expect(startEvent.agent).toBe("e2e-developer");
       expect(startEvent.repo).toBe(TEST_REPO_DIR);
     }
@@ -278,13 +263,12 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test cleanup",
       branch: "feat/e2e-cleanup",
@@ -303,7 +287,6 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const costEvents: NeoEvent[] = [];
@@ -315,7 +298,7 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     expect(orchestrator.status.costToday).toBe(0);
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test cost tracking",
       branch: "feat/e2e-cost",
@@ -339,7 +322,6 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     // Before start
@@ -361,7 +343,7 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // After dispatch
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test status",
       branch: "feat/e2e-status",
@@ -380,14 +362,13 @@ describe("orchestrator E2E: happy path lifecycle", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     // First dispatch
     const result1 = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "First task",
       branch: "feat/e2e-first",
@@ -395,7 +376,7 @@ describe("orchestrator E2E: happy path lifecycle", () => {
 
     // Second dispatch
     const result2 = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Second task",
       branch: "feat/e2e-second",
@@ -430,7 +411,6 @@ describe("orchestrator E2E: concurrent run handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     // Track events per run
@@ -461,14 +441,14 @@ describe("orchestrator E2E: concurrent run handling", () => {
     // Dispatch 2 concurrent runs with distinct metadata
     const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Concurrent task 1",
         branch: "feat/concurrent-1",
         metadata: { taskId: "task-1" },
       }),
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Concurrent task 2",
         branch: "feat/concurrent-2",
@@ -511,7 +491,6 @@ describe("orchestrator E2E: concurrent run handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const statusSnapshots: Array<{ activeSessions: number; queueDepth: number }> = [];
@@ -533,13 +512,13 @@ describe("orchestrator E2E: concurrent run handling", () => {
     // Dispatch concurrent runs
     const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Status task 1",
         branch: "feat/status-1",
       }),
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Status task 2",
         branch: "feat/status-2",
@@ -565,7 +544,6 @@ describe("orchestrator E2E: concurrent run handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const completedRuns: string[] = [];
@@ -579,13 +557,13 @@ describe("orchestrator E2E: concurrent run handling", () => {
     // Dispatch concurrent runs
     const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Independent task 1",
         branch: "feat/indep-1",
       }),
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Independent task 2",
         branch: "feat/indep-2",
@@ -606,7 +584,6 @@ describe("orchestrator E2E: concurrent run handling", () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     const allEvents: Array<{ type: string; runId: string }> = [];
@@ -624,13 +601,13 @@ describe("orchestrator E2E: concurrent run handling", () => {
     // Dispatch concurrent runs
     await Promise.all([
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Order task 1",
         branch: "feat/order-1",
       }),
       orchestrator.dispatch({
-        workflow: "e2e-workflow",
+        agent: "e2e-developer",
         repo: TEST_REPO_DIR,
         prompt: "Order task 2",
         branch: "feat/order-2",
@@ -719,13 +696,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
       makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:start"]),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test webhook on start",
       branch: "feat/webhook-start",
@@ -741,7 +717,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
     expect(startWebhook).toBeDefined();
     expect(startWebhook?.payload.source).toBe("neo");
     expect(startWebhook?.payload.version).toBe(1);
-    expect(startWebhook?.payload.payload.workflow).toBe("e2e-workflow");
+    expect(startWebhook?.payload.payload.agent).toBe("e2e-developer");
     expect(startWebhook?.payload.payload.agent).toBe("e2e-developer");
 
     await orchestrator.shutdown();
@@ -753,13 +729,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
       makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test webhook on complete",
       branch: "feat/webhook-complete",
@@ -798,13 +773,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
       makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test webhook retry",
       branch: "feat/webhook-retry",
@@ -831,13 +805,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
       makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test webhook max retries",
       branch: "feat/webhook-max-retry",
@@ -860,13 +833,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
     const orchestrator = new Orchestrator(makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl), {
       skipOrphanRecovery: true,
     });
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Test webhook schema",
       branch: "feat/webhook-schema",
@@ -904,7 +876,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
     if (startPayload) {
       expect(startPayload.sessionId).toBeDefined();
       expect(startPayload.runId).toBeDefined();
-      expect(startPayload.workflow).toBe("e2e-workflow");
+      expect(startPayload.agent).toBe("e2e-developer");
       expect(startPayload.agent).toBe("e2e-developer");
       expect(startPayload.repo).toBe(TEST_REPO_DIR);
       expect(startPayload.metadata).toEqual({ testId: "schema-test" });
@@ -940,13 +912,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
       makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:start", "session:complete"]),
       { skipOrphanRecovery: true },
     );
-    orchestrator.registerWorkflow(makeWorkflow());
     orchestrator.registerAgent(makeAgent());
 
     await orchestrator.start();
 
     const result = await orchestrator.dispatch({
-      workflow: "e2e-workflow",
+      agent: "e2e-developer",
       repo: TEST_REPO_DIR,
       prompt: "Full pattern test",
       branch: "feat/full-pattern",
