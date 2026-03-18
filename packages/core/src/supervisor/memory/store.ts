@@ -271,7 +271,6 @@ export class MemoryStore {
       case "createdAt":
         orderBy = "ORDER BY created_at DESC";
         break;
-      case "relevance":
       default:
         orderBy =
           "ORDER BY (access_count * MAX(0, 1.0 - (julianday('now') - julianday(last_accessed_at)) / 60.0)) DESC";

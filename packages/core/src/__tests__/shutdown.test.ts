@@ -407,7 +407,6 @@ describe("terminateGracefully", () => {
 
   it("sends SIGTERM and returns true on graceful exit", async () => {
     const child = new MockChildProcess();
-    const _killSpy = vi.spyOn(child, "kill");
 
     // Simulate graceful exit after SIGTERM
     child.kill = vi.fn((signal?: string) => {
