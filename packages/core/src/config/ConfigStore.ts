@@ -75,6 +75,14 @@ export class ConfigStore {
     return this.config;
   }
 
+  /**
+   * Returns the repository path, if one was provided.
+   * Used by ConfigWatcher to determine which files to watch.
+   */
+  getRepoPath(): string | undefined {
+    return this.repoPath;
+  }
+
   // ─── Private loaders ───────────────────────────────────
 
   /**

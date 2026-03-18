@@ -34,3 +34,7 @@ export { defaultConfig, mergeConfigs } from "./merge";
 // ─── Re-export ConfigStore ───────────────────────────────
 
 export { ConfigStore } from "./ConfigStore";
+
+// ─── Re-export ConfigWatcher ─────────────────────────────
+
+export { ConfigWatcher } from "./ConfigWatcher";
