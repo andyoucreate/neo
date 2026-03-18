@@ -25,6 +25,7 @@ export const decisionSchema = z.object({
   defaultAnswer: z.string().optional(),
   answeredAt: z.string().optional(),
   answer: z.string().optional(),
+  expiredAt: z.string().optional(),
 });
 
 // ─── Types ───────────────────────────────────────────────
@@ -32,7 +33,10 @@ export const decisionSchema = z.object({
 export type DecisionOption = z.infer<typeof decisionOptionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
 
-export type DecisionInput = Omit<Decision, "id" | "createdAt" | "answeredAt" | "answer">;
+export type DecisionInput = Omit<
+  Decision,
+  "id" | "createdAt" | "answeredAt" | "answer" | "expiredAt"
+>;
 
 // ─── Store ───────────────────────────────────────────────
 
@@ -57,7 +61,7 @@ export class DecisionStore {
   async create(input: DecisionInput): Promise<string> {
     await ensureDir(this.dir, this.dirCache);
 
-    const id = `dec_${randomUUID().slice(0, 12)}`;
+    const id = `dec_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
     const decision: Decision = {
       ...input,
       id,
@@ -91,7 +95,7 @@ export class DecisionStore {
   }
 
   /**
-   * Get all pending decisions (unanswered and not expired).
+   * Get all pending decisions (unanswered, not expired, not timed out).
    */
   async pending(): Promise<Decision[]> {
     const decisions = await this.readAll();
@@ -99,6 +103,7 @@ export class DecisionStore {
 
     return decisions.filter((d) => {
       if (d.answer !== undefined) return false;
+      if (d.expiredAt !== undefined) return false;
       if (d.expiresAt && d.expiresAt < now) return false;
       return true;
     });
@@ -128,7 +133,8 @@ export class DecisionStore {
 
   /**
    * Auto-answer expired decisions with their defaultAnswer.
-   * @returns The decisions that were auto-answered
+   * Decisions without defaultAnswer are marked as expired (expiredAt).
+   * @returns The decisions that were auto-answered or marked expired
    */
   async expire(): Promise<Decision[]> {
     const decisions = await this.readAll();
@@ -138,12 +144,16 @@ export class DecisionStore {
     for (const decision of decisions) {
       if (
         decision.answer === undefined &&
+        decision.expiredAt === undefined &&
         decision.expiresAt &&
-        decision.expiresAt < now &&
-        decision.defaultAnswer !== undefined
+        decision.expiresAt < now
       ) {
-        decision.answer = decision.defaultAnswer;
-        decision.answeredAt = now;
+        if (decision.defaultAnswer !== undefined) {
+          decision.answer = decision.defaultAnswer;
+          decision.answeredAt = now;
+        } else {
+          decision.expiredAt = now;
+        }
         expired.push(decision);
       }
     }
@@ -174,8 +184,11 @@ export class DecisionStore {
       try {
         const parsed = decisionSchema.parse(JSON.parse(line));
         decisions.push(parsed);
-      } catch {
-        // Skip malformed lines
+      } catch (error) {
+        // biome-ignore lint/suspicious/noConsole: Intentional warning for parse failures
+        console.warn(
+          `[DecisionStore] Skipping malformed JSONL line: ${error instanceof Error ? error.message : "unknown error"}`,
+        );
       }
     }
 
