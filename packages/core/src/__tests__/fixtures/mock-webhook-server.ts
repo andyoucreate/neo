@@ -22,6 +22,16 @@ export interface CapturedWebhook {
 }
 
 /**
+ * Behavior configuration for mock webhook server.
+ */
+export interface MockWebhookBehavior {
+  /** Return this status code for incoming requests (default: 200). */
+  statusCode: number;
+  /** Number of times to return the configured status before reverting to 200 (default: Infinity). */
+  failCount: number;
+}
+
+/**
  * Mock HTTP server that captures webhook POST requests for E2E testing.
  *
  * Usage:
@@ -33,11 +43,20 @@ export interface CapturedWebhook {
  * const webhooks = server.getReceivedWebhooks();
  * await server.stop();
  * ```
+ *
+ * For retry testing:
+ * ```ts
+ * server.setBehavior({ statusCode: 503, failCount: 2 });
+ * // First 2 requests return 503, then 200
+ * ```
  */
 export class MockWebhookServer {
   private server: Server | null = null;
   private port = 0;
   private receivedWebhooks: CapturedWebhook[] = [];
+  private behavior: MockWebhookBehavior = { statusCode: 200, failCount: 0 };
+  private failuresRemaining = 0;
+  private totalRequestCount = 0;
 
   /**
    * Start the HTTP server on a random available port.
@@ -77,10 +96,29 @@ export class MockWebhookServer {
   }
 
   /**
-   * Clear all captured webhook events.
+   * Clear all captured webhook events and reset behavior.
    */
   reset(): void {
     this.receivedWebhooks = [];
+    this.behavior = { statusCode: 200, failCount: 0 };
+    this.failuresRemaining = 0;
+    this.totalRequestCount = 0;
+  }
+
+  /**
+   * Configure server behavior for testing retries.
+   * @param behavior - Status code and fail count configuration
+   */
+  setBehavior(behavior: Partial<MockWebhookBehavior>): void {
+    this.behavior = { statusCode: 200, failCount: 0, ...behavior };
+    this.failuresRemaining = this.behavior.failCount;
+  }
+
+  /**
+   * Get total number of requests received (including failed ones).
+   */
+  getTotalRequestCount(): number {
+    return this.totalRequestCount;
   }
 
   /**
@@ -102,6 +140,8 @@ export class MockWebhookServer {
   }
 
   private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+    this.totalRequestCount++;
+
     // Only accept POST requests
     if (req.method !== "POST") {
       res.statusCode = 405;
@@ -123,6 +163,15 @@ export class MockWebhookServer {
         const headers: Record<string, string | undefined> = {};
         for (const [key, value] of Object.entries(req.headers)) {
           headers[key] = Array.isArray(value) ? value[0] : value;
+        }
+
+        // Check if we should simulate failure
+        if (this.failuresRemaining > 0 && this.behavior.statusCode !== 200) {
+          this.failuresRemaining--;
+          res.statusCode = this.behavior.statusCode;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ error: "Simulated failure" }));
+          return;
         }
 
         this.receivedWebhooks.push({

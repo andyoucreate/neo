@@ -19,6 +19,7 @@ export {
 // Mock webhook server for testing webhook delivery
 export {
   type CapturedWebhook,
+  type MockWebhookBehavior,
   MockWebhookServer,
   type WebhookPayload,
 } from "./mock-webhook-server.js";

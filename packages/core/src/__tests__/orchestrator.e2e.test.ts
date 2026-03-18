@@ -10,7 +10,13 @@ import type {
   WorkflowDefinition,
 } from "@/index";
 import { Orchestrator } from "@/orchestrator";
-import { cleanupTestRepo, createTestFile, createTestRepo } from "./fixtures/e2e-setup.js";
+import {
+  cleanupTestRepo,
+  createTestFile,
+  createTestRepo,
+  MockWebhookServer,
+  type WebhookPayload,
+} from "./fixtures/e2e-setup.js";
 
 // ─── SDK Mock (dry-run mode) ─────────────────────────────
 
@@ -646,5 +652,325 @@ describe("orchestrator E2E: concurrent run handling", () => {
     }
 
     await orchestrator.shutdown();
+  });
+});
+
+// ─── E2E Tests: Webhook Delivery Verification ─────────────
+
+describe("orchestrator E2E: webhook delivery verification", () => {
+  let webhookServer: MockWebhookServer;
+
+  beforeEach(async () => {
+    vi.useRealTimers();
+    mockMessages = successMessages();
+
+    webhookServer = new MockWebhookServer();
+    await webhookServer.start();
+  });
+
+  afterEach(async () => {
+    await webhookServer.stop();
+  });
+
+  function makeConfigWithWebhook(
+    repoPath: string,
+    webhookUrl: string,
+    events?: string[],
+  ): NeoConfig {
+    return {
+      repos: [
+        {
+          path: repoPath,
+          defaultBranch: "main",
+          branchPrefix: "feat",
+          pushRemote: "origin",
+          gitStrategy: "branch",
+        },
+      ],
+      concurrency: { maxSessions: 5, maxPerRepo: 2, queueMax: 50 },
+      budget: { dailyCapUsd: 100, alertThresholdPct: 80 },
+      recovery: { maxRetries: 1, backoffBaseMs: 10 },
+      sessions: { initTimeoutMs: 5_000, maxDurationMs: 60_000, dir: SESSIONS_DIR },
+      webhooks: [
+        {
+          url: webhookUrl,
+          events,
+          timeoutMs: 5000,
+        },
+      ],
+      idempotency: { enabled: false, key: "prompt", ttlMs: 60_000 },
+      supervisor: {
+        port: 7777,
+        heartbeatTimeoutMs: 300_000,
+        maxConsecutiveFailures: 3,
+        maxEventsPerSec: 10,
+        dailyCapUsd: 50,
+        consolidationIntervalMs: 300_000,
+        compactionIntervalMs: 3_600_000,
+        eventTimeoutMs: 300_000,
+      },
+      memory: { embeddings: true },
+    };
+  }
+
+  it("delivers webhooks on session:start", { timeout: 15000 }, async () => {
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    const orchestrator = new Orchestrator(
+      makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:start"]),
+      { skipOrphanRecovery: true },
+    );
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test webhook on start",
+      branch: "feat/webhook-start",
+    });
+
+    // Allow time for webhook delivery
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    const webhooks = webhookServer.getReceivedWebhooks();
+    expect(webhooks.length).toBeGreaterThanOrEqual(1);
+
+    const startWebhook = webhooks.find((w) => w.payload.event === "session:start");
+    expect(startWebhook).toBeDefined();
+    expect(startWebhook?.payload.source).toBe("neo");
+    expect(startWebhook?.payload.version).toBe(1);
+    expect(startWebhook?.payload.payload.workflow).toBe("e2e-workflow");
+    expect(startWebhook?.payload.payload.agent).toBe("e2e-developer");
+
+    await orchestrator.shutdown();
+  });
+
+  it("delivers webhooks on session:complete with correct payload", { timeout: 15000 }, async () => {
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    const orchestrator = new Orchestrator(
+      makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
+      { skipOrphanRecovery: true },
+    );
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    const result = await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test webhook on complete",
+      branch: "feat/webhook-complete",
+    });
+
+    // Flush pending webhook deliveries
+    await orchestrator.shutdown();
+
+    const webhooks = webhookServer.getReceivedWebhooks();
+    expect(webhooks.length).toBeGreaterThanOrEqual(1);
+
+    const completeWebhook = webhooks.find((w) => w.payload.event === "session:complete");
+    expect(completeWebhook).toBeDefined();
+
+    const payload = completeWebhook?.payload as WebhookPayload;
+    expect(payload.source).toBe("neo");
+    expect(payload.version).toBe(1);
+    expect(payload.id).toBeDefined();
+    expect(payload.deliveredAt).toBeDefined();
+
+    // Verify session:complete payload structure
+    const eventPayload = payload.payload as Record<string, unknown>;
+    expect(eventPayload.runId).toBe(result.runId);
+    expect(eventPayload.status).toBe("success");
+    expect(typeof eventPayload.costUsd).toBe("number");
+    expect(typeof eventPayload.durationMs).toBe("number");
+    expect(eventPayload.timestamp).toBeDefined();
+  });
+
+  it("retries webhook on temporary failure (503)", { timeout: 30000 }, async () => {
+    // Configure server to fail twice, then succeed
+    webhookServer.setBehavior({ statusCode: 503, failCount: 2 });
+
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    const orchestrator = new Orchestrator(
+      makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
+      { skipOrphanRecovery: true },
+    );
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test webhook retry",
+      branch: "feat/webhook-retry",
+    });
+
+    // Flush pending webhook deliveries (waits for retries)
+    await orchestrator.shutdown();
+
+    // Should have received 3 requests total (2 failures + 1 success)
+    expect(webhookServer.getTotalRequestCount()).toBe(3);
+
+    // The successful webhook should be captured
+    const webhooks = webhookServer.getReceivedWebhooks();
+    expect(webhooks).toHaveLength(1);
+    expect(webhooks[0]?.payload.event).toBe("session:complete");
+  });
+
+  it("gives up after max retries", { timeout: 30000 }, async () => {
+    // Configure server to always fail (fail count > max retries)
+    webhookServer.setBehavior({ statusCode: 503, failCount: 10 });
+
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    const orchestrator = new Orchestrator(
+      makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:complete"]),
+      { skipOrphanRecovery: true },
+    );
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test webhook max retries",
+      branch: "feat/webhook-max-retry",
+    });
+
+    // Flush pending webhook deliveries
+    await orchestrator.shutdown();
+
+    // Should have attempted 3 times (RETRY_MAX_ATTEMPTS from webhook.ts)
+    expect(webhookServer.getTotalRequestCount()).toBe(3);
+
+    // No successful webhooks captured
+    const webhooks = webhookServer.getReceivedWebhooks();
+    expect(webhooks).toHaveLength(0);
+  });
+
+  it("webhook payload structure matches expected schema", { timeout: 15000 }, async () => {
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    // Subscribe to all events to verify different payload types
+    const orchestrator = new Orchestrator(makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl), {
+      skipOrphanRecovery: true,
+    });
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Test webhook schema",
+      branch: "feat/webhook-schema",
+      metadata: { testId: "schema-test" },
+    });
+
+    await orchestrator.shutdown();
+
+    const webhooks = webhookServer.getReceivedWebhooks();
+    expect(webhooks.length).toBeGreaterThan(0);
+
+    // Verify all webhooks have the required top-level structure
+    for (const webhook of webhooks) {
+      const payload = webhook.payload;
+
+      // Top-level structure
+      expect(payload.id).toBeDefined();
+      expect(typeof payload.id).toBe("string");
+      expect(payload.version).toBe(1);
+      expect(payload.event).toBeDefined();
+      expect(typeof payload.event).toBe("string");
+      expect(payload.source).toBe("neo");
+      expect(payload.deliveredAt).toBeDefined();
+      expect(typeof payload.deliveredAt).toBe("string");
+      expect(payload.payload).toBeDefined();
+      expect(typeof payload.payload).toBe("object");
+
+      // Event payload should have type matching the event name
+      expect(payload.payload.type).toBe(payload.event);
+      expect(payload.payload.timestamp).toBeDefined();
+    }
+
+    // Find specific events and verify their structure
+    const startPayload = webhooks.find((w) => w.payload.event === "session:start")?.payload.payload;
+    if (startPayload) {
+      expect(startPayload.sessionId).toBeDefined();
+      expect(startPayload.runId).toBeDefined();
+      expect(startPayload.workflow).toBe("e2e-workflow");
+      expect(startPayload.agent).toBe("e2e-developer");
+      expect(startPayload.repo).toBe(TEST_REPO_DIR);
+      expect(startPayload.metadata).toEqual({ testId: "schema-test" });
+    }
+
+    const completePayload = webhooks.find((w) => w.payload.event === "session:complete")?.payload
+      .payload;
+    if (completePayload) {
+      expect(completePayload.sessionId).toBeDefined();
+      expect(completePayload.runId).toBeDefined();
+      expect(completePayload.status).toBe("success");
+      expect(typeof completePayload.costUsd).toBe("number");
+      expect(typeof completePayload.durationMs).toBe("number");
+    }
+
+    const costPayload = webhooks.find((w) => w.payload.event === "cost:update")?.payload.payload;
+    if (costPayload) {
+      expect(costPayload.sessionId).toBeDefined();
+      expect(typeof costPayload.sessionCost).toBe("number");
+      expect(typeof costPayload.todayTotal).toBe("number");
+      expect(typeof costPayload.budgetRemainingPct).toBe("number");
+    }
+  });
+
+  it("delivers webhooks to MockWebhookServer correctly using full pattern", {
+    timeout: 15000,
+  }, async () => {
+    // This test validates the recommended pattern from T3 context:
+    // create test repo → configure webhook URL to MockWebhookServer → run orchestrator → verify
+
+    const webhookUrl = `http://127.0.0.1:${webhookServer.getPort()}`;
+    const orchestrator = new Orchestrator(
+      makeConfigWithWebhook(TEST_REPO_DIR, webhookUrl, ["session:start", "session:complete"]),
+      { skipOrphanRecovery: true },
+    );
+    orchestrator.registerWorkflow(makeWorkflow());
+    orchestrator.registerAgent(makeAgent());
+
+    await orchestrator.start();
+
+    const result = await orchestrator.dispatch({
+      workflow: "e2e-workflow",
+      repo: TEST_REPO_DIR,
+      prompt: "Full pattern test",
+      branch: "feat/full-pattern",
+    });
+
+    await orchestrator.shutdown();
+
+    // Verify webhooks using getReceivedWebhooks()
+    const webhooks = webhookServer.getReceivedWebhooks();
+
+    // Should have both session:start and session:complete
+    const eventTypes = webhooks.map((w) => w.payload.event);
+    expect(eventTypes).toContain("session:start");
+    expect(eventTypes).toContain("session:complete");
+
+    // Verify the runId matches across events
+    const runIds = webhooks.map((w) => w.payload.payload.runId as string);
+    const uniqueRunIds = [...new Set(runIds)];
+    expect(uniqueRunIds).toHaveLength(1);
+    expect(uniqueRunIds[0]).toBe(result.runId);
+
+    // Verify reset() works
+    webhookServer.reset();
+    expect(webhookServer.getReceivedWebhooks()).toHaveLength(0);
+    expect(webhookServer.getTotalRequestCount()).toBe(0);
   });
 });
