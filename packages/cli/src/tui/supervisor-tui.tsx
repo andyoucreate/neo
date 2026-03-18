@@ -407,84 +407,146 @@ function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
   );
 }
 
-function DecisionPanel({
-  decisions,
-  selectedIndex,
-  isAnswering,
-  answerInput,
-  onAnswerChange,
-  onAnswerSubmit,
-  frame,
-}: {
-  decisions: Decision[];
-  selectedIndex: number;
-  isAnswering: boolean;
-  answerInput: string;
-  onAnswerChange: (v: string) => void;
-  onAnswerSubmit: (v: string) => void;
-  frame: number;
-}) {
+/** Compact banner shown above activity when decisions exist but input is focused on chat */
+function DecisionBanner({ decisions, frame }: { decisions: Decision[]; frame: number }) {
   if (decisions.length === 0) return null;
 
   const pulseChars = ["★", "☆"];
   const pulse = pulseChars[frame % pulseChars.length];
 
   return (
+    <Box paddingX={2} gap={1}>
+      <Text dimColor>├</Text>
+      <Text color="#fbbf24" bold>
+        {pulse} {decisions.length} decision{decisions.length > 1 ? "s" : ""} pending
+      </Text>
+      <Text dimColor>
+        — press <Text bold>tab</Text> to review
+      </Text>
+    </Box>
+  );
+}
+
+/** Full decision input panel — replaces the chat input when focused */
+function DecisionInputPanel({
+  decision,
+  optionIndex,
+  isTextMode,
+  textInput,
+  onTextChange,
+  onSubmit,
+  decisionCount,
+  decisionIdx,
+  frame,
+}: {
+  decision: Decision;
+  optionIndex: number;
+  isTextMode: boolean;
+  textInput: string;
+  onTextChange: (v: string) => void;
+  onSubmit: (v: string) => void;
+  decisionCount: number;
+  decisionIdx: number;
+  frame: number;
+}) {
+  const hasOptions = decision.options && decision.options.length > 0;
+  const pulseChars = ["★", "☆"];
+  const pulse = pulseChars[frame % pulseChars.length];
+
+  return (
     <Box flexDirection="column">
+      {/* Header */}
       <Box paddingX={2} gap={1}>
         <Text dimColor>├</Text>
         <Text color="#fbbf24" bold>
-          {pulse} DECISIONS
+          {pulse} DECISION
         </Text>
-        <Text color="#fbbf24">({decisions.length} pending)</Text>
-        <Text dimColor>{"─".repeat(25)}</Text>
+        {decisionCount > 1 && (
+          <Text color="#fbbf24">
+            ({decisionIdx + 1}/{decisionCount})
+          </Text>
+        )}
+        <Text dimColor>{"─".repeat(30)}</Text>
       </Box>
-      {decisions.map((d, idx) => {
-        const isSelected = idx === selectedIndex;
-        const prefix = isSelected ? "▸" : "│";
 
-        return (
-          <Box key={d.id} flexDirection="column">
-            <Box gap={1} paddingX={2}>
-              {isSelected ? <Text color="#fbbf24">{prefix}</Text> : <Text dimColor>{prefix}</Text>}
-              <Text color="#fbbf24" bold={isSelected}>
-                [{d.id.slice(4, 12)}]
-              </Text>
-              <Text bold={isSelected} wrap="truncate">
-                {d.question}
-              </Text>
-            </Box>
-            {d.options && d.options.length > 0 && isSelected && (
-              <Box paddingX={4} gap={1}>
-                <Text dimColor>Options: </Text>
-                {d.options.map((opt, i) => (
-                  <Text key={opt.key} dimColor>
-                    [{opt.key}] {opt.label}
-                    {i < (d.options?.length ?? 0) - 1 ? " · " : ""}
-                  </Text>
-                ))}
-              </Box>
-            )}
-            {isSelected && isAnswering && (
-              <Box paddingX={4} gap={1}>
-                <Text color="#fbbf24" bold>
-                  →
-                </Text>
-                <TextInput
-                  value={answerInput}
-                  onChange={onAnswerChange}
-                  onSubmit={onAnswerSubmit}
-                  placeholder="type answer..."
-                />
-              </Box>
-            )}
-          </Box>
-        );
-      })}
+      {/* Question */}
       <Box paddingX={2} gap={1}>
         <Text dimColor>│</Text>
+        <Text bold wrap="truncate-end">
+          {decision.question}
+        </Text>
+      </Box>
+
+      {/* Context if available */}
+      {decision.context && (
+        <Box paddingX={2} gap={1}>
+          <Text dimColor>│</Text>
+          <Text dimColor wrap="truncate-end">
+            {decision.context}
+          </Text>
+        </Box>
+      )}
+
+      {/* Option selector or free text */}
+      {hasOptions ? (
+        <Box flexDirection="column">
+          {(decision.options ?? []).map((opt, idx) => {
+            const isSelected = idx === optionIndex;
+            return (
+              <Box key={opt.key} paddingX={2} gap={1}>
+                <Text dimColor>│</Text>
+                {isSelected ? (
+                  <Text color="#fbbf24" bold>
+                    ▸ {opt.label}
+                  </Text>
+                ) : (
+                  <Text dimColor>
+                    {"  "}
+                    {opt.label}
+                  </Text>
+                )}
+                {opt.description && isSelected && <Text dimColor>— {opt.description}</Text>}
+              </Box>
+            );
+          })}
+        </Box>
+      ) : (
+        <Box paddingX={2} gap={1}>
+          <Text dimColor>│</Text>
+          <Text color="#fbbf24" bold>
+            ❯
+          </Text>
+          <TextInput
+            value={textInput}
+            onChange={onTextChange}
+            onSubmit={onSubmit}
+            focus={isTextMode}
+            placeholder="type your answer..."
+          />
+        </Box>
+      )}
+
+      {/* Footer hints */}
+      <Box paddingX={2} gap={1}>
+        <Text dimColor>└</Text>
         <Text dimColor>
-          <Text bold>↑↓</Text> select · <Text bold>d</Text> answer · <Text bold>esc</Text> cancel
+          {hasOptions ? (
+            <>
+              <Text bold>↑↓</Text> choose · <Text bold>enter</Text> confirm
+            </>
+          ) : (
+            <>
+              <Text bold>enter</Text> send
+            </>
+          )}
+          {decisionCount > 1 && (
+            <>
+              {" · "}
+              <Text bold>←→</Text> prev/next
+            </>
+          )}
+          {" · "}
+          <Text bold>tab</Text> chat · <Text bold>esc</Text> back
         </Text>
       </Box>
     </Box>
@@ -545,11 +607,13 @@ function InputPanel({
   onChange,
   onSubmit,
   lastSent,
+  focus,
 }: {
   value: string;
   onChange: (v: string) => void;
   onSubmit: (v: string) => void;
   lastSent: string;
+  focus: boolean;
 }) {
   return (
     <Box flexDirection="column">
@@ -562,6 +626,7 @@ function InputPanel({
           value={value}
           onChange={onChange}
           onSubmit={onSubmit}
+          focus={focus}
           placeholder="message the supervisor..."
         />
       </Box>
@@ -573,7 +638,7 @@ function InputPanel({
   );
 }
 
-function Footer() {
+function Footer({ hasDecisions }: { hasDecisions: boolean }) {
   return (
     <Box paddingX={2} gap={1} justifyContent="center">
       <Text dimColor>
@@ -583,6 +648,14 @@ function Footer() {
       <Text dimColor>
         <Text bold>enter</Text> send
       </Text>
+      {hasDecisions && (
+        <>
+          <Text dimColor>·</Text>
+          <Text dimColor>
+            <Text bold>tab</Text> decisions
+          </Text>
+        </>
+      )}
       <Text dimColor>·</Text>
       <Text dimColor>daemon keeps running</Text>
     </Box>
@@ -678,8 +751,9 @@ export function SupervisorTui({ name }: { name: string }) {
 
   // Decision interaction state
   const [decisionIndex, setDecisionIndex] = useState(0);
-  const [isAnsweringDecision, setIsAnsweringDecision] = useState(false);
+  const [optionIndex, setOptionIndex] = useState(0);
   const [decisionAnswer, setDecisionAnswer] = useState("");
+  const [focusMode, setFocusMode] = useState<"input" | "decisions">("input");
 
   // Track terminal resize
   useEffect(() => {
@@ -719,6 +793,14 @@ export function SupervisorTui({ name }: { name: string }) {
       if (newDecisions.length > 0 && decisionIndex >= newDecisions.length) {
         setDecisionIndex(0);
       }
+      // Auto-switch to decisions mode when new decisions appear
+      if (newDecisions.length > 0 && decisions.length === 0) {
+        setFocusMode("decisions");
+      }
+      // Return to input mode when all decisions are resolved
+      if (newDecisions.length === 0 && decisions.length > 0) {
+        setFocusMode("input");
+      }
     }
 
     poll();
@@ -727,39 +809,79 @@ export function SupervisorTui({ name }: { name: string }) {
       active = false;
       clearInterval(interval);
     };
-  }, [name, decisionIndex]);
+  }, [name, decisionIndex, decisions.length]);
 
-  useInput((char, key) => {
-    // If answering a decision, escape cancels
-    if (isAnsweringDecision) {
-      if (key.escape) {
-        setIsAnsweringDecision(false);
+  // Current decision being interacted with
+  const currentDecision = decisions[decisionIndex] as Decision | undefined;
+  const currentHasOptions = (currentDecision?.options?.length ?? 0) > 0;
+
+  // Submit the selected option or free-text answer
+  const submitDecisionAnswer = useCallback(
+    async (answer: string) => {
+      if (!answer.trim() || !currentDecision) return;
+      try {
+        await answerDecision(name, currentDecision.id, answer.trim());
+        setLastSent(`Decision ${currentDecision.id.slice(4, 12)}: "${answer.trim()}"`);
         setDecisionAnswer("");
+        setOptionIndex(0);
+      } catch {
+        // Decision may have been answered already
       }
-      return;
-    }
+    },
+    [name, currentDecision],
+  );
 
-    // Global escape exits
-    if (key.escape) {
-      exit();
-      return;
-    }
+  const handleOptionNav = useCallback(
+    (key: { upArrow: boolean; downArrow: boolean; return: boolean }): boolean => {
+      const options = currentDecision?.options;
+      if (!options || options.length === 0) return false;
 
-    // Decision navigation (when decisions exist and not in input mode)
-    if (decisions.length > 0) {
       if (key.upArrow) {
-        setDecisionIndex((i) => Math.max(0, i - 1));
-        return;
+        setOptionIndex((i) => Math.max(0, i - 1));
+        return true;
       }
       if (key.downArrow) {
-        setDecisionIndex((i) => Math.min(decisions.length - 1, i + 1));
-        return;
+        setOptionIndex((i) => Math.min(options.length - 1, i + 1));
+        return true;
       }
-      // 'd' to answer selected decision
-      if (char === "d" && !isAnsweringDecision) {
-        setIsAnsweringDecision(true);
-        setDecisionAnswer("");
-        return;
+      if (key.return) {
+        const opt = options[optionIndex];
+        if (opt) submitDecisionAnswer(opt.key);
+        return true;
+      }
+      return false;
+    },
+    [currentDecision, optionIndex, submitDecisionAnswer],
+  );
+
+  useInput((_char, key) => {
+    if (key.tab && decisions.length > 0) {
+      setFocusMode((m) => (m === "input" ? "decisions" : "input"));
+      setOptionIndex(0);
+      return;
+    }
+
+    if (key.escape) {
+      if (focusMode === "decisions") {
+        setFocusMode("input");
+      } else {
+        exit();
+      }
+      return;
+    }
+
+    if (focusMode !== "decisions" || decisions.length === 0) return;
+
+    if (currentHasOptions && handleOptionNav(key)) return;
+
+    // ←→ to switch between decisions when multiple
+    if (decisions.length > 1) {
+      if (key.leftArrow) {
+        setDecisionIndex((i) => Math.max(0, i - 1));
+        setOptionIndex(0);
+      } else if (key.rightArrow) {
+        setDecisionIndex((i) => Math.min(decisions.length - 1, i + 1));
+        setOptionIndex(0);
       }
     }
   });
@@ -774,26 +896,6 @@ export function SupervisorTui({ name }: { name: string }) {
     [name],
   );
 
-  const handleDecisionAnswer = useCallback(
-    async (answer: string) => {
-      if (!answer.trim()) return;
-      const decision = decisions[decisionIndex];
-      if (!decision) return;
-
-      try {
-        await answerDecision(name, decision.id, answer.trim());
-        setIsAnsweringDecision(false);
-        setDecisionAnswer("");
-        setLastSent(`Decision ${decision.id.slice(4, 12)}: "${answer.trim()}"`);
-      } catch {
-        // Error handling - decision may have been answered already
-        setIsAnsweringDecision(false);
-        setDecisionAnswer("");
-      }
-    },
-    [name, decisions, decisionIndex],
-  );
-
   const costHistory = extractCostHistory(entries);
 
   // Calculate height adjustments for panels
@@ -801,28 +903,51 @@ export function SupervisorTui({ name }: { name: string }) {
     (t) => t.outcome !== "done" && t.outcome !== "abandoned",
   ).length;
   const taskPanelLines = tasks.length > 0 ? Math.min(activeTaskCount, 6) + 2 : 0;
-  const decisionPanelLines = decisions.length > 0 ? Math.min(decisions.length, 3) * 2 + 3 : 0;
+  const decisionPanelLines =
+    focusMode === "decisions" && currentDecision
+      ? (currentHasOptions ? (currentDecision.options?.length ?? 0) : 1) + 4
+      : decisions.length > 0
+        ? 1
+        : 0;
+
+  // Bottom panel: either decision input or chat input
+  const bottomPanel =
+    focusMode === "decisions" && currentDecision ? (
+      <DecisionInputPanel
+        decision={currentDecision}
+        optionIndex={optionIndex}
+        isTextMode={!currentHasOptions}
+        textInput={decisionAnswer}
+        onTextChange={setDecisionAnswer}
+        onSubmit={submitDecisionAnswer}
+        decisionCount={decisions.length}
+        decisionIdx={decisionIndex}
+        frame={frame}
+      />
+    ) : (
+      <>
+        <InputPanel
+          value={input}
+          onChange={setInput}
+          onSubmit={handleSubmit}
+          lastSent={lastSent}
+          focus={focusMode === "input"}
+        />
+        <Footer hasDecisions={decisions.length > 0} />
+      </>
+    );
 
   return (
     <Box flexDirection="column">
       <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
-      <DecisionPanel
-        decisions={decisions}
-        selectedIndex={decisionIndex}
-        isAnswering={isAnsweringDecision}
-        answerInput={decisionAnswer}
-        onAnswerChange={setDecisionAnswer}
-        onAnswerSubmit={handleDecisionAnswer}
-        frame={frame}
-      />
+      {focusMode !== "decisions" && <DecisionBanner decisions={decisions} frame={frame} />}
       <TaskPanel tasks={tasks} />
       <ActivityPanel
         entries={entries}
         termHeight={termHeight - taskPanelLines - decisionPanelLines}
       />
-      <InputPanel value={input} onChange={setInput} onSubmit={handleSubmit} lastSent={lastSent} />
-      <Footer />
+      {bottomPanel}
     </Box>
   );
 }
