@@ -43,15 +43,6 @@ import {
   supervisorStoppedEventSchema,
 } from "./webhookEvents.js";
 
-// ─── Default values for deprecated config fields ─────────
-// These maintain backward compatibility while allowing config removal.
-
-/** Max idle heartbeats to skip before forcing a heartbeat (no events, no active work) */
-const DEFAULT_IDLE_SKIP_MAX = 20;
-
-/** Max heartbeats to skip when there's active work but no events */
-const DEFAULT_ACTIVE_WORK_SKIP_MAX = 3;
-
 /** Consolidation runs every N heartbeats */
 const DEFAULT_CONSOLIDATION_INTERVAL = 5;
 
@@ -538,20 +529,22 @@ export class HeartbeatLoop {
     const hasActiveWork = activeRuns.length > 0;
 
     if (totalEventCount === 0) {
+      const { idleSkipMax, activeWorkSkipMax } = this.config.supervisor;
+
       if (hasActiveWork) {
-        if (activeWorkSkipCount < DEFAULT_ACTIVE_WORK_SKIP_MAX) {
+        if (activeWorkSkipCount < activeWorkSkipMax) {
           await this.updateState({
             activeWorkSkipCount: activeWorkSkipCount + 1,
             idleSkipCount: 0,
           });
           await this.activityLog.log(
             "heartbeat",
-            `Active-work skip #${activeWorkSkipCount + 1}/${DEFAULT_ACTIVE_WORK_SKIP_MAX} — ${activeRuns.length} runs active, no events`,
+            `Active-work skip #${activeWorkSkipCount + 1}/${activeWorkSkipMax} — ${activeRuns.length} runs active, no events`,
           );
           return { shouldSkip: true, resetCounters: false };
         }
       } else {
-        if (idleSkipCount < DEFAULT_IDLE_SKIP_MAX) {
+        if (idleSkipCount < idleSkipMax) {
           await this.updateState({
             idleSkipCount: idleSkipCount + 1,
             activeWorkSkipCount: 0,
