@@ -13,6 +13,7 @@ import {
   isToolUseMessage,
   type SDKStreamMessage,
 } from "@/sdk-types";
+import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import { DecisionStore } from "./decisions.js";
@@ -770,7 +771,11 @@ export class HeartbeatLoop {
     }
   }
 
-  /** Read persisted run files and return summaries of active (running/paused) runs. */
+  /**
+   * Read persisted run files and return summaries of active (running/paused) runs.
+   * Validates that "running" runs are actually alive by checking their PID.
+   * Stale runs (dead PID past grace period) are filtered out to prevent ghost runs.
+   */
   private async getActiveRuns(): Promise<string[]> {
     const runsDir = getRunsDir();
     if (!existsSync(runsDir)) return [];
@@ -789,7 +794,8 @@ export class HeartbeatLoop {
           try {
             const raw = await readFile(path.join(subDir, f), "utf-8");
             const run = JSON.parse(raw) as PersistedRun;
-            if (run.status === "running" || run.status === "paused") {
+
+            if (this.isRunActive(run)) {
               active.push(
                 `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
               );
@@ -804,6 +810,47 @@ export class HeartbeatLoop {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Determine if a persisted run is actually active (not stale).
+   *
+   * For "running" status, validates:
+   * - If PID exists and process is alive → active
+   * - If PID exists but process is dead → stale (ghost run)
+   * - If no PID and within grace period → active (still starting up)
+   * - If no PID and past grace period → stale (ghost run)
+   *
+   * For "paused" status: always considered active (waiting for user action).
+   */
+  private isRunActive(run: PersistedRun): boolean {
+    // Skip non-active statuses
+    if (run.status !== "running" && run.status !== "paused") {
+      return false;
+    }
+
+    // Paused runs are always considered active (waiting for user action)
+    if (run.status === "paused") {
+      return true;
+    }
+
+    // For running status, validate the run is actually alive
+    // If PID exists and process is alive, it's active
+    if (run.pid && isProcessAlive(run.pid)) {
+      return true;
+    }
+
+    // If PID exists but process is dead, it's a stale ghost run
+    if (run.pid) {
+      return false;
+    }
+
+    // No PID: check grace period (run may still be starting up)
+    /** Grace period before a run without PID can be considered stale (ms). */
+    const STALE_GRACE_PERIOD_MS = 30_000;
+    const ageMs = Date.now() - new Date(run.createdAt).getTime();
+
+    return ageMs < STALE_GRACE_PERIOD_MS;
   }
 
   /**
