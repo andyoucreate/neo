@@ -652,6 +652,12 @@ export class HeartbeatLoop {
 
   /**
    * Call the Claude SDK and stream results.
+   *
+   * Uses Promise.race to enable non-blocking abort detection. The standard
+   * `for await (const message of stream)` pattern only checks the abort signal
+   * AFTER each yield — if the SDK hangs (no messages), the abort never executes.
+   * This implementation races each iterator.next() against an abort promise,
+   * allowing immediate response to shutdown/timeout signals.
    */
   private async callSdk(
     prompt: string,
@@ -691,22 +697,50 @@ export class HeartbeatLoop {
 
       const stream = sdk.query({ prompt, options: queryOptions as never });
 
-      for await (const message of stream) {
-        if (abortController.signal.aborted) break;
-
-        const msg = message as SDKStreamMessage;
-
-        if (isInitMessage(msg)) {
-          this.sessionId = msg.session_id;
+      // Create abort promise that resolves when signal fires
+      const abortPromise = new Promise<{ aborted: true }>((resolve) => {
+        if (abortController.signal.aborted) {
+          resolve({ aborted: true });
+          return;
         }
+        abortController.signal.addEventListener("abort", () => resolve({ aborted: true }), {
+          once: true,
+        });
+      });
 
-        if (isResultMessage(msg)) {
-          output = msg.result ?? "";
-          costUsd = msg.total_cost_usd ?? 0;
-          turnCount = msg.num_turns ?? 0;
+      // Use Promise.race pattern for abortable stream iteration
+      const iterator = stream[Symbol.asyncIterator]();
+      try {
+        while (true) {
+          const raceResult = await Promise.race([iterator.next(), abortPromise]);
+
+          // Check if abort triggered
+          if ("aborted" in raceResult) {
+            await this.activityLog.log("heartbeat", "Heartbeat aborted", { heartbeatId });
+            break;
+          }
+
+          // Normal iterator result
+          const iterResult = raceResult as IteratorResult<unknown>;
+          if (iterResult.done) break;
+
+          const msg = iterResult.value as SDKStreamMessage;
+
+          if (isInitMessage(msg)) {
+            this.sessionId = msg.session_id;
+          }
+
+          if (isResultMessage(msg)) {
+            output = msg.result ?? "";
+            costUsd = msg.total_cost_usd ?? 0;
+            turnCount = msg.num_turns ?? 0;
+          }
+
+          await this.logStreamMessage(msg, heartbeatId);
         }
-
-        await this.logStreamMessage(msg, heartbeatId);
+      } finally {
+        // Properly cleanup iterator when done or aborted
+        await iterator.return?.();
       }
     } finally {
       clearTimeout(timeout);
