@@ -1,5 +1,7 @@
+import { randomUUID } from "node:crypto";
+import { appendFile } from "node:fs/promises";
 import type { Decision, DecisionOption } from "@neotx/core";
-import { DecisionStore, getSupervisorDecisionsPath } from "@neotx/core";
+import { DecisionStore, getSupervisorDecisionsPath, getSupervisorDir } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess, printTable } from "../output.js";
 
@@ -250,6 +252,17 @@ async function handleAnswer(args: ParsedArgs): Promise<void> {
 
   try {
     await store.answer(idArg, answerArg);
+
+    // Wake up the supervisor heartbeat by appending to inbox.jsonl
+    const dir = getSupervisorDir(args.name);
+    const inboxMessage = {
+      id: randomUUID(),
+      from: "user" as const,
+      text: `decision:answer ${idArg} ${answerArg}`,
+      timestamp: new Date().toISOString(),
+    };
+    await appendFile(`${dir}/inbox.jsonl`, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+
     printSuccess(`Decision answered: ${idArg} → "${answerArg}"`);
   } catch (error) {
     printError(error instanceof Error ? error.message : "Unknown error");
