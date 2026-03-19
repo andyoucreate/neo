@@ -571,6 +571,8 @@ describe("buildIdlePrompt", () => {
           question: "Fix SQL injection?",
           type: "approval",
           options: [{ key: "yes", label: "Fix" }],
+          source: "agent:reviewer",
+          createdAt: "2024-01-15T10:00:00.000Z",
         },
       ],
     };
