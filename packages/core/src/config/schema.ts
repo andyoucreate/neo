@@ -90,6 +90,10 @@ export const supervisorConfigSchema = z
     /** Safety timeout for waitForWork (ms) */
     eventTimeoutMs: z.number().default(300_000),
     instructions: z.string().optional(),
+    /** Max consecutive idle loop iterations before supervisor pauses polling */
+    idleSkipMax: z.number().default(20),
+    /** Max consecutive active-work loop iterations before supervisor yields */
+    activeWorkSkipMax: z.number().default(3),
   })
   .default({
     port: 7777,
@@ -100,6 +104,8 @@ export const supervisorConfigSchema = z
     consolidationIntervalMs: 300_000,
     compactionIntervalMs: 3_600_000,
     eventTimeoutMs: 300_000,
+    idleSkipMax: 20,
+    activeWorkSkipMax: 3,
   });
 
 // ─── Global config schema (~/.neo/config.yml) ───────────
