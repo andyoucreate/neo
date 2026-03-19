@@ -18,6 +18,7 @@ import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import { DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
+import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
@@ -42,15 +43,6 @@ import {
   supervisorStartedEventSchema,
   supervisorStoppedEventSchema,
 } from "./webhookEvents.js";
-
-// ─── Default values for deprecated config fields ─────────
-// These maintain backward compatibility while allowing config removal.
-
-/** Max idle heartbeats to skip before forcing a heartbeat (no events, no active work) */
-const DEFAULT_IDLE_SKIP_MAX = 20;
-
-/** Max heartbeats to skip when there's active work but no events */
-const DEFAULT_ACTIVE_WORK_SKIP_MAX = 3;
 
 /** Consolidation runs every N heartbeats */
 const DEFAULT_CONSOLIDATION_INTERVAL = 5;
@@ -138,6 +130,14 @@ export function isRunActive(
 interface BudgetCheckResult {
   todayCost: number;
   exceeded: boolean;
+}
+
+interface SkipLogicInput {
+  state: SupervisorDaemonState | null;
+  totalEventCount: number;
+  activeRuns: string[];
+  hasPendingConsolidation: boolean;
+  hasExpiredDecisions: boolean;
 }
 
 interface SkipLogicResult {
@@ -379,18 +379,25 @@ export class HeartbeatLoop {
     await this.processDecisionAnswers(rawEvents, decisionStore);
 
     // Auto-answer expired decisions
-    await decisionStore.expire();
+    const expiredDecisions = await decisionStore.expire();
+    const hasExpiredDecisions = expiredDecisions.length > 0;
 
     // Get pending decisions for prompt context (prepared for T3)
     // T3 will integrate this into buildHeartbeatModePrompt
     const _pendingDecisions = await decisionStore.pending();
     void _pendingDecisions; // Suppress unused variable warning until T3
 
+    // Check for pending consolidation entries
+    const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
+    const hasPendingConsolidation = unconsolidatedEntries.length > 0;
+
     // Handle skip logic for idle/active-work scenarios
     const skipResult = await this.handleSkipLogic({
       state,
       totalEventCount,
       activeRuns,
+      hasPendingConsolidation,
+      hasExpiredDecisions,
     });
     if (skipResult.shouldSkip) return;
     if (skipResult.resetCounters) {
@@ -526,40 +533,62 @@ export class HeartbeatLoop {
 
   /**
    * Handle skip logic for idle and active-work scenarios.
+   * Uses IdleDetector to make skip decisions based on context.
    */
-  private async handleSkipLogic(opts: {
-    state: SupervisorDaemonState | null;
-    totalEventCount: number;
-    activeRuns: string[];
-  }): Promise<SkipLogicResult> {
-    const { state, totalEventCount, activeRuns } = opts;
+  private async handleSkipLogic(opts: SkipLogicInput): Promise<SkipLogicResult> {
+    const { state, totalEventCount, activeRuns, hasPendingConsolidation, hasExpiredDecisions } =
+      opts;
     const idleSkipCount = state?.idleSkipCount ?? 0;
     const activeWorkSkipCount = state?.activeWorkSkipCount ?? 0;
     const hasActiveWork = activeRuns.length > 0;
 
-    if (totalEventCount === 0) {
+    // Calculate time since last heartbeat
+    const lastHeartbeatMs = state?.lastHeartbeat
+      ? new Date(state.lastHeartbeat).getTime()
+      : Date.now();
+    const timeSinceLastHeartbeatMs = Date.now() - lastHeartbeatMs;
+
+    // Build context for IdleDetector
+    const context: IdleContext = {
+      eventCount: totalEventCount,
+      activeRuns: activeRuns.length,
+      hasPendingConsolidation,
+      hasExpiredDecisions,
+      timeSinceLastHeartbeatMs,
+      idleSkipCount,
+      activeWorkSkipCount,
+    };
+
+    // Create detector with current config values
+    const detector = new IdleDetector({
+      idleSkipMax: this.config.supervisor.idleSkipMax,
+      activeWorkSkipMax: this.config.supervisor.activeWorkSkipMax,
+    });
+
+    const result = detector.shouldSkip(context);
+
+    if (result.shouldSkip) {
+      // Update skip counters based on whether there's active work
       if (hasActiveWork) {
-        if (activeWorkSkipCount < DEFAULT_ACTIVE_WORK_SKIP_MAX) {
-          await this.updateState({
-            activeWorkSkipCount: activeWorkSkipCount + 1,
-            idleSkipCount: 0,
-          });
-          await this.activityLog.log(
-            "heartbeat",
-            `Active-work skip #${activeWorkSkipCount + 1}/${DEFAULT_ACTIVE_WORK_SKIP_MAX} — ${activeRuns.length} runs active, no events`,
-          );
-          return { shouldSkip: true, resetCounters: false };
-        }
+        await this.updateState({
+          activeWorkSkipCount: activeWorkSkipCount + 1,
+          idleSkipCount: 0,
+        });
+        await this.activityLog.log(
+          "heartbeat",
+          `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${result.reason}`,
+        );
       } else {
-        if (idleSkipCount < DEFAULT_IDLE_SKIP_MAX) {
-          await this.updateState({
-            idleSkipCount: idleSkipCount + 1,
-            activeWorkSkipCount: 0,
-          });
-          await this.activityLog.log("heartbeat", `Idle skip #${idleSkipCount + 1} — no events`);
-          return { shouldSkip: true, resetCounters: false };
-        }
+        await this.updateState({
+          idleSkipCount: idleSkipCount + 1,
+          activeWorkSkipCount: 0,
+        });
+        await this.activityLog.log(
+          "heartbeat",
+          `Idle skip #${idleSkipCount + 1}/${this.config.supervisor.idleSkipMax} — ${result.reason}`,
+        );
       }
+      return { shouldSkip: true, resetCounters: false };
     }
 
     const needsReset = idleSkipCount > 0 || activeWorkSkipCount > 0;

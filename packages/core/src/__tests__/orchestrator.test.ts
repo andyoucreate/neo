@@ -100,6 +100,8 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
       consolidationIntervalMs: 300_000,
       compactionIntervalMs: 3_600_000,
       eventTimeoutMs: 300_000,
+      idleSkipMax: 20,
+      activeWorkSkipMax: 3,
     },
     memory: { embeddings: true },
     ...overrides,
