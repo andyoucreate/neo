@@ -716,6 +716,16 @@ async function readDecisions(name: string): Promise<Decision[]> {
 async function answerDecision(name: string, id: string, answer: string): Promise<void> {
   const store = new DecisionStore(getSupervisorDecisionsPath(name));
   await store.answer(id, answer);
+
+  // Wake up the supervisor heartbeat by appending to inbox.jsonl
+  const inboxMessage = {
+    id: randomUUID(),
+    from: "tui" as const,
+    text: `decision:answer ${id} ${answer}`,
+    timestamp: new Date().toISOString(),
+  };
+  const inboxPath = getSupervisorInboxPath(name);
+  await appendFile(inboxPath, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
 }
 
 async function sendMessage(name: string, text: string): Promise<void> {
