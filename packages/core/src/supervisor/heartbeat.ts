@@ -684,6 +684,9 @@ export class HeartbeatLoop {
         permissionMode: "bypassPermissions",
         allowDangerouslySkipPermissions: true,
         mcpServers: this.config.mcpServers ?? {},
+        // Don't persist session history — each heartbeat is a fresh conversation.
+        // Without this, supervisor restarts could replay old messages.
+        persistSession: false,
       };
 
       const stream = sdk.query({ prompt, options: queryOptions as never });
