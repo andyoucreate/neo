@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ActivityEntry, Decision, MemoryEntry, SupervisorDaemonState } from "@neotx/core";
+import type {
+  ActivityEntry,
+  Decision,
+  InboxMessage,
+  MemoryEntry,
+  SupervisorDaemonState,
+} from "@neotx/core";
 import {
   DecisionStore,
   getSupervisorActivityPath,
@@ -718,14 +724,23 @@ async function answerDecision(name: string, id: string, answer: string): Promise
   await store.answer(id, answer);
 
   // Wake up the supervisor heartbeat by appending to inbox.jsonl
-  const inboxMessage = {
+  const inboxMessage: InboxMessage = {
     id: randomUUID(),
-    from: "tui" as const,
+    from: "tui",
     text: `decision:answer ${id} ${answer}`,
     timestamp: new Date().toISOString(),
   };
   const inboxPath = getSupervisorInboxPath(name);
-  await appendFile(inboxPath, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+  const dir = getSupervisorDir(name);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(inboxPath, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+  } catch (error) {
+    // Log but don't fail the answer operation - the decision was still recorded
+    console.error(
+      `Warning: Failed to write to inbox: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 async function sendMessage(name: string, text: string): Promise<void> {
