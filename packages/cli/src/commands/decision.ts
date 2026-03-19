@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { appendFile } from "node:fs/promises";
-import type { Decision, DecisionOption } from "@neotx/core";
+import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
+import type { Decision, DecisionOption, InboxMessage } from "@neotx/core";
 import { DecisionStore, getSupervisorDecisionsPath, getSupervisorDir } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess, printTable } from "../output.js";
@@ -255,13 +256,22 @@ async function handleAnswer(args: ParsedArgs): Promise<void> {
 
     // Wake up the supervisor heartbeat by appending to inbox.jsonl
     const dir = getSupervisorDir(args.name);
-    const inboxMessage = {
+    const inboxMessage: InboxMessage = {
       id: randomUUID(),
-      from: "user" as const,
+      from: "external",
       text: `decision:answer ${idArg} ${answerArg}`,
       timestamp: new Date().toISOString(),
     };
-    await appendFile(`${dir}/inbox.jsonl`, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+    const inboxPath = path.join(dir, "inbox.jsonl");
+    try {
+      await mkdir(dir, { recursive: true });
+      await appendFile(inboxPath, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+    } catch (error) {
+      // Log but don't fail the answer operation - the decision was still recorded
+      console.error(
+        `Warning: Failed to write to inbox: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
 
     printSuccess(`Decision answered: ${idArg} → "${answerArg}"`);
   } catch (error) {
