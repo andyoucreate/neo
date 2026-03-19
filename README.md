@@ -2,23 +2,23 @@
 
 **Neoscaling** - stop hiring, start dispatching.
 
-We built a framework that orchestrates autonomous Claude agents. It spawns isolated git clones, manages concurrency, handles 3-level recovery, and tracks every dollar spent. Then we let it build itself - 342 runs, $256, 3 days across 6 repositories. Zero infrastructure.
+An autonomous daemon that orchestrates Claude agents to build software. It spawns isolated git clones, manages concurrency, handles 3-level recovery, and tracks every dollar spent. Then we let it build itself - 342 runs, $256, 3 days across 6 repositories. Zero infrastructure.
 
-Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Claude Code loop, a custom script) acts as the CEO - it decides what needs to happen. neo is the CTO that takes those decisions and organizes an entire engineering team: dispatching developers, architects, reviewers, and fixers in parallel, monitoring their work, handling failures, and reporting back.
+Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Claude Code loop, Notion, or you) acts as the CEO - it decides what needs to happen. neo's **supervisor daemon** is the CTO that takes those decisions and autonomously organizes an entire engineering team: dispatching developers, architects, reviewers, and fixers in parallel, monitoring their work, handling failures, and reporting back.
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                     CEO                             │
-│  OpenClaw agent, Claude Code loop, custom script,   │
-│  or human - decides WHAT to build                   │
+│  Notion pipeline, OpenClaw agent, Claude Code,      │
+│  custom script, or human - decides WHAT to build    │
 └──────────────────────┬──────────────────────────────┘
-                       │ talks to neo via CLI, API, or webhooks
+                       │ talks to the supervisor via CLI, API, webhooks
                        v
 ┌─────────────────────────────────────────────────────┐
-│                 NEO (the CTO)                       │
-│  built-in supervisor daemon · event-driven loop     │
-│  dispatches · monitors · recovers · remembers       │
-│  isolation · concurrency · budget · memory          │
+│           SUPERVISOR (neo's built-in CTO)           │
+│  autonomous daemon · event-driven heartbeat loop    │
+│  dispatches → monitors → reviews → fixes → retries  │
+│  isolation · concurrency · budget · memory · TUI    │
 └──────────────────────┬──────────────────────────────┘
                        │ spawns in isolated git clones
                        v
@@ -29,7 +29,7 @@ Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Clau
                     the engineering team
 ```
 
-The CEO decides *what* needs to happen. neo handles *how* - organizing the team, managing the workflow, and reporting results back up.
+The CEO decides *what* needs to happen. The supervisor handles *how* - organizing the team, managing the develop→review→fix cycle, and reporting results back up.
 
 ---
 
@@ -42,17 +42,17 @@ npm install -g @neotx/cli
 # Initialize in your repo
 cd your-project && neo init
 
-# Start the supervisor - your CTO with a live dashboard
+# Start the supervisor - your autonomous CTO with a live TUI dashboard
 neo supervise
 ```
 
-That's it. The supervisor opens a live TUI dashboard and starts its autonomous heartbeat loop. It's not a chatbot - it's an event-driven daemon that reacts to what happens. Send it work via `neo run` or `neo supervise --message`, and it monitors, dispatches follow-up agents, and handles the full develop -> review -> fix cycle on its own.
+That's it. The supervisor opens a live TUI dashboard and starts its autonomous heartbeat loop. **It's not a chatbot** - it's an event-driven daemon that reacts to what happens in your codebase. Send it work via `neo run`, integrate it with Notion, or trigger it via webhooks, and it autonomously handles the full develop → review → fix cycle.
 
 ```bash
-# Send work to the supervisor (he will orchestrate)
+# Send work to the supervisor (it will orchestrate)
 neo supervise --message "Implement the auth system from ticket PROJ-42"
 
-# Or send a agent yourself
+# Or dispatch a single agent yourself
 neo run developer --prompt "Add input validation to the user registration endpoint"
 
 # Check on progress
@@ -109,33 +109,52 @@ Agents support inheritance (`extends`), tool customization (`$inherited`), and p
 
 ## How It Works
 
-### Supervisor mode (recommended)
+### The Supervisor - Your Autonomous CTO
 
-When you run `neo supervise`, neo starts its built-in CTO - a long-lived daemon with a live TUI dashboard. The supervisor is **not conversational** - it's an event-driven heartbeat loop that reacts to what happens in your repos:
+When you run `neo supervise`, neo starts its **built-in supervisor daemon** - a long-lived process with a live TUI dashboard. The supervisor is **not conversational** - it's an event-driven heartbeat loop that autonomously orchestrates your engineering team:
 
-1. **Opens** a live TUI with status, budget sparklines, and the full activity feed
-2. **Runs** a heartbeat loop that checks for pending work, completed runs, and failures
-3. **Dispatches** the right agents based on events (reviewer after dev completes, fixer after review finds issues)
-4. **Listens** for webhooks from all running agents (completions, failures, budget alerts)
-5. **Decides** what to do next at each heartbeat (escalate, retry, dispatch follow-up)
-6. **Remembers** via persistent memory - facts, procedures, and episodes that future agents inherit
+**What the supervisor does at each heartbeat:**
 
-You send work via `neo run` or `neo supervise --message`. The supervisor picks it up on the next heartbeat and orchestrates the full lifecycle:
+1. **Monitors** - checks for completed runs, failed runs, and pending work
+2. **Decides** - determines what to do next (dispatch reviewer, fixer, escalate, retry)
+3. **Dispatches** - automatically launches the right agents based on events:
+   - Developer completes → dispatches reviewer
+   - Reviewer finds issues → dispatches fixer
+   - Fixer completes → re-dispatches reviewer
+   - Loops until approved or escalates
+4. **Integrates** - pulls tickets from Notion pipeline, updates statuses, posts results
+5. **Remembers** - writes to persistent memory so future agents learn from past runs
+6. **Reports** - live TUI shows status, budget sparklines, and full activity feed
+
+**The supervisor handles the full develop → review → fix cycle autonomously.**
 
 ```bash
-# Send work
+# Start the supervisor with live TUI
+neo supervise
+
+# Send work - picked up at next heartbeat
 neo supervise --message "Implement the auth system from ticket PROJ-42"
 
-# The supervisor's heartbeat loop autonomously:
-#   1. Dispatches architect to design the system
-#   2. On architect completion, dispatches developer for each task
-#   3. On developer completion, dispatches reviewer
-#   4. On review issues, dispatches fixer
-#   5. Re-reviews until approved or escalates
-#   6. Writes results to memory for future runs
+# The supervisor autonomously orchestrates:
+#   1. Dispatches developer to implement
+#   2. On completion, dispatches reviewer
+#   3. On issues found, dispatches fixer
+#   4. Re-reviews until approved or escalates
+#   5. Updates Notion ticket status
+#   6. Writes learnings to memory
 ```
 
-### Single dispatch
+### Notion Integration
+
+The supervisor has **first-class Notion integration**. Configure your Notion database, and the supervisor:
+
+- Pulls tickets from "Ready for dev" column at each heartbeat
+- Routes tickets (developer, architect, refiner, or scout)
+- Updates ticket status as work progresses (CI pending → In review → Done)
+- Posts PR links and agent output back to tickets
+- Escalates blockers for human review
+
+### Single Dispatch (Direct Mode)
 
 You can also bypass the supervisor and dispatch agents directly:
 
@@ -167,65 +186,61 @@ Each agent works in its own clone. Your main branch is never touched.
 
 neo gives you:
 
-- **Built-in supervisor** - an event-driven CTO daemon with live TUI; it reacts to events and organizes the team autonomously
+- **Autonomous supervisor daemon** - event-driven CTO that handles develop→review→fix cycles without human intervention
+- **Live TUI dashboard** - real-time status, budget sparklines, activity feed, and heartbeat monitoring
+- **Notion integration** - first-class pipeline support; pull tickets, update statuses, post results
 - **Parallel execution** - run 8+ agents simultaneously across repos
 - **Safe isolation** - each agent gets its own git clone; main is never touched
 - **Budget control** - hard daily caps with real-time cost tracking and alerts
 - **3-level recovery** - normal, resume session, fresh session with exponential backoff
 - **Persistent memory** - agents learn from past runs via SQLite + FTS5 + local vector embeddings
-- **Framework, not product** - no UI opinions, no database; integrate with Linear, Notion, Slack, anything
+- **Framework, not product** - integrate with Linear, Notion, Slack, anything via CLI, API, or webhooks
 
 ---
 
-## The Supervisor - neo's Built-in CTO
+## Advanced Usage
 
-neo ships with a **built-in supervisor daemon** (`neo supervise`). This is the CTO layer - an autonomous agent that runs as a long-lived process, monitors your engineering team, and orchestrates the full development lifecycle.
+### Running the Supervisor as a Daemon
 
-### How the supervisor works
-
-The supervisor is **not a chatbot**. It's an event-driven heartbeat loop - think cron on steroids. At each heartbeat it:
-
-1. Checks for new messages in its inbox (`neo supervise --message` or `neo run` completions)
-2. Reads pending events from its webhook server (agent completions, failures, budget alerts)
-3. Evaluates the state of all active work
-4. Makes decisions: dispatch follow-up agents, escalate, retry, or wait
-5. Writes to persistent memory so future heartbeats and agents have context
-
-Between heartbeats, the TUI shows live status, budget sparklines, and the full activity feed.
+The supervisor can run in the background without the TUI:
 
 ```bash
-# Start the supervisor with the live TUI
-neo supervise
-
-# Or run headless in the background
+# Start headless in the background
 neo supervise --detach
+
+# Check what the supervisor is doing
+neo supervise --status
+
+# Attach to the TUI later
+neo supervise --attach
 
 # Send work - picked up at the next heartbeat
 neo supervise --message "Focus on the auth module - ship by Friday"
 
-# Check what the CTO is doing
-neo supervise --status
+# Stop the daemon
+neo supervise --kill
 ```
 
-### CEO -> CTO communication
+### Integrating with External Systems
 
-The CEO layer (OpenClaw, Claude Code, a custom script, or you) sends work to neo through:
+The supervisor exposes multiple integration points for external CEOs (OpenClaw, Claude Code, custom scripts):
 
-- **Messages** - `neo supervise --message` drops into the supervisor's inbox
-- **Direct dispatch** - `neo run` dispatches agents that the supervisor monitors
-- **Programmatic API** - `@neotx/core` Orchestrator with typed events
-- **Webhooks** - neo pushes `session:complete`, `session:fail`, `budget:alert` events to any URL
+**1. Message Queue** - `neo supervise --message` drops into the supervisor's inbox
+**2. Direct Dispatch** - `neo run` dispatches agents that the supervisor monitors
+**3. Programmatic API** - `@neotx/core` Orchestrator with typed events
+**4. Webhooks** - supervisor pushes `session:complete`, `session:fail`, `budget:alert` events to any URL
 
-The supervisor is always running. It picks up new work, reacts to completions, and drives the lifecycle forward - no polling, no babysitting required.
+### Programmatic API
 
-### External agent as CEO
-
-An OpenClaw agent, a Claude Code loop, or any agent with CLI/API access can drive neo:
+External agents can drive neo programmatically:
 
 ```typescript
 import { Orchestrator, loadGlobalConfig, AgentRegistry } from "@neotx/core";
 
-// The CEO agent pulls tickets, dispatches via neo, reads results
+const config = await loadGlobalConfig();
+const orchestrator = new Orchestrator(config);
+
+// Dispatch work
 const result = await orchestrator.dispatch({
   agent: "developer",
   repo: "/path/to/repo",
@@ -233,13 +248,13 @@ const result = await orchestrator.dispatch({
   metadata: { ticket: "PROJ-42", stage: "develop" },
 });
 
-// CEO reads result and decides next action
+// React to completion
 if (result.status === "success") {
-  await linearClient.updateIssue(ticketId, { state: "in-review" });
+  await notionClient.updatePage(ticketId, { status: "In review" });
   await slackClient.postMessage(channel, `Completed PROJ-42: ${result.branch}`);
 }
 
-// CEO subscribes to events for real-time monitoring
+// Subscribe to events for real-time monitoring
 orchestrator.on("session:complete", (e) => log(`Done: $${e.costUsd}`));
 orchestrator.on("budget:alert", (e) => slack.alert(`Budget at ${e.utilizationPct}%`));
 ```
@@ -422,38 +437,45 @@ orchestrator.on("*", (e) => { /* all events */ });
 ## Architecture
 
 ```
-CEO layer          OpenClaw, Claude Code, custom script, or human
+CEO layer          Notion pipeline, OpenClaw, Claude Code, custom script, or human
   |                gives strategic direction
   v
 @neotx/cli         CLI interface (citty)
   |
 @neotx/core        The CTO - orchestration engine
-  |-- supervisor     Built-in daemon: heartbeat, webhooks, event queue, TUI
+  |-- supervisor/    Built-in autonomous daemon (the CTO)
+  |   |-- daemon       Process lifecycle, lockfile, state management
+  |   |-- heartbeat    Event-driven loop, routing, dispatch logic
+  |   |-- event-queue  Webhook events, inbox messages, file watching
+  |   |-- memory       SQLite store, FTS5, sqlite-vec embeddings
+  |   |-- activity-log Append-only journal for supervisor actions
+  |   +-- decisions    User decision gates for scout findings
   |-- orchestrator   Dispatch, lifecycle, budget, events
   |-- runner         SDK session management, 3-level recovery
   |-- isolation      Git clone isolation, sandbox config
   |-- concurrency    Priority semaphore with per-repo limits
   |-- middleware     Chain execution, SDK hooks conversion
-  |-- memory         SQLite store, FTS5, sqlite-vec embeddings
   |-- events         Typed emitter, JSONL journals, webhooks
   +-- cost           Daily tracking, monthly rotation
   |
 @neotx/agents      The team - YAML definitions and prompts
   |-- architect      Plans and decomposes
   |-- developer      Implements in isolated clones
-  |-- reviewer       Reviews quality, security, perf, coverage
-  |-- fixer          Fixes issues from reviews
-  +-- refiner        Evaluates and splits vague tickets
+  |-- reviewer       Reviews quality, security, perf, coverage (challenges by default)
+  |-- fixer          Fixes issues from reviews, targets root causes
+  |-- refiner        Evaluates and splits vague tickets
+  +-- scout          Autonomous codebase explorer, surfaces bugs and tech debt
 ```
 
 ### Design Principles
 
-- **CEO/CTO/Team hierarchy** - external agents give direction, neo organizes the team, agents execute
-- **Framework, not product** - no UI, no database, no opinions on trackers
+- **CEO/CTO/Team hierarchy** - external agents (or Notion) give direction, the supervisor organizes the team, agents execute
+- **Autonomous by default** - the supervisor handles develop→review→fix cycles without human intervention
+- **Event-driven architecture** - heartbeat loop reacts to webhooks, not polling; everything emits typed events
+- **Framework, not product** - no UI opinions, no database; integrate with anything via CLI, API, or webhooks
 - **SDK-first** - wraps the Claude Agent SDK; updates flow through naturally
 - **YAML for definitions, TypeScript for dispatch** - agents are data, orchestration is code
 - **Zero infrastructure** - JSONL journals, git clone isolation, in-memory semaphore. No Docker, no Redis, no DB.
-- **Events are the integration primitive** - everything emits typed events
 
 ### Recovery
 
