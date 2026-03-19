@@ -330,7 +330,9 @@ function buildPendingDecisionsSection(
 neo decision answer <decision_id> <answer>
 \`\`\`
 
-For each decision: analyze the options, consider the project context and risk, then answer decisively. Prefer safe, incremental choices when uncertain. Log your reasoning before answering.`
+For each decision: analyze the options, consider the project context and risk, then answer decisively. Prefer safe, incremental choices when uncertain. Log your reasoning before answering.
+
+**Merge authority:** In autoDecide mode you MAY merge branches when the PR is ready (CI green, reviews approved). Use \`gh pr merge\` with the appropriate merge strategy.`
     : `To answer a decision, emit a \`decision:answer\` event:
 \`\`\`bash
 neo event emit decision:answer --data '{"id":"<decision_id>","answer":"<option_key>"}'
@@ -846,7 +848,7 @@ ${getCommandsSection(opts.heartbeatCount)}
 </reference>
 
 <directive>
-Idle — but there are pending decisions to resolve. You are in **autoDecide** mode: answer each pending decision now using your best engineering judgment, then yield.
+Idle — but there are pending decisions to resolve. You are in **autoDecide** mode: answer each pending decision now using your best engineering judgment, then yield. You MAY merge branches when PRs are ready (CI green, reviews approved).
 </directive>`;
     }
 

@@ -32,7 +32,7 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 - Agent extends: $inherited token in tools array keeps parent tools, promptAppend adds to inherited prompt
 
 # Do NOT
-- Do not merge branches automatically — neo creates branches/PRs but NEVER merges (destructive, irreversible)
+- Do not merge branches automatically — neo creates branches/PRs but NEVER merges (destructive, irreversible). **Exception:** in `autoDecide` mode, the supervisor MAY merge branches when it judges the PR is ready (CI green, review passed)
 - Do not use exec() for git commands — use execFile() to prevent shell injection
 - Do not add infrastructure dependencies (SQLite, Redis, etc.) — zero-infra is a hard constraint (ADR-007)
 - Do not put business logic in CLI commands — CLI is a thin wrapper over @neotx/core
