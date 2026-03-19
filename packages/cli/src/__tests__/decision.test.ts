@@ -1,15 +1,16 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_decision_test__");
 
-// Mock getSupervisorDecisionsPath to use our temp directory
+// Mock getSupervisorDecisionsPath and getSupervisorDir to use our temp directory
 vi.mock("@neotx/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@neotx/core")>();
   return {
     ...actual,
     getSupervisorDecisionsPath: () => path.join(TMP_DIR, "decisions.jsonl"),
+    getSupervisorDir: () => TMP_DIR,
   };
 });
 
@@ -201,6 +202,40 @@ describe("neo decision answer", () => {
         expect.stringContaining(`Decision answered: ${id}`),
       );
       expect(mockPrintSuccess).toHaveBeenCalledWith(expect.stringContaining('"yes"'));
+    } finally {
+      process.argv = originalArgv;
+    }
+  });
+
+  it("writes inbox.jsonl with correct message format", async () => {
+    const id = await createTestDecision({ question: "Deploy?" });
+
+    const originalArgv = process.argv;
+    process.argv = ["node", "neo", "decision", "answer", id, "approved"];
+
+    try {
+      await runDecisionCommand("answer", { value: id });
+
+      // Verify inbox.jsonl was written with correct content
+      const inboxPath = path.join(TMP_DIR, "inbox.jsonl");
+      const inboxContent = await readFile(inboxPath, "utf-8");
+      const lines = inboxContent.trim().split("\n");
+      expect(lines).toHaveLength(1);
+
+      const firstLine = lines[0];
+      expect(firstLine).toBeDefined();
+      const message = JSON.parse(firstLine as string) as {
+        id: string;
+        from: string;
+        text: string;
+        timestamp: string;
+      };
+      expect(message.id).toBeDefined();
+      expect(message.from).toBe("external");
+      expect(message.text).toBe(`decision:answer ${id} approved`);
+      expect(message.timestamp).toBeDefined();
+      // Verify timestamp is valid ISO string
+      expect(() => new Date(message.timestamp)).not.toThrow();
     } finally {
       process.argv = originalArgv;
     }
