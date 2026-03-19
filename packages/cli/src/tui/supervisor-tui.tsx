@@ -719,6 +719,24 @@ async function readDecisions(name: string): Promise<Decision[]> {
   }
 }
 
+/**
+ * Writes a message to the supervisor's inbox.jsonl file.
+ * Creates the directory if it doesn't exist and handles write errors gracefully.
+ */
+async function writeToInbox(name: string, message: InboxMessage): Promise<void> {
+  const inboxPath = getSupervisorInboxPath(name);
+  const dir = getSupervisorDir(name);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+  } catch (error) {
+    // Log but don't fail - the caller can decide whether to throw
+    console.error(
+      `Warning: Failed to write to inbox: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 async function answerDecision(name: string, id: string, answer: string): Promise<void> {
   const store = new DecisionStore(getSupervisorDecisionsPath(name));
   await store.answer(id, answer);
@@ -730,31 +748,28 @@ async function answerDecision(name: string, id: string, answer: string): Promise
     text: `decision:answer ${id} ${answer}`,
     timestamp: new Date().toISOString(),
   };
-  const inboxPath = getSupervisorInboxPath(name);
-  const dir = getSupervisorDir(name);
-  try {
-    await mkdir(dir, { recursive: true });
-    await appendFile(inboxPath, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
-  } catch (error) {
-    // Log but don't fail the answer operation - the decision was still recorded
-    console.error(
-      `Warning: Failed to write to inbox: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  await writeToInbox(name, inboxMessage);
 }
 
 async function sendMessage(name: string, text: string): Promise<void> {
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  const message = { id, from: "tui" as const, text, timestamp };
-  const inboxPath = getSupervisorInboxPath(name);
-  await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+  const message: InboxMessage = { id, from: "tui", text, timestamp };
+  await writeToInbox(name, message);
 
   // Write to activity.jsonl so the message appears in the TUI conversation
   const activityEntry = { id, type: "message", summary: text, timestamp };
   const activityPath = getSupervisorActivityPath(name);
-  await appendFile(activityPath, `${JSON.stringify(activityEntry)}\n`, "utf-8");
+  const dir = getSupervisorDir(name);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(activityPath, `${JSON.stringify(activityEntry)}\n`, "utf-8");
+  } catch (error) {
+    console.error(
+      `Warning: Failed to write to activity: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 // ─── Main Component ──────────────────────────────────────
