@@ -55,27 +55,74 @@ export function buildGitStrategyInstructions(
 export function buildReportingInstructions(_runId: string): string {
   return `## Reporting & Memory
 
-### Progress reporting (real-time, visible in TUI)
-Chain \`neo log\` with the command that triggered it — never standalone:
-\`\`\`bash
-pnpm test && neo log milestone "all tests passing" || neo log blocker "tests failing"
-git push origin HEAD && neo log action "pushed to branch"
-neo log decision "chose JWT over sessions — simpler for MVP"
-\`\`\`
+You have two tools to communicate what you learn and do: \`neo log\` (real-time visibility) and \`neo memory\` (persistent knowledge for future agents). Use both deliberately throughout your work.
 
-### Memory (persistent, injected into future agent prompts)
-Write discoveries so the next agent on this repo starts smarter:
-\`\`\`bash
-# Stable facts — things the next agent shouldn't have to rediscover
-neo memory write --type fact --scope $NEO_REPOSITORY "Monorepo uses pnpm workspaces — run commands from package dir, not root"
-neo memory write --type fact --scope $NEO_REPOSITORY "Auth tokens stored in HTTP-only cookies, not localStorage — see src/auth/session.ts"
+### Progress reporting — \`neo log\`
 
-# How-to procedures — non-obvious workflows that failed before being understood
+Chain \`neo log\` with the command that triggered the event — never call it standalone.
+
+<log-types>
+| Type | When to use | Example |
+|------|------------|---------|
+| \`milestone\` | A meaningful goal is achieved (tests pass, build succeeds, feature complete) | \`neo log milestone "auth middleware passing all tests"\` |
+| \`action\` | You performed a significant action (push, PR, deploy) | \`neo log action "pushed 3 commits to feat/auth"\` |
+| \`decision\` | You made a non-obvious choice — record WHY | \`neo log decision "chose JWT over sessions — stateless, simpler for MVP"\` |
+| \`blocker\` | Something is preventing progress | \`neo log blocker "CI fails: missing DATABASE_URL in test env"\` |
+| \`discovery\` | You found something surprising or important about the codebase | \`neo log discovery "API rate limiter is disabled in dev — tests hit real endpoints"\` |
+| \`progress\` | General progress update | \`neo log progress "3/5 endpoints migrated"\` |
+</log-types>
+
+<log-rules>
+- **Chain with commands**: \`pnpm test && neo log milestone "tests passing" || neo log blocker "tests failing"\`
+- **Log decisions with reasoning**: the "why" is more valuable than the "what"
+- **Log blockers immediately**: do not continue silently — surface problems so the supervisor can act
+- **Log at natural boundaries**: after completing a subtask, before switching context, when hitting an obstacle
+</log-rules>
+
+### Memory — \`neo memory\`
+
+Memory is persistent knowledge injected into future agent prompts. Write a memory when you learn something that would change HOW the next agent approaches work on this repo.
+
+<memory-types>
+| Type | When to write | Example |
+|------|--------------|---------|
+| \`fact\` | Stable truth that affects workflow decisions | Build quirks, CI config, auth patterns, deployment constraints |
+| \`procedure\` | Non-obvious multi-step workflow learned from failure | "Run X before Y otherwise Z breaks" |
+</memory-types>
+
+<memory-decision-tree>
+Before writing a memory, apply this test:
+1. Can \`cat package.json\`, \`ls\`, or reading the README answer this? → Do NOT memorize.
+2. Would knowing this change how you approach the task? → Write a \`fact\`.
+3. Did you fail before discovering this workflow? → Write a \`procedure\`.
+4. Is this just a detail about what you did (file counts, line numbers, component names)? → Do NOT memorize.
+</memory-decision-tree>
+
+<memory-examples type="good">
+# Affects workflow — non-obvious build/CI constraints
+neo memory write --type fact --scope $NEO_REPOSITORY "CI requires pnpm build before push — no auto-rebuild in pipeline"
+neo memory write --type fact --scope $NEO_REPOSITORY "Biome enforces complexity max 20 — extract helpers for large functions"
+
+# Learned from failure — save the next agent from the same mistake
 neo memory write --type procedure --scope $NEO_REPOSITORY "Run pnpm db:generate after any schema.prisma change — TypeScript types won't update otherwise"
 neo memory write --type procedure --scope $NEO_REPOSITORY "E2E tests need STRIPE_TEST_KEY in .env.test — tests hang silently without it"
-\`\`\`
+</memory-examples>
 
-Write at key moments: after discovering a convention not in docs, after resolving a non-obvious issue, before finishing.`;
+<memory-examples type="bad">
+# NEVER write these — trivial or derivable
+# "packages/core has 71 files" → derivable from ls
+# "Uses React 19" → visible in package.json
+# "Main entry is src/index.ts" → visible in package.json
+# "Tests use vitest" → visible in config files
+</memory-examples>
+
+<when-to-write>
+Write memories at these key moments:
+- **After resolving a non-obvious issue**: the fix revealed a constraint future agents should know
+- **After discovering a build/CI/deploy quirk**: the next agent will hit the same wall without this
+- **Before finishing your task**: review what you learned — anything that would save the next agent 10+ minutes?
+- **After a failed attempt**: if you tried something that seemed right but failed, document why
+</when-to-write>`;
 }
 
 // ─── Full prompt assembler ─────────────────────────────
