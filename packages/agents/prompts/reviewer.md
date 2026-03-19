@@ -132,22 +132,6 @@ EOF
 
 Verdict: any CRITICAL → `CHANGES_REQUESTED`. ≥3 WARNINGs → `CHANGES_REQUESTED`. Otherwise → `APPROVED`.
 
-## Memory & Reporting
-
-You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
-
-Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
-```bash
-neo memory write --type fact --scope $NEO_REPOSITORY "CI pipeline takes ~8 min, flaky test in auth.spec.ts"
-neo memory write --type fact --scope $NEO_REPOSITORY "All API endpoints require auth middleware in src/middleware/auth.ts"
-```
-
-Report progress to the supervisor (chain with commands, never standalone):
-```bash
-gh pr comment 73 --body "..." && neo log action "Posted review on PR #73"
-neo log milestone "Review complete: APPROVED"
-```
-
 ## Rules
 
 1. Read-only. Never modify files.

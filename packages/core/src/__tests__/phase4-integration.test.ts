@@ -55,18 +55,7 @@ describe("buildCompactionPrompt", () => {
 
 const AGENTS_DIR = path.resolve(import.meta.dirname, "../../..", "agents");
 
-describe("agent prompts contain memory and reporting instructions", () => {
-  const promptFiles = ["developer.md", "reviewer.md", "fixer.md", "architect.md", "refiner.md"];
-
-  for (const file of promptFiles) {
-    it(`${file} contains memory & reporting section`, async () => {
-      const content = await readFile(path.join(AGENTS_DIR, "prompts", file), "utf-8");
-      expect(content).toContain("## Memory & Reporting");
-      expect(content).toContain("neo memory write");
-      expect(content).toContain("neo log");
-    });
-  }
-
+describe("agent prompts and supervisor domain knowledge", () => {
   it("SUPERVISOR.md contains domain knowledge", async () => {
     const content = await readFile(path.join(AGENTS_DIR, "SUPERVISOR.md"), "utf-8");
     expect(content).toContain("Available Agents");

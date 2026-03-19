@@ -102,22 +102,6 @@ Split into atomic sub-tickets. Each MUST have:
 }
 ```
 
-## Memory & Reporting
-
-You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
-
-Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
-```bash
-neo memory write --type fact --scope $NEO_REPOSITORY "Uses Drizzle ORM with PostgreSQL for database access"
-neo memory write --type fact --scope $NEO_REPOSITORY "Feature modules follow src/modules/<name>/ directory pattern"
-```
-
-Report progress to the supervisor (chain with commands, never standalone):
-```bash
-neo log milestone "Ticket decomposed into 4 sub-tickets"
-neo log decision "Decomposing ticket — score 2, vague scope"
-```
-
 ## Decomposition Rules
 
 1. No file overlap between sub-tickets (unless dependency-ordered)

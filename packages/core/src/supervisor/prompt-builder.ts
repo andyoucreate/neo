@@ -781,19 +781,86 @@ export function isIdleHeartbeat(opts: PromptOptions): boolean {
 }
 
 /**
- * Build a minimal idle prompt (~50 tokens).
+ * Build the idle prompt.
  * Used when there are no events, no active runs, and no pending tasks.
+ * If repos are configured and budget allows, instructs the supervisor to dispatch a scout.
  */
 export function buildIdlePrompt(opts: StandardPromptOptions): string {
-  return `${buildRoleSection(opts.heartbeatCount)}
+  const budgetLine = `Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)`;
+  const hasRepos = opts.repos.length > 0;
+  const hasBudget = opts.budgetStatus.remainingPct > 10;
+  const hasPendingDecisions = (opts.pendingDecisions?.length ?? 0) > 0;
+
+  // If no repos or no budget, just yield
+  if (!hasRepos || !hasBudget) {
+    return `${buildRoleSection(opts.heartbeatCount)}
 
 <context>
 No events. No active runs. No pending tasks.
-Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)
+${budgetLine}
 </context>
 
 <directive>
 Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any other output.
+</directive>`;
+  }
+
+  const repoList = opts.repos.map((r) => `- ${r.path} (branch: ${r.defaultBranch})`).join("\n");
+
+  // If there are pending decisions from a previous scout, remind supervisor to wait
+  if (hasPendingDecisions) {
+    const pendingSection = buildPendingDecisionsSection(opts.pendingDecisions);
+    return `${buildRoleSection(opts.heartbeatCount)}
+
+<context>
+No events. No active runs. No pending tasks.
+${budgetLine}
+
+${pendingSection}
+
+Repositories:
+${repoList}
+</context>
+
+<directive>
+Idle — but there are pending decisions awaiting user response.
+Run \`neo log discovery "idle — waiting on ${String(opts.pendingDecisions?.length ?? 0)} pending decision(s)"\` and yield.
+</directive>`;
+  }
+
+  return `${buildRoleSection(opts.heartbeatCount)}
+
+<context>
+No events. No active runs. No pending tasks.
+${budgetLine}
+
+Repositories:
+${repoList}
+</context>
+
+<reference>
+${getCommandsSection(opts.heartbeatCount)}
+</reference>
+
+<directive>
+Idle — no work in progress. Use this downtime to dispatch a \`scout\` agent on one of your repositories.
+
+The scout explores the codebase and surfaces bugs, improvements, security issues, and tech debt. It creates decisions (via \`neo decision create\`) for each critical or high-impact finding, so the user can choose what to act on.
+
+**Rules:**
+- Pick the repo that was least recently scouted (check your memory for previous scout runs).
+- Only ONE scout at a time — never dispatch multiple scouts in parallel.
+- Use \`--branch main\` (or the repo's default branch) — scouts are read-only.
+- Log your decision before dispatching.
+
+**Example:**
+\`\`\`bash
+neo log decision "Idle — dispatching scout on <repo>"
+neo run scout --prompt "Explore this repository. Surface bugs, improvements, security issues, and tech debt. Create decisions for critical and high-impact findings." \\
+  --repo <path> \\
+  --branch <default-branch> \\
+  --meta '{"stage":"scout","label":"scout-<repo-name>"}'
+\`\`\`
 </directive>`;
 }
 

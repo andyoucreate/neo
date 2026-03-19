@@ -11,6 +11,7 @@ This file contains domain-specific knowledge for the supervisor. Commands, heart
 | `fixer` | opus | writable | Fixing issues found by reviewer — targets root causes |
 | `refiner` | opus | readonly | Evaluating ticket quality, splitting vague tickets |
 | `reviewer` | sonnet | readonly | Thorough single-pass review: quality, standards, security, perf, and coverage. Challenges by default — blocks on ≥1 CRITICAL or ≥3 WARNINGs |
+| `scout` | opus | readonly | Autonomous codebase explorer. Deep-dives into a repo to surface bugs, improvements, security issues, and tech debt. Creates decisions for the user |
 
 ## Agent Output Contracts
 
@@ -48,6 +49,17 @@ React to:
 - `action: "pass_through"` → dispatch `developer` with enriched context
 - `action: "decompose"` → create sub-tickets from `sub_tickets[]`, dispatch in order
 - `action: "escalate"` → mark ticket blocked, log questions
+
+### scout → `findings[]` + `decisions_created`
+
+React to:
+- Parse `findings[]` — each has `severity`, `category`, `suggestion`, and optional `decision_id`
+- CRITICAL findings with `decision_id` → wait for user decision before acting
+- HIGH findings with `decision_id` → wait for user decision before acting
+- User answers "yes" on a decision → route the finding as a ticket (dispatch `developer` or `architect` based on `effort`)
+- User answers "later" → backlog the finding
+- User answers "no" → discard
+- MEDIUM/LOW findings (no decisions created) → log for reference, no action needed
 
 ## Dispatch — `--meta` fields
 
@@ -104,6 +116,12 @@ neo run architect --prompt "Design decomposition for multi-tenant auth system" \
   --repo /path/to/repo \
   --branch feat/PROJ-99-multi-tenant-auth \
   --meta '{"ticketId":"PROJ-99","stage":"refine"}'
+
+# scout
+neo run scout --prompt "Explore this repository and surface bugs, improvements, security issues, and tech debt. Create decisions for critical and high-impact findings." \
+  --repo /path/to/repo \
+  --branch main \
+  --meta '{"stage":"scout"}'
 ```
 
 ## Protocol
@@ -128,6 +146,7 @@ neo run architect --prompt "Design decomposition for multi-tenant auth system" \
 | Clear criteria + small scope (< 5 points) | Dispatch `developer` |
 | Complexity ≥ 5 | Dispatch `architect` first |
 | Unclear criteria or vague scope | Dispatch `refiner` |
+| Proactive exploration / no specific ticket | Dispatch `scout` on target repo |
 
 ### 3. On Refiner Completion
 
@@ -161,7 +180,18 @@ Parse fixer's JSON output:
 - `status: "FIXED"` → update tracker → in review, re-dispatch `reviewer`.
 - `status: "ESCALATED"` → update tracker → blocked.
 
-### 8. On Agent Failure
+### 8. On Scout Completion
+
+Parse scout's JSON output:
+- For each finding with `decision_id`: wait for user decision at future heartbeat.
+- User answers "yes" on a decision:
+  - `effort: "XS" | "S"` → dispatch `developer` with finding as ticket
+  - `effort: "M" | "L"` → dispatch `architect` for design first
+- User answers "later" → log to backlog, no dispatch
+- User answers "no" → discard finding, no action
+- Log `health_score` and `strengths` for project context.
+
+### 9. On Agent Failure
 
 Update tracker → abandoned. Log the failure reason.
 
@@ -200,6 +230,41 @@ Infer missing fields before routing:
 - Chores: "Code is cleaned up without breaking existing behavior"
 
 **Priority** (when unset): `medium`
+
+## Idle Behavior — Scout Dispatch
+
+When the supervisor has **no events, no active runs, and no pending tasks**, it enters idle mode.
+
+Instead of doing nothing, dispatch a `scout` agent to proactively explore a repository:
+
+1. **Check preconditions:**
+   - Budget remaining > 10% — do not scout if budget is tight
+   - No pending decisions from a previous scout — wait for user to answer before scouting again
+   - No active runs — scout only when truly idle
+
+2. **Pick a repo:**
+   - Choose the repo least recently scouted (check memory for previous `scout` runs)
+   - If no scout has ever run, pick the first configured repo
+   - Rotate across repos over time — do not scout the same repo twice in a row
+
+3. **Dispatch:**
+   ```bash
+   neo log decision "Idle — dispatching scout on <repo-name>"
+   neo run scout --prompt "Explore this repository. Surface bugs, improvements, security issues, and tech debt. Create decisions for critical and high-impact findings." \
+     --repo <path> \
+     --branch <default-branch> \
+     --meta '{"stage":"scout","label":"scout-<repo-name>"}'
+   ```
+
+4. **On scout completion** (see Protocol §8):
+   - Read the output with `neo runs <runId>`
+   - The scout has already created decisions via `neo decision create`
+   - Log the `health_score` and finding count as a fact
+   - Wait for user to answer decisions at future heartbeats
+
+5. **Frequency guard:**
+   - Max ONE scout per repo per 24h — do not re-scout a repo that was scouted today
+   - Write a fact after each scout: `neo memory write --type fact --scope <repo> "Last scouted: <date>, health: <score>/10, <N> findings"`
 
 ## Safety Guards
 

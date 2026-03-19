@@ -538,19 +538,52 @@ describe("buildIdlePrompt", () => {
     expect(result).toContain("90% remaining");
   });
 
-  it("includes directive to yield", () => {
+  it("dispatches scout when repos and budget available", () => {
     const result = buildIdlePrompt(baseOpts());
-    expect(result).toContain("Nothing to do");
-    expect(result).toContain("neo log discovery");
-    expect(result).toContain("yield");
+    expect(result).toContain("scout");
+    expect(result).toContain("neo run scout");
+    expect(result).toContain("/repos/myapp");
   });
 
-  it("is minimal compared to standard prompt", () => {
+  it("yields without scout when no repos configured", () => {
+    const opts = { ...baseOpts(), repos: [] };
+    const result = buildIdlePrompt(opts);
+    expect(result).toContain("Nothing to do");
+    expect(result).not.toContain("scout");
+  });
+
+  it("yields without scout when budget is low", () => {
+    const opts = {
+      ...baseOpts(),
+      budgetStatus: { todayUsd: 48, capUsd: 50, remainingPct: 4 },
+    };
+    const result = buildIdlePrompt(opts);
+    expect(result).toContain("Nothing to do");
+    expect(result).not.toContain("scout");
+  });
+
+  it("waits for pending decisions instead of scouting", () => {
+    const opts = {
+      ...baseOpts(),
+      pendingDecisions: [
+        {
+          id: "dec_123",
+          question: "Fix SQL injection?",
+          type: "approval",
+          options: [{ key: "yes", label: "Fix" }],
+        },
+      ],
+    };
+    const result = buildIdlePrompt(opts);
+    expect(result).toContain("pending decision");
+    expect(result).toContain("dec_123");
+    expect(result).not.toContain("neo run scout");
+  });
+
+  it("is smaller than standard prompt", () => {
     const idlePrompt = buildIdlePrompt(baseOpts());
     const standardPrompt = buildStandardPrompt(baseOpts());
-
-    // Idle prompt should be significantly smaller
-    expect(idlePrompt.length).toBeLessThan(standardPrompt.length / 2);
+    expect(idlePrompt.length).toBeLessThan(standardPrompt.length);
   });
 
   it("respects custom budget values", () => {

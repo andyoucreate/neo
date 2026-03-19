@@ -91,22 +91,6 @@ You MUST push — the clone is destroyed after session ends.
 }
 ```
 
-## Memory & Reporting
-
-You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
-
-Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
-```bash
-neo memory write --type fact --scope $NEO_REPOSITORY "Error handling uses custom AppError class in src/errors.ts"
-neo memory write --type procedure --scope $NEO_REPOSITORY "Integration tests require DATABASE_URL env var to be set"
-```
-
-Report progress to the supervisor (chain with commands, never standalone):
-```bash
-git push origin HEAD && neo log action "Pushed fixes to branch"
-pnpm test && neo log milestone "All tests passing" || neo log blocker "Tests still failing"
-```
-
 ## Limits
 
 | Limit             | Value | On exceed |

@@ -74,22 +74,6 @@ that depends on all implementation tasks.
 }
 ```
 
-## Memory & Reporting
-
-You receive a "Known context" section with facts and procedures from previous runs. These are retrieved via semantic search — the most relevant memories for your task are automatically selected.
-
-Write stable discoveries to memory so future agents benefit. Memories are embedded locally for semantic retrieval — write clear, descriptive content:
-```bash
-neo memory write --type fact --scope $NEO_REPOSITORY "Monorepo with 3 packages: core engine, CLI wrapper, agent definitions"
-neo memory write --type fact --scope $NEO_REPOSITORY "Event-driven architecture using typed EventEmitter, all modules emit events"
-```
-
-Report progress to the supervisor (chain with commands, never standalone):
-```bash
-neo log milestone "Architecture design complete with 3 milestones, 8 tasks"
-neo log decision "Chose event-driven over polling for webhook integration"
-```
-
 ## Escalation
 
 STOP and report when:
