@@ -33,7 +33,8 @@ let mockMessages: MockMessage[] = [];
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (_args: unknown) => {
-    const messages = mockMessages;
+    // Capture a snapshot of mockMessages at call time to isolate concurrent runs
+    const messages = [...mockMessages];
     return {
       async *[Symbol.asyncIterator]() {
         for (const msg of messages) {
