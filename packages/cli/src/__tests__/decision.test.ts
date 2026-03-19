@@ -4,12 +4,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_decision_test__");
 
-// Mock getSupervisorDecisionsPath to use our temp directory
+// Mock getSupervisorDecisionsPath and getSupervisorDir to use our temp directory
 vi.mock("@neotx/core", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@neotx/core")>();
   return {
     ...actual,
     getSupervisorDecisionsPath: () => path.join(TMP_DIR, "decisions.jsonl"),
+    getSupervisorDir: () => TMP_DIR,
   };
 });
 
