@@ -258,6 +258,7 @@ neo cost        Show cost breakdown (today, by agent)
 neo log         Log structured progress reports to the supervisor
 neo agents      List available agents (built-in and custom)
 neo memory      Inspect and search supervisor memory
+neo decision    Manage decision gates for supervisor input
 neo doctor      Check environment prerequisites
 neo repos       Manage registered repositories
 neo mcp         Manage MCP server integrations (Linear, Notion, GitHub, etc.)

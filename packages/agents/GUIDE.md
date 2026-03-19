@@ -272,6 +272,86 @@ neo memory stats                                # Count by type and scope
 
 Additional flags: `--scope` (default: global), `--source` (developer/reviewer/supervisor/user), `--severity` (critical/high/medium/low), `--category` (context reference), `--tags` (comma-separated).
 
+### neo decision — Decision gates
+
+Decision gates allow the supervisor to pause and wait for user input on important choices. Scout agents create decisions when they find issues that require human judgment. Users answer decisions via CLI, and the supervisor routes based on the answer.
+
+```bash
+# Create a decision with options
+neo decision create "Should we refactor the auth module or patch the existing code?" \
+  --options "refactor:Full refactor:Clean solution but takes 2 days,patch:Quick patch:Fast but adds tech debt" \
+  --default-answer patch \
+  --expires-in 24h \
+  --context "Found 3 security issues in auth module"
+
+# List all pending decisions
+neo decision pending
+
+# List all decisions (including answered)
+neo decision list
+
+# Get details of a specific decision
+neo decision get dec_abc123
+
+# Answer a decision
+neo decision answer dec_abc123 refactor
+
+# JSON output for programmatic use
+neo decision list --json
+neo decision get dec_abc123 --json
+```
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--options`, `-o` | string | — | Options in format `key:label` or `key:label:description` (comma-separated) |
+| `--default-answer`, `-d` | string | — | Default answer key used if decision expires |
+| `--expires-in`, `-e` | duration | `24h` | Expiration duration (e.g., `30m`, `24h`, `7d`) |
+| `--type`, `-t` | string | `generic` | Decision type for categorization |
+| `--context`, `-c` | string | — | Additional context for the decision |
+| `--name` | string | `supervisor` | Supervisor name |
+| `--json` | boolean | `false` | Output as JSON |
+
+**Actions:**
+
+| Action | Description |
+|--------|-------------|
+| `create` | Create a new decision gate (VALUE = question text) |
+| `list` | List all decisions |
+| `pending` | List only unanswered decisions |
+| `get` | Get details of a decision (VALUE = decision ID) |
+| `answer` | Answer a decision (VALUE = decision ID, followed by answer key) |
+
+**Typical workflow:**
+
+1. **Scout finds issue** → Agent discovers something requiring human judgment
+2. **Creates decision** → `neo decision create "..." --options "..."` with clear options
+3. **User is notified** → Decision appears in `neo decision pending`
+4. **User answers** → `neo decision answer <id> <key>`
+5. **Supervisor routes** → Picks up the answer and dispatches appropriate follow-up
+
+**Example: Security issue triage**
+
+```bash
+# Scout agent creates a decision after finding vulnerabilities
+neo decision create "Found SQL injection in UserService. How should we proceed?" \
+  --options "block:Block release:Stop deployment until fixed,hotfix:Hotfix now:Emergency patch within 2h,schedule:Schedule fix:Add to next sprint" \
+  --default-answer block \
+  --expires-in 4h \
+  --type security \
+  --context "CVE-2024-1234 affects getUserById(). Risk: HIGH"
+
+# User checks pending decisions
+neo decision pending
+# Output:
+# ID            TYPE      QUESTION                                    EXPIRES
+# dec_x7k9m2    security  Found SQL injection in UserService...       3h 45m
+
+# User answers
+neo decision answer dec_x7k9m2 hotfix
+
+# Supervisor receives the answer and dispatches fixer agent with hotfix priority
+```
+
 ### neo webhooks — Event notifications
 
 Neo can push events to external URLs when things happen (agent completes, budget alert, etc.).
