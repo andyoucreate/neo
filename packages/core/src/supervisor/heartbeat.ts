@@ -382,6 +382,15 @@ export class HeartbeatLoop {
     // Call SDK with timeout + shutdown abort
     const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
 
+    // Warn if SDK stream completed without any turns — indicates silent timeout
+    if (turnCount === 0) {
+      await this.activityLog.log(
+        "warning",
+        `Heartbeat #${modeResult.heartbeatCount} completed with turnCount=0. SDK stream may have timed out before any turns completed.`,
+        { heartbeatId },
+      );
+    }
+
     // Mark events as processed so they are not replayed on restart
     if (rawEvents.length > 0) {
       const inboxPath = path.join(this.supervisorDir, "inbox.jsonl");

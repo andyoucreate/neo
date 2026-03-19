@@ -83,6 +83,7 @@ export const activityEntrySchema = z.object({
     "decision",
     "action",
     "error",
+    "warning",
     "event",
     "message",
     "thinking",
