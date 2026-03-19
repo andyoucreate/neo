@@ -87,6 +87,52 @@ export function shouldCompact(
   return since >= compactionInterval;
 }
 
+/** Grace period before a run without PID can be considered stale (ms). */
+export const STALE_GRACE_PERIOD_MS = 30_000;
+
+/**
+ * Determine if a persisted run is actually active (not stale).
+ *
+ * For "running" status, validates:
+ * - If PID exists and process is alive → active
+ * - If PID exists but process is dead → stale (ghost run)
+ * - If no PID and within grace period → active (still starting up)
+ * - If no PID and past grace period → stale (ghost run)
+ *
+ * For "paused" status: always considered active (waiting for user action).
+ */
+export function isRunActive(
+  run: PersistedRun,
+  isAlive: (pid: number) => boolean = isProcessAlive,
+  now: number = Date.now(),
+): boolean {
+  // Skip non-active statuses
+  if (run.status !== "running" && run.status !== "paused") {
+    return false;
+  }
+
+  // Paused runs are always considered active (waiting for user action)
+  if (run.status === "paused") {
+    return true;
+  }
+
+  // For running status, validate the run is actually alive
+  // If PID exists and process is alive, it's active
+  if (run.pid && isAlive(run.pid)) {
+    return true;
+  }
+
+  // If PID exists but process is dead, it's a stale ghost run
+  if (run.pid) {
+    return false;
+  }
+
+  // No PID: check grace period (run may still be starting up)
+  const ageMs = now - new Date(run.createdAt).getTime();
+
+  return ageMs < STALE_GRACE_PERIOD_MS;
+}
+
 // ─── Helper types for runHeartbeat refactoring ───────────
 
 interface BudgetCheckResult {
@@ -804,7 +850,7 @@ export class HeartbeatLoop {
             const raw = await readFile(path.join(subDir, f), "utf-8");
             const run = JSON.parse(raw) as PersistedRun;
 
-            if (this.isRunActive(run)) {
+            if (isRunActive(run)) {
               active.push(
                 `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
               );
@@ -819,47 +865,6 @@ export class HeartbeatLoop {
     } catch {
       return [];
     }
-  }
-
-  /**
-   * Determine if a persisted run is actually active (not stale).
-   *
-   * For "running" status, validates:
-   * - If PID exists and process is alive → active
-   * - If PID exists but process is dead → stale (ghost run)
-   * - If no PID and within grace period → active (still starting up)
-   * - If no PID and past grace period → stale (ghost run)
-   *
-   * For "paused" status: always considered active (waiting for user action).
-   */
-  private isRunActive(run: PersistedRun): boolean {
-    // Skip non-active statuses
-    if (run.status !== "running" && run.status !== "paused") {
-      return false;
-    }
-
-    // Paused runs are always considered active (waiting for user action)
-    if (run.status === "paused") {
-      return true;
-    }
-
-    // For running status, validate the run is actually alive
-    // If PID exists and process is alive, it's active
-    if (run.pid && isProcessAlive(run.pid)) {
-      return true;
-    }
-
-    // If PID exists but process is dead, it's a stale ghost run
-    if (run.pid) {
-      return false;
-    }
-
-    // No PID: check grace period (run may still be starting up)
-    /** Grace period before a run without PID can be considered stale (ms). */
-    const STALE_GRACE_PERIOD_MS = 30_000;
-    const ageMs = Date.now() - new Date(run.createdAt).getTime();
-
-    return ageMs < STALE_GRACE_PERIOD_MS;
   }
 
   /**
