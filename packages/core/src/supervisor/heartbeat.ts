@@ -16,7 +16,7 @@ import {
 import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
-import { DecisionStore } from "./decisions.js";
+import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
@@ -382,10 +382,11 @@ export class HeartbeatLoop {
     const expiredDecisions = await decisionStore.expire();
     const hasExpiredDecisions = expiredDecisions.length > 0;
 
-    // Get pending decisions for prompt context (prepared for T3)
-    // T3 will integrate this into buildHeartbeatModePrompt
-    const _pendingDecisions = await decisionStore.pending();
-    void _pendingDecisions; // Suppress unused variable warning until T3
+    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
+    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
+    const answeredDecisions = this.config.supervisor.autoDecide
+      ? await decisionStore.answered(state?.lastHeartbeat)
+      : [];
 
     // Check for pending consolidation entries
     const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
@@ -416,6 +417,8 @@ export class HeartbeatLoop {
       isCompaction: modeResult.isCompaction,
       isConsolidation: modeResult.isConsolidation,
       activeRuns,
+      pendingDecisions,
+      answeredDecisions,
       lastHeartbeat: state?.lastHeartbeat,
       lastConsolidationTimestamp: modeResult.lastConsolidationTs,
     });
@@ -675,6 +678,8 @@ export class HeartbeatLoop {
     isCompaction: boolean;
     isConsolidation: boolean;
     activeRuns: string[];
+    pendingDecisions: Decision[];
+    answeredDecisions: Decision[];
     lastHeartbeat: string | undefined;
     lastConsolidationTimestamp: string | undefined;
   }): Promise<{ prompt: string; modeLabel: string }> {
@@ -700,6 +705,9 @@ export class HeartbeatLoop {
       supervisorDir: this.supervisorDir,
       memories,
       recentActions,
+      pendingDecisions: opts.pendingDecisions,
+      answeredDecisions: opts.answeredDecisions,
+      autoDecide: this.config.supervisor.autoDecide,
     };
 
     if (opts.isCompaction) {

@@ -30,6 +30,7 @@ export const defaultConfig: NeoConfig = {
     eventTimeoutMs: 300_000,
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
+    autoDecide: false,
   },
   memory: { embeddings: true },
 };

@@ -94,6 +94,8 @@ export const supervisorConfigSchema = z
     idleSkipMax: z.number().default(20),
     /** Max consecutive active-work loop iterations before supervisor yields */
     activeWorkSkipMax: z.number().default(3),
+    /** When true, supervisor answers pending decisions autonomously instead of waiting for human input */
+    autoDecide: z.boolean().default(false),
   })
   .default({
     port: 7777,
@@ -106,6 +108,7 @@ export const supervisorConfigSchema = z
     eventTimeoutMs: 300_000,
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
+    autoDecide: false,
   });
 
 // ─── Global config schema (~/.neo/config.yml) ───────────

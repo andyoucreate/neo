@@ -124,6 +124,7 @@ function makeConfig(repoPath: string): NeoConfig {
       eventTimeoutMs: 300_000,
       idleSkipMax: 20,
       activeWorkSkipMax: 3,
+      autoDecide: false,
     },
     memory: { embeddings: true },
   };
@@ -690,6 +691,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         eventTimeoutMs: 300_000,
         idleSkipMax: 20,
         activeWorkSkipMax: 3,
+        autoDecide: false,
       },
       memory: { embeddings: true },
     };

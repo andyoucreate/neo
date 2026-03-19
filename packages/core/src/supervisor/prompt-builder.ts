@@ -23,6 +23,8 @@ export interface PromptOptions {
   recentActions: ActivityEntry[];
   pendingDecisions?: Decision[] | undefined;
   answeredDecisions?: Decision[] | undefined;
+  /** When true, supervisor answers decisions autonomously instead of waiting for human input */
+  autoDecide?: boolean | undefined;
 }
 
 export interface StandardPromptOptions extends PromptOptions {}
@@ -293,8 +295,12 @@ function buildFocusSection(memories: MemoryEntry[]): string {
 /**
  * Build the pending decisions section.
  * Shows decisions awaiting supervisor response with clear instructions.
+ * When autoDecide is true, instructs the supervisor to answer decisions autonomously.
  */
-function buildPendingDecisionsSection(decisions: Decision[] | undefined): string {
+function buildPendingDecisionsSection(
+  decisions: Decision[] | undefined,
+  autoDecide = false,
+): string {
   if (!decisions || decisions.length === 0) {
     return "";
   }
@@ -317,13 +323,23 @@ function buildPendingDecisionsSection(decisions: Decision[] | undefined): string
     }
   }
 
-  return `Pending decisions (${decisions.length}):
-${lines.join("\n")}
+  const instruction = autoDecide
+    ? `You are in **autoDecide** mode — answer each pending decision yourself based on available context, project knowledge, and best engineering judgment.
 
-To answer a decision, emit a \`decision:answer\` event:
+\`\`\`bash
+neo decision answer <decision_id> <answer>
+\`\`\`
+
+For each decision: analyze the options, consider the project context and risk, then answer decisively. Prefer safe, incremental choices when uncertain. Log your reasoning before answering.`
+    : `To answer a decision, emit a \`decision:answer\` event:
 \`\`\`bash
 neo event emit decision:answer --data '{"id":"<decision_id>","answer":"<option_key>"}'
 \`\`\``;
+
+  return `Pending decisions (${decisions.length}):
+${lines.join("\n")}
+
+${instruction}`;
 }
 
 /**
@@ -370,7 +386,7 @@ function buildFullContext(opts: PromptOptions): string {
   }
 
   // 2b. Decisions — pending questions requiring supervisor response
-  const pendingDecisions = buildPendingDecisionsSection(opts.pendingDecisions);
+  const pendingDecisions = buildPendingDecisionsSection(opts.pendingDecisions, opts.autoDecide);
   if (pendingDecisions) {
     parts.push(pendingDecisions);
   }
@@ -807,9 +823,33 @@ Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any ot
 
   const repoList = opts.repos.map((r) => `- ${r.path} (branch: ${r.defaultBranch})`).join("\n");
 
-  // If there are pending decisions from a previous scout, remind supervisor to wait
+  // If there are pending decisions from a previous scout
   if (hasPendingDecisions) {
-    const pendingSection = buildPendingDecisionsSection(opts.pendingDecisions);
+    const pendingSection = buildPendingDecisionsSection(opts.pendingDecisions, opts.autoDecide);
+
+    // In autoDecide mode, supervisor should answer decisions instead of waiting
+    if (opts.autoDecide) {
+      return `${buildRoleSection(opts.heartbeatCount)}
+
+<context>
+No events. No active runs. No pending tasks.
+${budgetLine}
+
+${pendingSection}
+
+Repositories:
+${repoList}
+</context>
+
+<reference>
+${getCommandsSection(opts.heartbeatCount)}
+</reference>
+
+<directive>
+Idle — but there are pending decisions to resolve. You are in **autoDecide** mode: answer each pending decision now using your best engineering judgment, then yield.
+</directive>`;
+    }
+
     return `${buildRoleSection(opts.heartbeatCount)}
 
 <context>

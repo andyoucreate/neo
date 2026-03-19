@@ -60,6 +60,7 @@ function createConfig(overrides?: Partial<GlobalConfig["supervisor"]>): GlobalCo
       eventTimeoutMs: 300_000,
       idleSkipMax: 3,
       activeWorkSkipMax: 2,
+      autoDecide: false,
       ...overrides,
     },
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
