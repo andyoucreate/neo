@@ -393,6 +393,28 @@ describe("loopDetection", () => {
     const result = await chain.execute(bashEvent, ctx);
     expect(result).toHaveProperty("decision", "block");
   });
+
+  it("cleanup() removes session history to prevent memory leaks", async () => {
+    const mw = loopDetection({ threshold: 3 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+    const event = makeEvent({ sessionId: "session-to-cleanup", input: { command: "npm test" } });
+
+    // Run command twice (under threshold)
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
+
+    // Cleanup the session
+    mw.cleanup("session-to-cleanup");
+
+    // After cleanup, count resets — first execution passes again
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(event, ctx)).toEqual({ decision: "pass" });
+
+    // Third execution now blocks (count is 3 after cleanup + 2 new)
+    const result = await chain.execute(event, ctx);
+    expect(result).toHaveProperty("decision", "block");
+  });
 });
 
 // ─── Audit Log ─────────────────────────────────────────
