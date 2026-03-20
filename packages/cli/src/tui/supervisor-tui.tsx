@@ -720,21 +720,30 @@ async function readDecisions(name: string): Promise<Decision[]> {
 }
 
 /**
+ * Appends a JSON entry to a JSONL file.
+ * Creates the parent directory if needed. Returns false on error.
+ */
+async function appendToJsonl(filePath: string, data: unknown): Promise<boolean> {
+  const dir = path.dirname(filePath);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(filePath, `${JSON.stringify(data)}\n`, "utf-8");
+    return true;
+  } catch (error) {
+    console.error(
+      `Warning: Failed to write to ${path.basename(filePath)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+}
+
+/**
  * Writes a message to the supervisor's inbox.jsonl file.
  * Creates the directory if it doesn't exist and handles write errors gracefully.
  */
-async function writeToInbox(name: string, message: InboxMessage): Promise<void> {
+async function writeToInbox(name: string, message: InboxMessage): Promise<boolean> {
   const inboxPath = getSupervisorInboxPath(name);
-  const dir = getSupervisorDir(name);
-  try {
-    await mkdir(dir, { recursive: true });
-    await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
-  } catch (error) {
-    // Log but don't fail - the caller can decide whether to throw
-    console.error(
-      `Warning: Failed to write to inbox: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  return appendToJsonl(inboxPath, message);
 }
 
 async function answerDecision(name: string, id: string, answer: string): Promise<void> {
@@ -759,17 +768,9 @@ async function sendMessage(name: string, text: string): Promise<void> {
   await writeToInbox(name, message);
 
   // Write to activity.jsonl so the message appears in the TUI conversation
-  const activityEntry = { id, type: "message", summary: text, timestamp };
+  const activityEntry: ActivityEntry = { id, type: "message", summary: text, timestamp };
   const activityPath = getSupervisorActivityPath(name);
-  const dir = getSupervisorDir(name);
-  try {
-    await mkdir(dir, { recursive: true });
-    await appendFile(activityPath, `${JSON.stringify(activityEntry)}\n`, "utf-8");
-  } catch (error) {
-    console.error(
-      `Warning: Failed to write to activity: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
+  await appendToJsonl(activityPath, activityEntry);
 }
 
 // ─── Main Component ──────────────────────────────────────
