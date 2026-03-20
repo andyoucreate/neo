@@ -278,7 +278,10 @@ export class Orchestrator extends NeoEventEmitter {
     super.emit(event);
     // Fire-and-forget event journal append
     if (this.eventJournal) {
-      this.eventJournal.append(event).catch(() => {});
+      this.eventJournal.append(event).catch((err) => {
+        // biome-ignore lint/suspicious/noConsole: Log journal write failures for debugging
+        console.debug("[neo] Event journal append failed:", err);
+      });
     }
     // Fire-and-forget webhook dispatch
     if (this.webhookDispatcher) {
@@ -668,7 +671,10 @@ export class Orchestrator extends NeoEventEmitter {
         durationMs: Date.now() - ctx.startedAt,
         repo: ctx.input.repo,
       };
-      this.costJournal.append(costEntry).catch(() => {});
+      this.costJournal.append(costEntry).catch((err) => {
+        // biome-ignore lint/suspicious/noConsole: Log journal write failures for debugging
+        console.debug("[neo] Cost journal append failed:", err);
+      });
     }
 
     this.emit({

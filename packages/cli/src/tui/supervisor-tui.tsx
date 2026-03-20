@@ -811,7 +811,9 @@ export function SupervisorTui({ name }: { name: string }) {
   useEffect(() => {
     loadGlobalConfig()
       .then((cfg) => setDailyCap(cfg.supervisor.dailyCapUsd))
-      .catch(() => {});
+      .catch((err) => {
+        console.debug("[tui] Failed to load global config:", err);
+      });
   }, []);
 
   // Poll state, activity, and decisions

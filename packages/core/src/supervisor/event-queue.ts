@@ -201,7 +201,10 @@ export class EventQueue {
     try {
       const watcher = watch(filePath, () => {
         // Non-critical: file may have been deleted or become unreadable between watch trigger and read
-        this.readNewLines(filePath, kind).catch(() => {});
+        this.readNewLines(filePath, kind).catch((err) => {
+          // biome-ignore lint/suspicious/noConsole: Log file watch read failures for debugging
+          console.debug(`[neo] Failed to read new lines from ${filePath}:`, err);
+        });
       });
       this.watchers.push(watcher);
     } catch {
