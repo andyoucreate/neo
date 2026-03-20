@@ -65,7 +65,13 @@ export class WebhookDispatcher {
       if (RETRY_EVENT_TYPES.has(event.type)) {
         // Terminal events: retry with exponential backoff, track for flush
         const p = sendWithRetry(webhook.url, headers, body, webhook.timeoutMs)
-          .catch(() => {})
+          .catch((err) => {
+            // biome-ignore lint/suspicious/noConsole: Log terminal webhook delivery failures
+            console.debug(
+              `[neo] Webhook delivery failed for ${event.type} to ${webhook.url}:`,
+              err,
+            );
+          })
           .finally(() => this.pending.delete(p));
         this.pending.add(p);
       } else {
@@ -75,7 +81,10 @@ export class WebhookDispatcher {
           headers,
           body,
           signal: AbortSignal.timeout(webhook.timeoutMs),
-        }).catch(() => {});
+        }).catch((err) => {
+          // biome-ignore lint/suspicious/noConsole: Log non-terminal webhook delivery failures
+          console.debug(`[neo] Webhook delivery failed for ${event.type} to ${webhook.url}:`, err);
+        });
       }
     }
   }

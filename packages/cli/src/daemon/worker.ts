@@ -79,7 +79,9 @@ async function main(): Promise<void> {
     const request = JSON.parse(raw) as DispatchRequest;
 
     // Clean up dispatch file
-    await unlink(dispatchPath).catch(() => {});
+    await unlink(dispatchPath).catch((err) => {
+      console.debug("[worker] Failed to clean up dispatch file:", err);
+    });
     writeLog(`[worker] Dispatch loaded: agent=${request.agentName} repo=${request.repo}`);
 
     // Load config and agents
@@ -140,7 +142,9 @@ async function main(): Promise<void> {
     await updatePersistedRun(runPath, {
       status: "failed",
       updatedAt: new Date().toISOString(),
-    }).catch(() => {});
+    }).catch((err) => {
+      console.debug("[worker] Failed to update persisted run on error:", err);
+    });
   } finally {
     logStream.end();
     process.exit(0);
