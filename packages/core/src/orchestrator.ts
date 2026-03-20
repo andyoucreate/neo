@@ -434,6 +434,13 @@ export class Orchestrator extends NeoEventEmitter {
         await this.finalizeSession(sessionPath, ctx);
       }
 
+      // Cleanup middleware state for this session to prevent memory leaks
+      for (const mw of this.userMiddleware) {
+        if ("cleanup" in mw && typeof mw.cleanup === "function") {
+          (mw as { cleanup: (id: string) => void }).cleanup(sessionId);
+        }
+      }
+
       this.semaphore.release(sessionId);
       this._activeSessions.delete(sessionId);
       this.abortControllers.delete(sessionId);
