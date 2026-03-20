@@ -1,7 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
-import type { ActivityEntry, Decision, MemoryEntry, SupervisorDaemonState } from "@neotx/core";
+import type {
+  ActivityEntry,
+  Decision,
+  InboxMessage,
+  MemoryEntry,
+  SupervisorDaemonState,
+} from "@neotx/core";
 import {
   DecisionStore,
   getSupervisorActivityPath,
@@ -713,23 +719,58 @@ async function readDecisions(name: string): Promise<Decision[]> {
   }
 }
 
+/**
+ * Appends a JSON entry to a JSONL file.
+ * Creates the parent directory if needed. Returns false on error.
+ */
+async function appendToJsonl(filePath: string, data: unknown): Promise<boolean> {
+  const dir = path.dirname(filePath);
+  try {
+    await mkdir(dir, { recursive: true });
+    await appendFile(filePath, `${JSON.stringify(data)}\n`, "utf-8");
+    return true;
+  } catch (error) {
+    console.error(
+      `Warning: Failed to write to ${path.basename(filePath)}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    return false;
+  }
+}
+
+/**
+ * Writes a message to the supervisor's inbox.jsonl file.
+ * Creates the directory if it doesn't exist and handles write errors gracefully.
+ */
+async function writeToInbox(name: string, message: InboxMessage): Promise<boolean> {
+  const inboxPath = getSupervisorInboxPath(name);
+  return appendToJsonl(inboxPath, message);
+}
+
 async function answerDecision(name: string, id: string, answer: string): Promise<void> {
   const store = new DecisionStore(getSupervisorDecisionsPath(name));
   await store.answer(id, answer);
+
+  // Wake up the supervisor heartbeat by appending to inbox.jsonl
+  const inboxMessage: InboxMessage = {
+    id: randomUUID(),
+    from: "tui",
+    text: `decision:answer ${id} ${answer}`,
+    timestamp: new Date().toISOString(),
+  };
+  await writeToInbox(name, inboxMessage);
 }
 
 async function sendMessage(name: string, text: string): Promise<void> {
   const id = randomUUID();
   const timestamp = new Date().toISOString();
 
-  const message = { id, from: "tui" as const, text, timestamp };
-  const inboxPath = getSupervisorInboxPath(name);
-  await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+  const message: InboxMessage = { id, from: "tui", text, timestamp };
+  await writeToInbox(name, message);
 
   // Write to activity.jsonl so the message appears in the TUI conversation
-  const activityEntry = { id, type: "message", summary: text, timestamp };
+  const activityEntry: ActivityEntry = { id, type: "message", summary: text, timestamp };
   const activityPath = getSupervisorActivityPath(name);
-  await appendFile(activityPath, `${JSON.stringify(activityEntry)}\n`, "utf-8");
+  await appendToJsonl(activityPath, activityEntry);
 }
 
 // ─── Main Component ──────────────────────────────────────
