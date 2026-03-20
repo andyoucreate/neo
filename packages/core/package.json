@@ -1,6 +1,6 @@
 {
   "name": "@neotx/core",
-  "version": "0.1.0-alpha.19",
+  "version": "0.1.0-alpha.20",
   "description": "Orchestration framework for autonomous developer agents",
   "type": "module",
   "license": "MIT",
