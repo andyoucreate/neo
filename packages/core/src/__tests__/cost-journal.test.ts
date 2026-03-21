@@ -143,4 +143,24 @@ describe("CostJournal", () => {
     const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
     expect(total).toBeCloseTo(0.05);
   });
+
+  it("handles large journal files efficiently with streaming", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+    const entryCount = 10000;
+    const costPerEntry = 0.01;
+
+    // Simulate a busy supervisor with many entries
+    for (let i = 0; i < entryCount; i++) {
+      await journal.append(
+        makeEntry({
+          timestamp: "2026-03-14T10:00:00.000Z",
+          costUsd: costPerEntry,
+          runId: `run-${i}`,
+        }),
+      );
+    }
+
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBeCloseTo(entryCount * costPerEntry);
+  });
 });
