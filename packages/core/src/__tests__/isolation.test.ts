@@ -5,7 +5,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
-import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
+import {
+  createSessionClone,
+  listSessionClones,
+  removeSessionClone,
+  validateBranchName,
+} from "@/isolation/clone";
 import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import type { ResolvedAgent } from "@/types";
@@ -120,6 +125,15 @@ describe("git operations", () => {
     expect(branch).toBe("feat/new-branch");
   });
 
+  it("rejects malicious branch names in createBranch", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "$(whoami)", "main")).rejects.toThrow("Invalid branch name");
+    await expect(createBranch(repoDir, "feat/test", ";rm -rf /")).rejects.toThrow(
+      "Invalid branch name",
+    );
+  });
+
   it("getBranchName generates correct branch name", () => {
     const config: RepoConfig = {
       path: "/some/repo",
@@ -167,6 +181,124 @@ describe("git operations", () => {
     };
 
     expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
+  });
+});
+
+// ─── Branch Name Validation ─────────────────────────────
+
+describe("validateBranchName", () => {
+  it("accepts valid branch names", () => {
+    expect(() => validateBranchName("feat/my-branch")).not.toThrow();
+    expect(() => validateBranchName("fix/issue-123")).not.toThrow();
+    expect(() => validateBranchName("release/v1.2.3")).not.toThrow();
+    expect(() => validateBranchName("main")).not.toThrow();
+    expect(() => validateBranchName("feature_branch")).not.toThrow();
+    expect(() => validateBranchName("fix.patch")).not.toThrow();
+    expect(() => validateBranchName("PROJ-123/add-feature")).not.toThrow();
+  });
+
+  it("rejects branch names with shell metacharacters", () => {
+    expect(() => validateBranchName("$(rm -rf /)")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch;rm -rf /")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch`whoami`")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch|ls")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch&echo test")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch>file.txt")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch<file.txt")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+  });
+
+  it("rejects branch names with directory traversal", () => {
+    expect(() => validateBranchName("../etc/passwd")).toThrow(
+      "Branch names cannot contain directory traversal patterns",
+    );
+    expect(() => validateBranchName("feat/../main")).toThrow(
+      "Branch names cannot contain directory traversal patterns",
+    );
+    expect(() => validateBranchName("..")).toThrow(
+      "Branch names cannot contain directory traversal patterns",
+    );
+  });
+
+  it("rejects branch names with spaces", () => {
+    expect(() => validateBranchName("my branch")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("feat/my branch name")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+  });
+
+  it("rejects branch names with special characters", () => {
+    expect(() => validateBranchName("branch@name")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch#name")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch*name")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+    expect(() => validateBranchName("branch$name")).toThrow(
+      "Branch names must contain only alphanumeric characters",
+    );
+  });
+});
+
+describe("createSessionClone with validation", () => {
+  it("rejects invalid branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-malicious");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "$(rm -rf /)",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Invalid branch name");
+  });
+
+  it("rejects invalid base branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-malicious");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/safe",
+        baseBranch: ";echo hacked",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Invalid branch name");
+  });
+
+  it("rejects directory traversal in branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-traversal");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "../../../etc/passwd",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("directory traversal patterns");
   });
 });
 

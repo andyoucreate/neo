@@ -14,6 +14,35 @@ export interface SessionCloneInfo {
 }
 
 /**
+ * Validates that a branch name is safe for use in git commands.
+ * Prevents command injection by rejecting shell metacharacters and directory traversal.
+ *
+ * @param branchName - The branch name to validate
+ * @throws Error if the branch name contains invalid characters
+ */
+export function validateBranchName(branchName: string): void {
+  // Allow alphanumeric, forward slash, underscore, dot, and hyphen
+  // This covers standard git branch naming conventions including:
+  // - feature/my-branch
+  // - fix/issue-123
+  // - release/v1.2.3
+  const validBranchPattern = /^[a-zA-Z0-9/_.-]+$/;
+
+  if (!validBranchPattern.test(branchName)) {
+    throw new Error(
+      `Invalid branch name: "${branchName}". Branch names must contain only alphanumeric characters, forward slashes, underscores, dots, and hyphens.`,
+    );
+  }
+
+  // Additional check: prevent directory traversal patterns
+  if (branchName.includes("..")) {
+    throw new Error(
+      `Invalid branch name: "${branchName}". Branch names cannot contain directory traversal patterns (..).`,
+    );
+  }
+}
+
+/**
  * Create an isolated git clone for an agent session.
  * Uses `git clone --local` to hardlink objects (fast, no network).
  * Then checks out the target branch (existing or new).
@@ -24,6 +53,10 @@ export async function createSessionClone(options: {
   baseBranch: string;
   sessionDir: string;
 }): Promise<SessionCloneInfo> {
+  // Validate branch names before using in git commands
+  validateBranchName(options.branch);
+  validateBranchName(options.baseBranch);
+
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
 

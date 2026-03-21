@@ -49,6 +49,7 @@ vi.mock("@/isolation/clone", () => ({
     }),
   removeSessionClone: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
+  validateBranchName: () => undefined,
 }));
 
 // ─── Fixtures ─────────────────────────────────────────────
