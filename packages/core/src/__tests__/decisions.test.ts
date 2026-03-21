@@ -142,6 +142,31 @@ describe("DecisionStore", () => {
       expect(d1?.answer).toBe("yes");
       expect(d2?.answer).toBeUndefined();
     });
+
+    it("handles concurrent answer calls without race conditions", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      const ids = await Promise.all([
+        store.create(makeDecision({ question: "Q1" })),
+        store.create(makeDecision({ question: "Q2" })),
+        store.create(makeDecision({ question: "Q3" })),
+        store.create(makeDecision({ question: "Q4" })),
+        store.create(makeDecision({ question: "Q5" })),
+      ]);
+
+      // Answer all decisions concurrently
+      await Promise.all(ids.map((id, i) => store.answer(id, `answer-${i}`)));
+
+      // All decisions should be answered correctly
+      const decisions = await Promise.all(ids.map((id) => store.get(id)));
+      for (let i = 0; i < ids.length; i++) {
+        expect(decisions[i]?.answer).toBe(`answer-${i}`);
+        expect(decisions[i]?.answeredAt).toBeDefined();
+      }
+
+      // Verify no pending decisions remain
+      const pending = await store.pending();
+      expect(pending).toHaveLength(0);
+    });
   });
 
   describe("pending", () => {
