@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import { z } from "zod";
 import { ensureDir } from "@/shared/fs";
 
@@ -199,28 +201,31 @@ export class DecisionStore {
   // ─── Private helpers ─────────────────────────────────────
 
   private async readAll(): Promise<Decision[]> {
-    let content: string;
+    const decisions: Decision[] = [];
+
     try {
-      content = await readFile(this.filePath, "utf-8");
+      const stream = createReadStream(this.filePath, { encoding: "utf-8" });
+      // CRITICAL: Do NOT insert await between createInterface and for-await loop
+      // See Node.js Issue #33463 - timing bug can cause readline to miss data
+      const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        try {
+          const parsed = decisionSchema.parse(JSON.parse(line));
+          decisions.push(parsed);
+        } catch (error) {
+          // biome-ignore lint/suspicious/noConsole: Intentional warning for parse failures
+          console.warn(
+            `[DecisionStore] Skipping malformed JSONL line: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
+        }
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return [];
       }
       throw error;
-    }
-
-    const decisions: Decision[] = [];
-    for (const line of content.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const parsed = decisionSchema.parse(JSON.parse(line));
-        decisions.push(parsed);
-      } catch (error) {
-        // biome-ignore lint/suspicious/noConsole: Intentional warning for parse failures
-        console.warn(
-          `[DecisionStore] Skipping malformed JSONL line: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
-      }
     }
 
     return decisions;

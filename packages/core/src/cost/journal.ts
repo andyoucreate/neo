@@ -1,9 +1,23 @@
 import { createReadStream } from "node:fs";
 import { appendFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
+import { z } from "zod";
 import { fileForDate, toDateKey } from "@/shared/date";
 import { ensureDir } from "@/shared/fs";
 import type { CostEntry } from "@/types";
+
+// Zod schema for runtime validation of JSONL entries
+const costEntrySchema = z.object({
+  timestamp: z.string(),
+  runId: z.string(),
+  step: z.string(),
+  sessionId: z.string(),
+  agent: z.string(),
+  costUsd: z.number(),
+  models: z.record(z.string(), z.number()),
+  durationMs: z.number(),
+  repo: z.string().optional(),
+});
 
 /**
  * Append-only JSONL journal for cost tracking.
@@ -39,13 +53,23 @@ export class CostJournal {
 
     try {
       const stream = createReadStream(file, { encoding: "utf-8" });
+      // CRITICAL: Do NOT insert await between createInterface and for-await loop
+      // See Node.js Issue #33463 - timing bug can cause readline to miss data
       const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
 
       for await (const line of rl) {
         if (!line.trim()) continue;
-        const entry = JSON.parse(line) as CostEntry;
-        if (toDateKey(new Date(entry.timestamp)) === dayKey) {
-          total += entry.costUsd;
+        try {
+          const entry = costEntrySchema.parse(JSON.parse(line));
+          if (toDateKey(new Date(entry.timestamp)) === dayKey) {
+            total += entry.costUsd;
+          }
+        } catch (error) {
+          // Skip malformed entries - log warning but continue processing
+          // biome-ignore lint/suspicious/noConsole: Intentional warning for parse failures
+          console.warn(
+            `[CostJournal] Skipping malformed JSONL line: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
         }
       }
     } catch (error) {

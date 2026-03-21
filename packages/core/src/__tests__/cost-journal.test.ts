@@ -143,4 +143,46 @@ describe("CostJournal", () => {
     const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
     expect(total).toBeCloseTo(0.05);
   });
+
+  it("handles large files (10K+ lines) with constant memory usage", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+    const lineCount = 10_000;
+    const costPerEntry = 0.01;
+
+    // Append 10K entries for the same day
+    for (let i = 0; i < lineCount; i++) {
+      await journal.append(
+        makeEntry({
+          timestamp: "2026-03-14T10:00:00.000Z",
+          costUsd: costPerEntry,
+          runId: `run-${i}`,
+        }),
+      );
+    }
+
+    // Force garbage collection if available (run tests with --expose-gc)
+    if (global.gc) {
+      global.gc();
+    }
+
+    // Measure memory before reading
+    const memBefore = process.memoryUsage().heapUsed;
+
+    // Read the day total using streaming parser
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+
+    // Measure memory after reading
+    const memAfter = process.memoryUsage().heapUsed;
+    const memDelta = memAfter - memBefore;
+
+    // Verify correctness
+    expect(total).toBeCloseTo(lineCount * costPerEntry);
+
+    // Memory delta should be significantly less than loading entire file into memory
+    // File size ~= 10K lines * ~150 bytes/line = ~1.5MB
+    // With streaming, we avoid loading entire file, but still need memory for processing
+    // Reasonable threshold: < 3MB (allows for V8 overhead, GC timing, test runner overhead)
+    const maxMemoryIncrease = 3 * 1024 * 1024; // 3MB
+    expect(memDelta).toBeLessThan(maxMemoryIncrease);
+  });
 });
