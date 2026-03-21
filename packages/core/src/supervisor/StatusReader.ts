@@ -1,9 +1,8 @@
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { getRunsDir } from "@/paths";
 import type { PersistedRun } from "@/types";
-import { isRunActive } from "./heartbeat.js";
 import type {
   ActivityEntry,
   ActivityQueryOptions,
@@ -69,6 +68,9 @@ export class StatusReader {
     // Read recent activity for summary
     const recentActivity = this.queryActivity({ limit: 5 });
 
+    // Count active runs from .neo/runs/
+    const activeRunCount = await this.countActiveRuns();
+
     return {
       pid: daemon.pid,
       sessionId: daemon.sessionId,
@@ -78,7 +80,7 @@ export class StatusReader {
       todayCostUsd: daemon.todayCostUsd,
       status: statusMap[daemon.status],
       lastHeartbeat: daemon.lastHeartbeat ?? daemon.startedAt,
-      activeRunCount: this.countActiveRuns(),
+      activeRunCount,
       recentActivitySummary: recentActivity.map((e) => `[${e.type}] ${e.summary}`),
     };
   }
@@ -135,38 +137,67 @@ export class StatusReader {
   }
 
   /**
-   * Count active runs by iterating the runs directory.
-   * Uses isRunActive() to filter running/paused runs with valid PIDs.
+   * Count runs with status "running" from .neo/runs/.
+   * Fails silently — returns 0 if the runs directory doesn't exist.
    */
-  private countActiveRuns(): number {
+  private async countActiveRuns(): Promise<number> {
     const runsDir = getRunsDir();
     if (!existsSync(runsDir)) return 0;
 
-    let count = 0;
     try {
-      const subdirs = readdirSync(runsDir, { withFileTypes: true });
-      for (const subdir of subdirs) {
-        if (!subdir.isDirectory()) continue;
-        const subDirPath = path.join(runsDir, subdir.name);
-        const files = readdirSync(subDirPath, { withFileTypes: true });
+      const runFiles = await this.collectRunFiles(runsDir);
+      let count = 0;
+      for (const filePath of runFiles) {
+        if (await this.isRunning(filePath)) count++;
+      }
+      return count;
+    } catch {
+      return 0;
+    }
+  }
 
-        for (const file of files) {
-          if (!file.isFile() || !file.name.endsWith(".json")) continue;
-          try {
-            const content = readFileSync(path.join(subDirPath, file.name), "utf-8");
-            const run = JSON.parse(content) as PersistedRun;
-            if (isRunActive(run)) {
-              count++;
-            }
-          } catch {
-            // Skip corrupted or partial files
+  /**
+   * Collect all run JSON files from the runs directory tree.
+   * Searches both top-level and repo subdirectories.
+   */
+  private async collectRunFiles(runsDir: string): Promise<string[]> {
+    const entries = await readdir(runsDir, { withFileTypes: true });
+    const jsonFiles: string[] = [];
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const subDir = path.join(runsDir, entry.name);
+        const subFiles = await readdir(subDir);
+        for (const f of subFiles) {
+          if (this.isRunFile(f)) {
+            jsonFiles.push(path.join(subDir, f));
           }
         }
+      } else if (this.isRunFile(entry.name)) {
+        jsonFiles.push(path.join(runsDir, entry.name));
       }
-    } catch {
-      // Runs directory unreadable
     }
 
-    return count;
+    return jsonFiles;
+  }
+
+  /**
+   * Check if a filename is a run file (JSON but not dispatch).
+   */
+  private isRunFile(filename: string): boolean {
+    return filename.endsWith(".json") && !filename.endsWith(".dispatch.json");
+  }
+
+  /**
+   * Check if a run file represents an active (running) run.
+   */
+  private async isRunning(filePath: string): Promise<boolean> {
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const run = JSON.parse(content) as PersistedRun;
+      return run.status === "running";
+    } catch {
+      return false;
+    }
   }
 }

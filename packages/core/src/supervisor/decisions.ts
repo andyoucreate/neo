@@ -43,15 +43,40 @@ export type DecisionInput = Omit<
 /**
  * JSONL-backed store for decisions.
  * Append-only with in-place updates for answers and expiration.
+ * Uses an in-memory mutex to serialize write operations.
  */
 export class DecisionStore {
   private readonly filePath: string;
   private readonly dir: string;
   private readonly dirCache = new Set<string>();
+  /** Promise-based mutex to serialize write operations */
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(filePath: string) {
     this.filePath = filePath;
     this.dir = path.dirname(filePath);
+  }
+
+  /**
+   * Acquire the write lock and execute a callback.
+   * Serializes all write operations to prevent race conditions.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Chain onto the existing lock
+    const release = this.writeLock;
+    let releaseLock: () => void = () => {};
+    this.writeLock = new Promise((r) => {
+      releaseLock = r;
+    });
+
+    try {
+      // Wait for previous operation to complete
+      await release;
+      return await fn();
+    } finally {
+      // Release the lock for the next operation
+      releaseLock();
+    }
   }
 
   /**
@@ -75,23 +100,26 @@ export class DecisionStore {
   /**
    * Answer a decision by ID.
    * Reads all entries, updates the matching one, and rewrites the file.
+   * Uses a mutex to serialize concurrent calls and prevent race conditions.
    */
   async answer(id: string, answer: string): Promise<void> {
-    const decisions = await this.readAll();
-    const decision = decisions.find((d) => d.id === id);
+    await this.withWriteLock(async () => {
+      const decisions = await this.readAll();
+      const decision = decisions.find((d) => d.id === id);
 
-    if (!decision) {
-      throw new Error(`Decision not found: ${id}`);
-    }
+      if (!decision) {
+        throw new Error(`Decision not found: ${id}`);
+      }
 
-    if (decision.answer !== undefined) {
-      throw new Error(`Decision already answered: ${id}`);
-    }
+      if (decision.answer !== undefined) {
+        throw new Error(`Decision already answered: ${id}`);
+      }
 
-    decision.answer = answer;
-    decision.answeredAt = new Date().toISOString();
+      decision.answer = answer;
+      decision.answeredAt = new Date().toISOString();
 
-    await this.writeAll(decisions);
+      await this.writeAll(decisions);
+    });
   }
 
   /**
@@ -134,35 +162,38 @@ export class DecisionStore {
   /**
    * Auto-answer expired decisions with their defaultAnswer.
    * Decisions without defaultAnswer are marked as expired (expiredAt).
+   * Uses a mutex to serialize concurrent calls and prevent race conditions.
    * @returns The decisions that were auto-answered or marked expired
    */
   async expire(): Promise<Decision[]> {
-    const decisions = await this.readAll();
-    const now = new Date().toISOString();
-    const expired: Decision[] = [];
+    return this.withWriteLock(async () => {
+      const decisions = await this.readAll();
+      const now = new Date().toISOString();
+      const expired: Decision[] = [];
 
-    for (const decision of decisions) {
-      if (
-        decision.answer === undefined &&
-        decision.expiredAt === undefined &&
-        decision.expiresAt &&
-        decision.expiresAt < now
-      ) {
-        if (decision.defaultAnswer !== undefined) {
-          decision.answer = decision.defaultAnswer;
-          decision.answeredAt = now;
-        } else {
-          decision.expiredAt = now;
+      for (const decision of decisions) {
+        if (
+          decision.answer === undefined &&
+          decision.expiredAt === undefined &&
+          decision.expiresAt &&
+          decision.expiresAt < now
+        ) {
+          if (decision.defaultAnswer !== undefined) {
+            decision.answer = decision.defaultAnswer;
+            decision.answeredAt = now;
+          } else {
+            decision.expiredAt = now;
+          }
+          expired.push(decision);
         }
-        expired.push(decision);
       }
-    }
 
-    if (expired.length > 0) {
-      await this.writeAll(decisions);
-    }
+      if (expired.length > 0) {
+        await this.writeAll(decisions);
+      }
 
-    return expired;
+      return expired;
+    });
   }
 
   // ─── Private helpers ─────────────────────────────────────
