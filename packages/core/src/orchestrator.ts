@@ -192,6 +192,7 @@ export class Orchestrator extends NeoEventEmitter {
     return {
       paused: this._paused,
       activeSessions: [...this._activeSessions.values()],
+      activeRunCount: this.activeRunCount,
       queueDepth: this.semaphore.queueDepth(),
       costToday: this._costToday,
       budgetCapUsd: this.config.budget.dailyCapUsd,
@@ -202,6 +203,16 @@ export class Orchestrator extends NeoEventEmitter {
 
   get activeSessions(): ActiveSession[] {
     return [...this._activeSessions.values()];
+  }
+
+  get activeRunCount(): number {
+    let count = 0;
+    for (const session of this._activeSessions.values()) {
+      if (session.status === "running") {
+        count++;
+      }
+    }
+    return count;
   }
 
   // ─── Lifecycle ─────────────────────────────────────────

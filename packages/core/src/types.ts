@@ -120,6 +120,7 @@ export interface ActiveSession {
 export interface OrchestratorStatus {
   paused: boolean;
   activeSessions: ActiveSession[];
+  activeRunCount: number;
   queueDepth: number;
   costToday: number;
   budgetCapUsd: number;
