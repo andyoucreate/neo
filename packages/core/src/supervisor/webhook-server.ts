@@ -39,6 +39,16 @@ export class WebhookServer {
   }
 
   async start(): Promise<void> {
+    // Warn if HMAC secret is not configured
+    if (!this.secret) {
+      // biome-ignore lint/suspicious/noConsole: Intentional security warning at startup
+      console.warn(
+        "[WebhookServer] WARNING: No HMAC secret configured. " +
+          "All incoming webhook requests will be accepted without signature validation. " +
+          "Set supervisor.secret in your config for production deployments.",
+      );
+    }
+
     return new Promise<void>((resolve, reject) => {
       this.server = createServer((req, res) => {
         this.handleRequest(req, res).catch((err) => {
