@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
+import { isRunActive } from "./heartbeat.js";
 import type {
   ActivityEntry,
   ActivityQueryOptions,
@@ -75,7 +78,7 @@ export class StatusReader {
       todayCostUsd: daemon.todayCostUsd,
       status: statusMap[daemon.status],
       lastHeartbeat: daemon.lastHeartbeat ?? daemon.startedAt,
-      activeRunCount: 0, // TODO: count active runs from .neo/runs/
+      activeRunCount: this.countActiveRuns(),
       recentActivitySummary: recentActivity.map((e) => `[${e.type}] ${e.summary}`),
     };
   }
@@ -129,5 +132,41 @@ export class StatusReader {
 
     // Apply offset and limit
     return entries.slice(offset, offset + limit);
+  }
+
+  /**
+   * Count active runs by iterating the runs directory.
+   * Uses isRunActive() to filter running/paused runs with valid PIDs.
+   */
+  private countActiveRuns(): number {
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return 0;
+
+    let count = 0;
+    try {
+      const subdirs = readdirSync(runsDir, { withFileTypes: true });
+      for (const subdir of subdirs) {
+        if (!subdir.isDirectory()) continue;
+        const subDirPath = path.join(runsDir, subdir.name);
+        const files = readdirSync(subDirPath, { withFileTypes: true });
+
+        for (const file of files) {
+          if (!file.isFile() || !file.name.endsWith(".json")) continue;
+          try {
+            const content = readFileSync(path.join(subDirPath, file.name), "utf-8");
+            const run = JSON.parse(content) as PersistedRun;
+            if (isRunActive(run)) {
+              count++;
+            }
+          } catch {
+            // Skip corrupted or partial files
+          }
+        }
+      }
+    } catch {
+      // Runs directory unreadable
+    }
+
+    return count;
   }
 }
