@@ -35,6 +35,43 @@ export type SessionEvent =
 
 // ─── Helpers ────────────────────────────────────────────
 
+/**
+ * Whitelist of safe environment variables that can be passed to agent sessions.
+ * Excludes API keys, secrets, credentials, and other sensitive configuration.
+ */
+const SAFE_ENV_VARS = [
+  "PATH",
+  "HOME",
+  "USER",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LANGUAGE",
+  "LC_ALL",
+  "LC_CTYPE",
+  "TZ",
+  "NODE_ENV",
+  "TERM",
+  "SHELL",
+  "EDITOR",
+] as const;
+
+/**
+ * Filters process.env to only include safe, non-sensitive variables.
+ * Prevents exposure of API keys, secrets, and credentials to agent sessions.
+ */
+function filterSafeEnv(): Record<string, string> {
+  const safeEnv: Record<string, string> = {};
+  for (const key of SAFE_ENV_VARS) {
+    const value = process.env[key];
+    if (value !== undefined) {
+      safeEnv[key] = value;
+    }
+  }
+  return safeEnv;
+}
+
 function checkAborted(signal: AbortSignal): void {
   if (signal.aborted) {
     const reason = signal.reason;
@@ -78,9 +115,12 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
   }
 
   if (options.env && Object.keys(options.env).length > 0) {
-    // Merge with process.env so PATH, HOME, etc. are preserved.
-    // Custom vars override process.env if there's a conflict.
-    queryOptions.env = { ...process.env, ...options.env };
+    // Only pass whitelisted safe environment variables to prevent secret exposure.
+    // Custom vars override safe vars if there's a conflict.
+    queryOptions.env = { ...filterSafeEnv(), ...options.env };
+  } else {
+    // Even when no custom env is provided, only expose safe variables.
+    queryOptions.env = filterSafeEnv();
   }
 
   return queryOptions;
