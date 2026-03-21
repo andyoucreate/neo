@@ -120,7 +120,7 @@ describe("git operations", () => {
     expect(branch).toBe("feat/new-branch");
   });
 
-  it("getBranchName generates correct branch name", () => {
+  it("getBranchName generates correct branch name", async () => {
     const config: RepoConfig = {
       path: "/some/repo",
       defaultBranch: "main",
@@ -129,11 +129,11 @@ describe("git operations", () => {
       gitStrategy: "branch",
     };
 
-    expect(getBranchName(config, "abc123")).toBe("feat/run-abc123");
-    expect(getBranchName(config, "ABC-DEF")).toBe("feat/run-abc-def");
+    await expect(getBranchName(config, "abc123")).resolves.toBe("feat/run-abc123");
+    await expect(getBranchName(config, "ABC-DEF")).resolves.toBe("feat/run-abc-def");
   });
 
-  it("getBranchName respects custom branchPrefix", () => {
+  it("getBranchName respects custom branchPrefix", async () => {
     const config: RepoConfig = {
       path: "/some/repo",
       defaultBranch: "main",
@@ -142,10 +142,10 @@ describe("git operations", () => {
       gitStrategy: "branch",
     };
 
-    expect(getBranchName(config, "hotfix-1")).toBe("fix/run-hotfix-1");
+    await expect(getBranchName(config, "hotfix-1")).resolves.toBe("fix/run-hotfix-1");
   });
 
-  it("getBranchName uses explicit branch when provided", () => {
+  it("getBranchName uses explicit branch when provided", async () => {
     const config: RepoConfig = {
       path: "/some/repo",
       defaultBranch: "main",
@@ -154,10 +154,12 @@ describe("git operations", () => {
       gitStrategy: "branch",
     };
 
-    expect(getBranchName(config, "abc123", "feat/PROJ-42-add-auth")).toBe("feat/PROJ-42-add-auth");
+    await expect(getBranchName(config, "abc123", "feat/PROJ-42-add-auth")).resolves.toBe(
+      "feat/PROJ-42-add-auth",
+    );
   });
 
-  it("getBranchName falls back to auto-generated when branch is undefined", () => {
+  it("getBranchName falls back to auto-generated when branch is undefined", async () => {
     const config: RepoConfig = {
       path: "/some/repo",
       defaultBranch: "main",
@@ -166,52 +168,81 @@ describe("git operations", () => {
       gitStrategy: "branch",
     };
 
-    expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
+    await expect(getBranchName(config, "abc123", undefined)).resolves.toBe("feat/run-abc123");
   });
 });
 
 // ─── Git Validation ─────────────────────────────────────
 
 describe("validateGitRef", () => {
-  it("accepts valid branch names", () => {
-    expect(() => validateGitRef("feat/my-branch", "branch")).not.toThrow();
-    expect(() => validateGitRef("fix/PROJ-123", "branch")).not.toThrow();
-    expect(() => validateGitRef("main", "branch")).not.toThrow();
-    expect(() => validateGitRef("feature/user_auth", "branch")).not.toThrow();
-    expect(() => validateGitRef("hotfix/v1.2.3-rc1", "branch")).not.toThrow();
+  it("accepts valid branch names", async () => {
+    await expect(validateGitRef("feat/my-branch", "branch")).resolves.not.toThrow();
+    await expect(validateGitRef("fix/PROJ-123", "branch")).resolves.not.toThrow();
+    await expect(validateGitRef("main", "branch")).resolves.not.toThrow();
+    await expect(validateGitRef("feature/user_auth", "branch")).resolves.not.toThrow();
+    await expect(validateGitRef("hotfix/v1.2.3-rc1", "branch")).resolves.not.toThrow();
   });
 
-  it("rejects empty branch names", () => {
-    expect(() => validateGitRef("", "branch")).toThrow("branch name cannot be empty");
+  it("rejects empty branch names", async () => {
+    await expect(validateGitRef("", "branch")).rejects.toThrow("branch name cannot be empty");
   });
 
-  it("rejects branch names with spaces", () => {
-    expect(() => validateGitRef("feat/my branch", "branch")).toThrow(
-      'Invalid branch name: "feat/my branch"',
+  it("rejects branch names with spaces", async () => {
+    await expect(validateGitRef("feat/my branch", "branch")).rejects.toThrow(
+      "shell metacharacters",
     );
   });
 
-  it("rejects branch names with shell metacharacters", () => {
-    expect(() => validateGitRef("feat/test;rm -rf", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test$(whoami)", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test`whoami`", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test&background", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test|pipe", "branch")).toThrow("Invalid branch name");
+  it("rejects branch names with shell metacharacters", async () => {
+    await expect(validateGitRef("feat/test;rm -rf", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test$(whoami)", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test`whoami`", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test&background", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test|pipe", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
   });
 
-  it("rejects branch names with special characters", () => {
-    expect(() => validateGitRef("feat/test@domain", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test#anchor", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test%encode", "branch")).toThrow("Invalid branch name");
-    expect(() => validateGitRef("feat/test*wildcard", "branch")).toThrow("Invalid branch name");
+  it("rejects branch names with special characters", async () => {
+    await expect(validateGitRef("feat/test@domain", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test#anchor", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test%encode", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("feat/test*wildcard", "branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
   });
 
-  it("validates tags with correct refType message", () => {
-    expect(() => validateGitRef("v1.0.0", "tag")).not.toThrow();
-    expect(() => validateGitRef("invalid tag", "tag")).toThrow('Invalid tag name: "invalid tag"');
+  it("validates tags with correct refType message", async () => {
+    await expect(validateGitRef("v1.0.0", "tag")).resolves.not.toThrow();
+    await expect(validateGitRef("invalid tag", "tag")).rejects.toThrow("tag name");
   });
 
-  it("rejects branch names used in getBranchName when invalid", () => {
+  it("rejects directory traversal sequences", async () => {
+    await expect(validateGitRef("feat/../master", "branch")).rejects.toThrow(
+      "unsafe path sequences",
+    );
+    await expect(validateGitRef("...", "branch")).rejects.toThrow("unsafe path sequences");
+  });
+
+  it("rejects refs starting with dots", async () => {
+    await expect(validateGitRef(".hidden", "branch")).rejects.toThrow("unsafe path sequences");
+  });
+
+  it("rejects branch names used in getBranchName when invalid", async () => {
     const config: RepoConfig = {
       path: "/some/repo",
       defaultBranch: "main",
@@ -220,9 +251,31 @@ describe("validateGitRef", () => {
       gitStrategy: "branch",
     };
 
-    expect(() => getBranchName(config, "abc123", "feat/valid-branch")).not.toThrow();
-    expect(() => getBranchName(config, "abc123", "feat/invalid;branch")).toThrow(
-      "Invalid branch name",
+    await expect(getBranchName(config, "abc123", "feat/valid-branch")).resolves.toBe(
+      "feat/valid-branch",
+    );
+    await expect(getBranchName(config, "abc123", "feat/invalid;branch")).rejects.toThrow(
+      "shell metacharacters",
+    );
+  });
+
+  it("validates remote parameter in fetchRemote", async () => {
+    await expect(validateGitRef("origin", "remote")).resolves.not.toThrow();
+    await expect(validateGitRef("upstream", "remote")).resolves.not.toThrow();
+    await expect(validateGitRef("remote;malicious", "remote")).rejects.toThrow(
+      "shell metacharacters",
+    );
+    await expect(validateGitRef("remote|evil", "remote")).rejects.toThrow("shell metacharacters");
+  });
+
+  it("validates remote parameter in pushBranch", async () => {
+    await expect(validateGitRef("origin", "remote")).resolves.not.toThrow();
+    await expect(validateGitRef("evil$(whoami)", "remote")).rejects.toThrow("shell metacharacters");
+  });
+
+  it("rejects remote names with directory traversal", async () => {
+    await expect(validateGitRef("../../../etc/passwd", "remote")).rejects.toThrow(
+      "unsafe path sequences",
     );
   });
 });
