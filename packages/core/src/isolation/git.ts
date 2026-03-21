@@ -5,6 +5,26 @@ import type { RepoConfig } from "@/config";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
+const SAFE_REF_PATTERN = /^[a-zA-Z0-9/._-]+$/;
+
+/**
+ * Validates that a git ref (branch or tag name) only contains safe characters.
+ * Prevents shell injection and git command injection via malicious ref names.
+ *
+ * Allowed: alphanumeric, forward slash, period, underscore, hyphen
+ * Rejected: spaces, control characters, shell metacharacters
+ */
+export function validateGitRef(ref: string, refType: "branch" | "tag" = "branch"): void {
+  if (!ref) {
+    throw new Error(`${refType} name cannot be empty`);
+  }
+
+  if (!SAFE_REF_PATTERN.test(ref)) {
+    throw new Error(
+      `Invalid ${refType} name: "${ref}". Only alphanumeric, /, ., _, and - characters are allowed.`,
+    );
+  }
+}
 
 /**
  * Run a git command with execFile (no shell — prevents injection).
@@ -22,10 +42,13 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(baseBranch, "branch");
   await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(repoPath, ["push", remote, branch]);
 }
 
@@ -34,6 +57,7 @@ export async function fetchRemote(repoPath: string, remote: string): Promise<voi
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(repoPath, ["branch", "-D", branch]);
 }
 
@@ -47,7 +71,10 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
  * Otherwise, generate a deterministic name from the repo's branchPrefix and runId.
  */
 export function getBranchName(config: RepoConfig, runId: string, branch?: string): string {
-  if (branch) return branch;
+  if (branch) {
+    validateGitRef(branch, "branch");
+    return branch;
+  }
   const prefix = config.branchPrefix ?? "feat";
   const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   return `${prefix}/run-${sanitized}`;
@@ -88,5 +115,6 @@ export async function pushSessionBranch(
   branch: string,
   remote: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(sessionPath, ["push", "-u", remote, branch]);
 }

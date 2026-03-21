@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
 import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
-import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
+import { createBranch, getBranchName, getCurrentBranch, validateGitRef } from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import type { ResolvedAgent } from "@/types";
 
@@ -167,6 +167,63 @@ describe("git operations", () => {
     };
 
     expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
+  });
+});
+
+// ─── Git Validation ─────────────────────────────────────
+
+describe("validateGitRef", () => {
+  it("accepts valid branch names", () => {
+    expect(() => validateGitRef("feat/my-branch", "branch")).not.toThrow();
+    expect(() => validateGitRef("fix/PROJ-123", "branch")).not.toThrow();
+    expect(() => validateGitRef("main", "branch")).not.toThrow();
+    expect(() => validateGitRef("feature/user_auth", "branch")).not.toThrow();
+    expect(() => validateGitRef("hotfix/v1.2.3-rc1", "branch")).not.toThrow();
+  });
+
+  it("rejects empty branch names", () => {
+    expect(() => validateGitRef("", "branch")).toThrow("branch name cannot be empty");
+  });
+
+  it("rejects branch names with spaces", () => {
+    expect(() => validateGitRef("feat/my branch", "branch")).toThrow(
+      'Invalid branch name: "feat/my branch"',
+    );
+  });
+
+  it("rejects branch names with shell metacharacters", () => {
+    expect(() => validateGitRef("feat/test;rm -rf", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test$(whoami)", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test`whoami`", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test&background", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test|pipe", "branch")).toThrow("Invalid branch name");
+  });
+
+  it("rejects branch names with special characters", () => {
+    expect(() => validateGitRef("feat/test@domain", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test#anchor", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test%encode", "branch")).toThrow("Invalid branch name");
+    expect(() => validateGitRef("feat/test*wildcard", "branch")).toThrow("Invalid branch name");
+  });
+
+  it("validates tags with correct refType message", () => {
+    expect(() => validateGitRef("v1.0.0", "tag")).not.toThrow();
+    expect(() => validateGitRef("invalid tag", "tag")).toThrow('Invalid tag name: "invalid tag"');
+  });
+
+  it("rejects branch names used in getBranchName when invalid", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(() => getBranchName(config, "abc123", "feat/valid-branch")).not.toThrow();
+    expect(() => getBranchName(config, "abc123", "feat/invalid;branch")).toThrow(
+      "Invalid branch name",
+    );
   });
 });
 
