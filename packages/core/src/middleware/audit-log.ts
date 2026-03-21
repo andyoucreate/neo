@@ -13,9 +13,11 @@ const DEFAULT_FLUSH_SIZE = 20;
  * File per session. Uses `{ decision: "async" }` so it never blocks the chain.
  *
  * Call `flush()` to force-write remaining entries (e.g. on shutdown).
+ * Call `cleanup()` to clear the timer without flushing (useful for graceful shutdown).
  */
 export interface AuditLogMiddleware extends Middleware {
   flush: () => Promise<void>;
+  cleanup: () => void;
 }
 
 export function auditLog(options: {
@@ -37,6 +39,13 @@ export function auditLog(options: {
   // sessionId → buffered lines
   const buffers = new Map<string, string[]>();
   let flushTimer: ReturnType<typeof setInterval> | undefined;
+
+  function clearTimer(): void {
+    if (flushTimer !== undefined) {
+      clearInterval(flushTimer);
+      flushTimer = undefined;
+    }
+  }
 
   async function ensureDir(): Promise<void> {
     if (!dirCreated) {
@@ -73,10 +82,10 @@ export function auditLog(options: {
     on: "PostToolUse",
     async flush() {
       await flushAll();
-      if (flushTimer !== undefined) {
-        clearInterval(flushTimer);
-        flushTimer = undefined;
-      }
+      clearTimer();
+    },
+    cleanup() {
+      clearTimer();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {

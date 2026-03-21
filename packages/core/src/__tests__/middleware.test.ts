@@ -526,6 +526,65 @@ describe("auditLog", () => {
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(2);
   });
+
+  it("cleanup() clears the timer without flushing", async () => {
+    // Use real timers for this test since we're testing actual timer behavior
+    vi.useRealTimers();
+
+    const mw = auditLog({ dir: TMP_DIR, flushSize: 10, flushIntervalMs: 100 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    // Add an entry to trigger timer creation
+    await chain.execute(makeEvent({ hookEvent: "PostToolUse", sessionId: "session-cleanup" }), ctx);
+
+    // Cleanup should clear the timer
+    mw.cleanup();
+
+    // Wait longer than flushIntervalMs to ensure timer would have fired
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // File should not exist because cleanup() clears the timer before periodic flush
+    const filePath = path.join(TMP_DIR, "session-cleanup.jsonl");
+    await expect(readFile(filePath, "utf-8")).rejects.toThrow();
+
+    // Restore fake timers for other tests
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:30:00Z"));
+  });
+
+  it("flush() clears the timer after writing", async () => {
+    // Use real timers for this test since we're testing actual timer behavior
+    vi.useRealTimers();
+
+    const mw = auditLog({ dir: TMP_DIR, flushSize: 10, flushIntervalMs: 100 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    // Add an entry
+    await chain.execute(
+      makeEvent({ hookEvent: "PostToolUse", sessionId: "session-flush-timer" }),
+      ctx,
+    );
+
+    // Flush should write and clear the timer
+    await mw.flush();
+
+    // File should exist with one entry
+    const filePath = path.join(TMP_DIR, "session-flush-timer.jsonl");
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(1);
+
+    // Timer should be cleared — no additional flushes
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    const contentAfter = await readFile(filePath, "utf-8");
+    expect(contentAfter).toBe(content); // No change
+
+    // Restore fake timers for other tests
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-15T10:30:00Z"));
+  });
 });
 
 // ─── Budget Guard ──────────────────────────────────────
