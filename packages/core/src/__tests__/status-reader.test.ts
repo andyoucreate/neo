@@ -80,6 +80,18 @@ describe("StatusReader.getStatus", () => {
     expect(result?.pid).toBe(99999);
     expect(result?.status).toBe("running");
   });
+
+  it("includes activeRunCount as a number in status", async () => {
+    const daemonState = makeDaemonState();
+    await writeFile(path.join(TMP_DIR, "state.json"), JSON.stringify(daemonState), "utf-8");
+    const reader = new StatusReader(TMP_DIR);
+    const result = await reader.getStatus();
+
+    expect(result).not.toBeNull();
+    // activeRunCount should be a number (actual count depends on global ~/.neo/runs state)
+    expect(typeof result?.activeRunCount).toBe("number");
+    expect(result?.activeRunCount).toBeGreaterThanOrEqual(0);
+  });
 });
 
 describe("StatusReader.queryActivity", () => {

@@ -1,6 +1,9 @@
-import { readFileSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { getRunsDir } from "@/paths";
+import type { PersistedRun } from "@/types";
+import { isRunActive } from "./heartbeat.js";
 import type {
   ActivityEntry,
   ActivityQueryOptions,
@@ -66,6 +69,9 @@ export class StatusReader {
     // Read recent activity for summary
     const recentActivity = this.queryActivity({ limit: 5 });
 
+    // Count active runs from .neo/runs/
+    const activeRunCount = await this.countActiveRuns();
+
     return {
       pid: daemon.pid,
       sessionId: daemon.sessionId,
@@ -75,7 +81,7 @@ export class StatusReader {
       todayCostUsd: daemon.todayCostUsd,
       status: statusMap[daemon.status],
       lastHeartbeat: daemon.lastHeartbeat ?? daemon.startedAt,
-      activeRunCount: 0, // TODO: count active runs from .neo/runs/
+      activeRunCount,
       recentActivitySummary: recentActivity.map((e) => `[${e.type}] ${e.summary}`),
     };
   }
@@ -129,5 +135,42 @@ export class StatusReader {
 
     // Apply offset and limit
     return entries.slice(offset, offset + limit);
+  }
+
+  /**
+   * Count active runs from the global runs directory.
+   * A run is considered active if it's "running" with an alive PID or "paused".
+   */
+  private async countActiveRuns(): Promise<number> {
+    const runsDir = getRunsDir();
+    if (!existsSync(runsDir)) return 0;
+
+    try {
+      const entries = await readdir(runsDir, { withFileTypes: true });
+      let count = 0;
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subDir = path.join(runsDir, entry.name);
+        const files = await readdir(subDir);
+
+        for (const f of files) {
+          if (!f.endsWith(".json")) continue;
+          try {
+            const raw = await readFile(path.join(subDir, f), "utf-8");
+            const run = JSON.parse(raw) as PersistedRun;
+            if (isRunActive(run)) {
+              count++;
+            }
+          } catch {
+            // Corrupted or partial file — skip
+          }
+        }
+      }
+
+      return count;
+    } catch {
+      return 0;
+    }
   }
 }
