@@ -1,5 +1,6 @@
-import { type FSWatcher, watch } from "node:fs";
+import { createReadStream, type FSWatcher, watch } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import type { InboxMessage, QueuedEvent, WebhookIncomingEvent } from "./schemas.js";
 
 interface EventQueueOptions {
@@ -213,67 +214,78 @@ export class EventQueue {
   }
 
   private async readNewLines(filePath: string, kind: "message" | "webhook"): Promise<void> {
-    let content: string;
+    const offset = this.fileOffsets.get(filePath) ?? 0;
+    let currentOffset = offset;
+
     try {
-      content = await readFile(filePath, "utf-8");
+      const fileStream = createReadStream(filePath, {
+        encoding: "utf-8",
+        start: offset,
+      });
+      const rl = createInterface({
+        input: fileStream,
+        crlfDelay: Number.POSITIVE_INFINITY,
+      });
+
+      for await (const line of rl) {
+        currentOffset += Buffer.byteLength(line, "utf-8") + 1; // +1 for newline
+        if (!line.trim()) continue;
+
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          if (parsed.processedAt) continue; // Already processed
+
+          if (kind === "webhook") {
+            this.push({ kind: "webhook", data: parsed as unknown as WebhookIncomingEvent });
+          } else {
+            this.push({ kind: "message", data: parsed as unknown as InboxMessage });
+          }
+        } catch (_err) {
+          // Non-critical: skip malformed JSON lines (may be partial writes or corrupted entries)
+        }
+      }
+
+      this.fileOffsets.set(filePath, currentOffset);
     } catch (_err) {
       // Non-critical: file may not exist or be temporarily unavailable during rotation
       // Silently return — the watcher will retry on next change event
       return;
     }
-
-    const offset = this.fileOffsets.get(filePath) ?? 0;
-    if (content.length <= offset) return;
-
-    const newContent = content.slice(offset);
-    this.fileOffsets.set(filePath, content.length);
-
-    const lines = newContent.trim().split("\n").filter(Boolean);
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        if (parsed.processedAt) continue; // Already processed
-
-        if (kind === "webhook") {
-          this.push({ kind: "webhook", data: parsed as unknown as WebhookIncomingEvent });
-        } else {
-          this.push({ kind: "message", data: parsed as unknown as InboxMessage });
-        }
-      } catch (_err) {
-        // Non-critical: skip malformed JSON lines (may be partial writes or corrupted entries)
-      }
-    }
   }
 
   private async replayFile(filePath: string, kind: "message" | "webhook"): Promise<void> {
-    let content: string;
+    let fileSize = 0;
     try {
-      content = await readFile(filePath, "utf-8");
+      const fileStream = createReadStream(filePath, { encoding: "utf-8" });
+      const rl = createInterface({
+        input: fileStream,
+        crlfDelay: Number.POSITIVE_INFINITY,
+      });
+
+      for await (const line of rl) {
+        fileSize += Buffer.byteLength(line, "utf-8") + 1; // +1 for newline
+        if (!line.trim()) continue;
+
+        try {
+          const parsed = JSON.parse(line) as Record<string, unknown>;
+          if (parsed.processedAt) continue;
+
+          if (kind === "webhook") {
+            this.push({ kind: "webhook", data: parsed as unknown as WebhookIncomingEvent });
+          } else {
+            this.push({ kind: "message", data: parsed as unknown as InboxMessage });
+          }
+        } catch (_err) {
+          // Non-critical: skip malformed JSON lines during replay (may be partial writes)
+        }
+      }
+
+      // Set offset so watcher doesn't re-read
+      this.fileOffsets.set(filePath, fileSize);
     } catch (_err) {
       // Non-critical on replay: file may not exist yet on first startup
       // Events will be captured when file is created and watcher triggers
       return;
-    }
-
-    // Set offset so watcher doesn't re-read
-    this.fileOffsets.set(filePath, content.length);
-
-    const lines = content.trim().split("\n").filter(Boolean);
-    const unprocessed: string[] = [];
-    for (const line of lines) {
-      try {
-        const parsed = JSON.parse(line) as Record<string, unknown>;
-        if (parsed.processedAt) continue;
-
-        if (kind === "webhook") {
-          this.push({ kind: "webhook", data: parsed as unknown as WebhookIncomingEvent });
-        } else {
-          this.push({ kind: "message", data: parsed as unknown as InboxMessage });
-        }
-        unprocessed.push(line);
-      } catch (_err) {
-        // Non-critical: skip malformed JSON lines during replay (may be partial writes)
-      }
     }
   }
 

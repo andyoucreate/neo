@@ -1,5 +1,7 @@
+import { createReadStream } from "node:fs";
 import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import type { LogBufferEntry } from "./schemas.js";
 
 const LOG_BUFFER_FILE = "log-buffer.jsonl";
@@ -25,29 +27,30 @@ function bufferPath(dir: string): string {
   return path.join(dir, LOG_BUFFER_FILE);
 }
 
-function parseLines(content: string): LogBufferEntry[] {
-  const entries: LogBufferEntry[] = [];
-  const lines = content.trim().split("\n").filter(Boolean);
-  for (const line of lines) {
-    try {
-      entries.push(JSON.parse(line) as LogBufferEntry);
-    } catch {
-      // Skip malformed lines
-    }
-  }
-  return entries;
-}
-
 /**
- * Read all entries from log-buffer.jsonl.
+ * Read all entries from log-buffer.jsonl using streaming.
  */
 export async function readLogBuffer(dir: string): Promise<LogBufferEntry[]> {
+  const entries: LogBufferEntry[] = [];
   try {
-    const content = await readFile(bufferPath(dir), "utf-8");
-    return parseLines(content);
+    const fileStream = createReadStream(bufferPath(dir), { encoding: "utf-8" });
+    const rl = createInterface({
+      input: fileStream,
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        entries.push(JSON.parse(line) as LogBufferEntry);
+      } catch {
+        // Skip malformed lines
+      }
+    }
   } catch {
     return [];
   }
+  return entries;
 }
 
 /**
