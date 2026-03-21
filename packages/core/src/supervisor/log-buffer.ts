@@ -1,5 +1,7 @@
-import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { appendFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { createInterface } from "node:readline";
 import type { LogBufferEntry } from "./schemas.js";
 
 const LOG_BUFFER_FILE = "log-buffer.jsonl";
@@ -25,10 +27,13 @@ function bufferPath(dir: string): string {
   return path.join(dir, LOG_BUFFER_FILE);
 }
 
-function parseLines(content: string): LogBufferEntry[] {
+async function parseLines(filePath: string): Promise<LogBufferEntry[]> {
   const entries: LogBufferEntry[] = [];
-  const lines = content.trim().split("\n").filter(Boolean);
-  for (const line of lines) {
+  const stream = createReadStream(filePath, { encoding: "utf-8" });
+  const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+
+  for await (const line of rl) {
+    if (!line.trim()) continue;
     try {
       entries.push(JSON.parse(line) as LogBufferEntry);
     } catch {
@@ -43,8 +48,7 @@ function parseLines(content: string): LogBufferEntry[] {
  */
 export async function readLogBuffer(dir: string): Promise<LogBufferEntry[]> {
   try {
-    const content = await readFile(bufferPath(dir), "utf-8");
-    return parseLines(content);
+    return await parseLines(bufferPath(dir));
   } catch {
     return [];
   }
@@ -72,28 +76,28 @@ export async function readUnconsolidated(dir: string): Promise<LogBufferEntry[]>
  */
 export async function markConsolidated(dir: string, ids: string[]): Promise<void> {
   const filePath = bufferPath(dir);
-  let content: string;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch {
-    return;
-  }
-
   const idSet = new Set(ids);
   const now = new Date().toISOString();
-  const lines = content.trim().split("\n").filter(Boolean);
   const updated: string[] = [];
 
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (idSet.has(entry.id) && !entry.consolidatedAt) {
-        entry.consolidatedAt = now;
+  try {
+    const stream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (idSet.has(entry.id) && !entry.consolidatedAt) {
+          entry.consolidatedAt = now;
+        }
+        updated.push(JSON.stringify(entry));
+      } catch {
+        updated.push(line);
       }
-      updated.push(JSON.stringify(entry));
-    } catch {
-      updated.push(line);
     }
+  } catch {
+    return;
   }
 
   await writeFile(filePath, `${updated.join("\n")}\n`, "utf-8");
@@ -104,30 +108,30 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
  */
 export async function compactLogBuffer(dir: string): Promise<void> {
   const filePath = bufferPath(dir);
-  let content: string;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch {
-    return;
-  }
-
   const now = Date.now();
-  const lines = content.trim().split("\n").filter(Boolean);
   const kept: string[] = [];
 
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (entry.consolidatedAt) {
-        const consolidatedTime = new Date(entry.consolidatedAt).getTime();
-        if (now - consolidatedTime > COMPACTION_AGE_MS) {
-          continue; // Drop old consolidated entries
+  try {
+    const stream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (entry.consolidatedAt) {
+          const consolidatedTime = new Date(entry.consolidatedAt).getTime();
+          if (now - consolidatedTime > COMPACTION_AGE_MS) {
+            continue; // Drop old consolidated entries
+          }
         }
+        kept.push(JSON.stringify(entry));
+      } catch {
+        // Drop malformed lines during compaction
       }
-      kept.push(JSON.stringify(entry));
-    } catch {
-      // Drop malformed lines during compaction
     }
+  } catch {
+    return;
   }
 
   // Cap at 1MB — drop oldest entries first
