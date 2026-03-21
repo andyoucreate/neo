@@ -77,10 +77,22 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
     queryOptions.mcpServers = options.mcpServers;
   }
 
+  // SECURITY: Whitelist safe environment variables to prevent secret exposure.
+  // Agents can read env via Bash tool — only pass essential system vars.
+  const safeEnv = {
+    PATH: process.env.PATH,
+    HOME: process.env.HOME,
+    USER: process.env.USER,
+    TMPDIR: process.env.TMPDIR,
+  };
+
   if (options.env && Object.keys(options.env).length > 0) {
-    // Merge with process.env so PATH, HOME, etc. are preserved.
-    // Custom vars override process.env if there's a conflict.
-    queryOptions.env = { ...process.env, ...options.env };
+    // Merge custom vars with whitelisted system vars.
+    // Custom vars override whitelisted vars if there's a conflict.
+    queryOptions.env = { ...safeEnv, ...options.env };
+  } else {
+    // Even without custom env, pass whitelisted vars for proper shell operation.
+    queryOptions.env = safeEnv;
   }
 
   return queryOptions;

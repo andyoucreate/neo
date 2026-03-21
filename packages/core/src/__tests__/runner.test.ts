@@ -264,6 +264,107 @@ describe("runSession", () => {
 
     expect(result.sessionId).toBe("b");
   });
+
+  it("only passes whitelisted env vars to SDK, not all process.env", async () => {
+    // Set fake secrets that should NOT be propagated
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWS_SECRET_ACCESS_KEY: "secret123",
+      ANTHROPIC_API_KEY: "sk-ant-secret",
+      DATABASE_PASSWORD: "dbpass",
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+    };
+
+    await runSession(makeSessionOptions());
+
+    const args = capturedQueryArgs as { options: { env?: Record<string, string> } };
+
+    // Should ONLY have whitelisted vars, not secrets
+    expect(args.options.env).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+    });
+
+    // Verify secrets are NOT present
+    expect(args.options.env?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+    expect(args.options.env?.ANTHROPIC_API_KEY).toBeUndefined();
+    expect(args.options.env?.DATABASE_PASSWORD).toBeUndefined();
+
+    process.env = originalEnv;
+  });
+
+  it("merges custom env vars with whitelisted system vars", async () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWS_SECRET_ACCESS_KEY: "secret123",
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+    };
+
+    await runSession(
+      makeSessionOptions({
+        env: {
+          CUSTOM_VAR: "custom-value",
+          OVERRIDE_PATH: "/custom/path",
+        },
+      }),
+    );
+
+    const args = capturedQueryArgs as { options: { env?: Record<string, string> } };
+
+    // Should have whitelisted vars + custom vars, but NOT secrets
+    expect(args.options.env).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+      CUSTOM_VAR: "custom-value",
+      OVERRIDE_PATH: "/custom/path",
+    });
+
+    // Verify secret is NOT present
+    expect(args.options.env?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+
+    process.env = originalEnv;
+  });
+
+  it("passes whitelisted env even when options.env is empty", async () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      AWS_SECRET_ACCESS_KEY: "secret123",
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+    };
+
+    await runSession(makeSessionOptions());
+
+    const args = capturedQueryArgs as { options: { env?: Record<string, string> } };
+
+    // Should ONLY have whitelisted vars
+    expect(args.options.env).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/user",
+      USER: "testuser",
+      TMPDIR: "/tmp",
+    });
+
+    // Verify secret is NOT present
+    expect(args.options.env?.AWS_SECRET_ACCESS_KEY).toBeUndefined();
+
+    process.env = originalEnv;
+  });
 });
 
 // ─── runWithRecovery ────────────────────────────────────
