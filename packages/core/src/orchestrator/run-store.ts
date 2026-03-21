@@ -21,9 +21,49 @@ const ORPHAN_GRACE_PERIOD_MS = 30_000;
 export class RunStore {
   private readonly runsDir: string;
   private readonly createdDirs = new Set<string>();
+  private _activeRunCount = 0;
 
   constructor(options: RunStoreOptions = {}) {
     this.runsDir = options.runsDir ?? getRunsDir();
+  }
+
+  /**
+   * Number of currently active (running) runs tracked by this store instance.
+   * Increment via `incrementActiveRuns()`, decrement via `decrementActiveRuns()`.
+   *
+   * Note: JavaScript is single-threaded, so this counter is inherently thread-safe
+   * within a single Node.js process. Each RunStore instance maintains its own count.
+   */
+  get activeRunCount(): number {
+    return this._activeRunCount;
+  }
+
+  /**
+   * Increment the active run counter. Call when a run starts.
+   * Returns the new count.
+   */
+  incrementActiveRuns(): number {
+    this._activeRunCount++;
+    return this._activeRunCount;
+  }
+
+  /**
+   * Decrement the active run counter. Call when a run completes or fails.
+   * Returns the new count. Will not go below 0.
+   */
+  decrementActiveRuns(): number {
+    if (this._activeRunCount > 0) {
+      this._activeRunCount--;
+    }
+    return this._activeRunCount;
+  }
+
+  /**
+   * Reset the active run counter to 0.
+   * Useful for testing or recovery scenarios.
+   */
+  resetActiveRuns(): void {
+    this._activeRunCount = 0;
   }
 
   /**

@@ -509,4 +509,140 @@ describe("RunStore", () => {
       expect(runIds).toEqual(["orphan", "orphan-2"]);
     });
   });
+
+  describe("activeRunCount", () => {
+    it("starts at 0", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      expect(store.activeRunCount).toBe(0);
+    });
+
+    it("increments on incrementActiveRuns()", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      const count1 = store.incrementActiveRuns();
+      expect(count1).toBe(1);
+      expect(store.activeRunCount).toBe(1);
+
+      const count2 = store.incrementActiveRuns();
+      expect(count2).toBe(2);
+      expect(store.activeRunCount).toBe(2);
+    });
+
+    it("decrements on decrementActiveRuns()", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      store.incrementActiveRuns();
+      store.incrementActiveRuns();
+      expect(store.activeRunCount).toBe(2);
+
+      const count1 = store.decrementActiveRuns();
+      expect(count1).toBe(1);
+      expect(store.activeRunCount).toBe(1);
+
+      const count2 = store.decrementActiveRuns();
+      expect(count2).toBe(0);
+      expect(store.activeRunCount).toBe(0);
+    });
+
+    it("does not go below 0 on decrement", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      expect(store.activeRunCount).toBe(0);
+
+      const count = store.decrementActiveRuns();
+      expect(count).toBe(0);
+      expect(store.activeRunCount).toBe(0);
+
+      // Decrement again — still 0
+      store.decrementActiveRuns();
+      expect(store.activeRunCount).toBe(0);
+    });
+
+    it("resets to 0 on resetActiveRuns()", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      store.incrementActiveRuns();
+      store.incrementActiveRuns();
+      store.incrementActiveRuns();
+      expect(store.activeRunCount).toBe(3);
+
+      store.resetActiveRuns();
+      expect(store.activeRunCount).toBe(0);
+    });
+
+    it("handles concurrent increment/decrement operations correctly", async () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Simulate multiple concurrent runs starting
+      const startPromises = Array.from({ length: 10 }, () =>
+        Promise.resolve().then(() => store.incrementActiveRuns()),
+      );
+
+      await Promise.all(startPromises);
+      expect(store.activeRunCount).toBe(10);
+
+      // Simulate some runs completing
+      const endPromises = Array.from({ length: 7 }, () =>
+        Promise.resolve().then(() => store.decrementActiveRuns()),
+      );
+
+      await Promise.all(endPromises);
+      expect(store.activeRunCount).toBe(3);
+    });
+
+    it("maintains independent counts across store instances", () => {
+      const store1 = new RunStore({ runsDir: TMP_DIR });
+      const store2 = new RunStore({ runsDir: TMP_DIR });
+
+      store1.incrementActiveRuns();
+      store1.incrementActiveRuns();
+
+      store2.incrementActiveRuns();
+
+      expect(store1.activeRunCount).toBe(2);
+      expect(store2.activeRunCount).toBe(1);
+    });
+
+    it("correctly tracks run lifecycle (start -> complete)", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Simulate 3 runs starting
+      store.incrementActiveRuns();
+      store.incrementActiveRuns();
+      store.incrementActiveRuns();
+      expect(store.activeRunCount).toBe(3);
+
+      // Run 1 completes
+      store.decrementActiveRuns();
+      expect(store.activeRunCount).toBe(2);
+
+      // Run 2 fails
+      store.decrementActiveRuns();
+      expect(store.activeRunCount).toBe(1);
+
+      // New run starts
+      store.incrementActiveRuns();
+      expect(store.activeRunCount).toBe(2);
+
+      // All runs complete
+      store.decrementActiveRuns();
+      store.decrementActiveRuns();
+      expect(store.activeRunCount).toBe(0);
+    });
+
+    it("handles rapid increment/decrement cycles", () => {
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      for (let i = 0; i < 100; i++) {
+        store.incrementActiveRuns();
+      }
+      expect(store.activeRunCount).toBe(100);
+
+      for (let i = 0; i < 100; i++) {
+        store.decrementActiveRuns();
+      }
+      expect(store.activeRunCount).toBe(0);
+    });
+  });
 });
