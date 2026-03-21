@@ -7,6 +7,35 @@ const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
 
 /**
+ * Regex for valid git ref names (branches, tags, remotes).
+ * Allows alphanumeric, slashes, hyphens, underscores, dots, and plus signs.
+ * Rejects directory traversal attempts (..).
+ */
+const GIT_REF_PATTERN = /^[a-zA-Z0-9/_.\-+]+$/;
+
+/**
+ * Validate a git ref name (branch, tag, or remote) to prevent directory traversal.
+ * Git interprets ref names as paths, so '..' could traverse outside the repo.
+ */
+export function validateGitRef(ref: string, refType = "ref"): void {
+  if (!ref || ref.trim() === "") {
+    throw new Error(`Git ${refType} name cannot be empty`);
+  }
+
+  if (ref.includes("..")) {
+    throw new Error(
+      `Git ${refType} name cannot contain '..' (directory traversal attempt): ${ref}`,
+    );
+  }
+
+  if (!GIT_REF_PATTERN.test(ref)) {
+    throw new Error(
+      `Invalid git ${refType} name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed: ${ref}`,
+    );
+  }
+}
+
+/**
  * Run a git command with execFile (no shell — prevents injection).
  */
 async function git(repoPath: string, args: string[]): Promise<string> {
@@ -22,18 +51,24 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(baseBranch, "branch");
   await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(repoPath, ["push", remote, branch]);
 }
 
 export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
+  validateGitRef(remote, "remote");
   await git(repoPath, ["fetch", remote]);
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(repoPath, ["branch", "-D", branch]);
 }
 
@@ -88,5 +123,7 @@ export async function pushSessionBranch(
   branch: string,
   remote: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(sessionPath, ["push", "-u", remote, branch]);
 }
