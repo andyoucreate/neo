@@ -1,5 +1,5 @@
-import { createReadStream } from "node:fs";
-import { appendFile, stat, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream } from "node:fs";
+import { appendFile, rename, stat, unlink } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { LogBufferEntry } from "./schemas.js";
@@ -76,31 +76,89 @@ export async function readUnconsolidated(dir: string): Promise<LogBufferEntry[]>
  */
 export async function markConsolidated(dir: string, ids: string[]): Promise<void> {
   const filePath = bufferPath(dir);
+  const tempPath = `${filePath}.tmp`;
   const idSet = new Set(ids);
   const now = new Date().toISOString();
-  const updated: string[] = [];
 
   try {
-    const stream = createReadStream(filePath, { encoding: "utf-8" });
-    const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+    const readStream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({ input: readStream, crlfDelay: Number.POSITIVE_INFINITY });
+    const writeStream = createWriteStream(tempPath, { encoding: "utf-8" });
 
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line) as LogBufferEntry;
-        if (idSet.has(entry.id) && !entry.consolidatedAt) {
-          entry.consolidatedAt = now;
+    try {
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        let outputLine = line;
+        try {
+          const entry = JSON.parse(line) as LogBufferEntry;
+          if (idSet.has(entry.id) && !entry.consolidatedAt) {
+            entry.consolidatedAt = now;
+          }
+          outputLine = JSON.stringify(entry);
+        } catch {
+          // Keep original line if parsing fails
         }
-        updated.push(JSON.stringify(entry));
-      } catch {
-        updated.push(line);
+        writeStream.write(`${outputLine}\n`);
       }
+    } finally {
+      rl.close();
+      writeStream.end();
     }
-  } catch {
-    return;
+
+    // Wait for write stream to finish
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+    });
+
+    // Replace original file with updated temp file
+    await rename(tempPath, filePath);
+  } catch (error) {
+    // Clean up temp file if it exists
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    // If the error is ENOENT (file doesn't exist), silently return
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    // Re-throw other errors
+    throw error;
+  }
+}
+
+/**
+ * Filter entries: keep unconsolidated entries and recently consolidated ones (within 24h).
+ */
+function shouldKeepEntry(entry: LogBufferEntry, now: number): boolean {
+  if (!entry.consolidatedAt) return true;
+  const consolidatedTime = new Date(entry.consolidatedAt).getTime();
+  return now - consolidatedTime <= COMPACTION_AGE_MS;
+}
+
+/**
+ * Calculate which entries to keep based on size limit (1MB cap).
+ * Returns the start index — entries from startIndex to end should be kept.
+ */
+function calculateSizeLimitedRange(
+  entries: Array<{ line: string; size: number }>,
+  maxBytes: number,
+): number {
+  let cumulativeSize = 0;
+  let startIndex = entries.length;
+
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const entry = entries[i];
+    if (!entry) continue;
+    const potentialSize = cumulativeSize + entry.size;
+    if (potentialSize > maxBytes) break;
+    cumulativeSize = potentialSize;
+    startIndex = i;
   }
 
-  await writeFile(filePath, `${updated.join("\n")}\n`, "utf-8");
+  return startIndex;
 }
 
 /**
@@ -108,40 +166,68 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
  */
 export async function compactLogBuffer(dir: string): Promise<void> {
   const filePath = bufferPath(dir);
+  const tempPath = `${filePath}.tmp`;
   const now = Date.now();
-  const kept: string[] = [];
 
   try {
-    const stream = createReadStream(filePath, { encoding: "utf-8" });
-    const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
+    const readStream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({ input: readStream, crlfDelay: Number.POSITIVE_INFINITY });
+    const writeStream = createWriteStream(tempPath, { encoding: "utf-8" });
 
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      try {
-        const entry = JSON.parse(line) as LogBufferEntry;
-        if (entry.consolidatedAt) {
-          const consolidatedTime = new Date(entry.consolidatedAt).getTime();
-          if (now - consolidatedTime > COMPACTION_AGE_MS) {
-            continue; // Drop old consolidated entries
-          }
+    // First pass: collect valid entries with their size
+    const validEntries: Array<{ line: string; size: number }> = [];
+
+    try {
+      for await (const line of rl) {
+        if (!line.trim()) continue;
+        try {
+          const entry = JSON.parse(line) as LogBufferEntry;
+          if (!shouldKeepEntry(entry, now)) continue;
+          const serialized = JSON.stringify(entry);
+          const lineSize = Buffer.byteLength(serialized, "utf-8") + 1; // +1 for newline
+          validEntries.push({ line: serialized, size: lineSize });
+        } catch {
+          // Drop malformed lines during compaction
         }
-        kept.push(JSON.stringify(entry));
-      } catch {
-        // Drop malformed lines during compaction
       }
+    } finally {
+      rl.close();
     }
-  } catch {
-    return;
-  }
 
-  // Cap at 1MB — drop oldest entries first
-  let result = `${kept.join("\n")}\n`;
-  while (Buffer.byteLength(result, "utf-8") > MAX_FILE_BYTES && kept.length > 0) {
-    kept.shift();
-    result = `${kept.join("\n")}\n`;
-  }
+    // Calculate which entries to keep based on size limit
+    const startIndex = calculateSizeLimitedRange(validEntries, MAX_FILE_BYTES);
 
-  await writeFile(filePath, result, "utf-8");
+    // Write kept entries
+    for (let i = startIndex; i < validEntries.length; i++) {
+      const entry = validEntries[i];
+      if (!entry) continue;
+      writeStream.write(`${entry.line}\n`);
+    }
+
+    writeStream.end();
+
+    // Wait for write stream to finish
+    await new Promise<void>((resolve, reject) => {
+      writeStream.on("finish", resolve);
+      writeStream.on("error", reject);
+    });
+
+    // Replace original file with compacted temp file
+    await rename(tempPath, filePath);
+  } catch (error) {
+    // Clean up temp file if it exists
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Ignore cleanup errors
+    }
+    // If the error is ENOENT (file doesn't exist), silently return
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return;
+    }
+    // Re-throw other errors
+    throw error;
+  }
 }
 
 // ─── Digest helpers ──────────────────────────────────────

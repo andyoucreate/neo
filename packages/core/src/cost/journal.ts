@@ -41,12 +41,16 @@ export class CostJournal {
       const stream = createReadStream(file, { encoding: "utf-8" });
       const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
 
-      for await (const line of rl) {
-        if (!line.trim()) continue;
-        const entry = JSON.parse(line) as CostEntry;
-        if (toDateKey(new Date(entry.timestamp)) === dayKey) {
-          total += entry.costUsd;
+      try {
+        for await (const line of rl) {
+          if (!line.trim()) continue;
+          const entry = JSON.parse(line) as CostEntry;
+          if (toDateKey(new Date(entry.timestamp)) === dayKey) {
+            total += entry.costUsd;
+          }
         }
+      } finally {
+        rl.close();
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
