@@ -848,6 +848,7 @@ describe("status", () => {
     const status = orchestrator.status;
     expect(status.paused).toBe(false);
     expect(status.activeSessions).toHaveLength(0);
+    expect(status.activeRunCount).toBe(0);
     expect(status.queueDepth).toBe(0);
     expect(status.costToday).toBe(0);
     expect(status.budgetCapUsd).toBe(100);
@@ -869,6 +870,52 @@ describe("status", () => {
     vi.advanceTimersByTime(100);
 
     expect(orchestrator.status.uptime).toBeGreaterThanOrEqual(100);
+  });
+});
+
+// ─── activeRunCount ─────────────────────────────────────
+
+describe("activeRunCount", () => {
+  it("returns 0 when no sessions are active", () => {
+    const orchestrator = createOrchestrator();
+    expect(orchestrator.activeRunCount).toBe(0);
+  });
+
+  it("counts only running sessions, not queued ones", async () => {
+    vi.useRealTimers();
+    mockQueryDelay = 100;
+
+    const orchestrator = createOrchestrator({
+      concurrency: { maxSessions: 1, maxPerRepo: 1, queueMax: 50 },
+      idempotency: { enabled: false, key: "prompt", ttlMs: 60_000 },
+    });
+
+    // Start first dispatch (will be running)
+    const p1 = orchestrator.dispatch(makeInput({ prompt: "First task" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Start second dispatch (will be queued)
+    const p2 = orchestrator.dispatch(makeInput({ prompt: "Second task" }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // At this point: 1 running + 1 queued
+    expect(orchestrator.activeSessions.length).toBe(2);
+    expect(orchestrator.activeRunCount).toBe(1);
+
+    await Promise.all([p1, p2]);
+  });
+
+  it("returns 0 after all sessions complete", async () => {
+    const orchestrator = createOrchestrator();
+    await orchestrator.dispatch(makeInput());
+
+    expect(orchestrator.activeRunCount).toBe(0);
+  });
+
+  it("is included in status object", async () => {
+    const orchestrator = createOrchestrator();
+
+    expect(orchestrator.status.activeRunCount).toBe(0);
   });
 });
 
