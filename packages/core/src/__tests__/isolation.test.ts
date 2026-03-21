@@ -242,6 +242,20 @@ describe("validateGitRef", () => {
     await expect(validateGitRef(".hidden", "branch")).rejects.toThrow("unsafe path sequences");
   });
 
+  it("rejects refs starting with dash (flag injection prevention)", async () => {
+    await expect(validateGitRef("-exploit", "branch")).rejects.toThrow("unsafe path sequences");
+    await expect(validateGitRef("--flag", "branch")).rejects.toThrow("unsafe path sequences");
+    await expect(validateGitRef("---triple-dash", "branch")).rejects.toThrow(
+      "unsafe path sequences",
+    );
+  });
+
+  it("rejects whitespace-only refs", async () => {
+    await expect(validateGitRef("   ", "branch")).rejects.toThrow("branch name cannot be empty");
+    await expect(validateGitRef("\t\t", "branch")).rejects.toThrow("branch name cannot be empty");
+    await expect(validateGitRef("\n", "branch")).rejects.toThrow("branch name cannot be empty");
+  });
+
   it("rejects branch names used in getBranchName when invalid", async () => {
     const config: RepoConfig = {
       path: "/some/repo",

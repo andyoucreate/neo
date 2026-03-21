@@ -34,18 +34,20 @@ export async function validateGitRef(
     throw new Error(`Invalid ${refType} name: contains shell metacharacters or unsafe characters`);
   }
 
-  // Explicitly reject directory traversal and refs starting with dots
-  if (ref.includes("..") || ref.startsWith(".")) {
+  // Explicitly reject directory traversal and refs starting with dots or dashes
+  if (ref.includes("..") || ref.startsWith(".") || ref.startsWith("-")) {
     throw new Error(`Invalid ${refType} name: contains unsafe path sequences`);
   }
 
   // Layer 2: Use git check-ref-format for git-specific validation rules
+  // Use --allow-onelevel instead of --branch to prevent bypass of validation
   try {
-    await execFileAsync("git", ["check-ref-format", "--branch", ref], {
+    await execFileAsync("git", ["check-ref-format", "--allow-onelevel", ref], {
       timeout: 5000,
     });
-  } catch (_error) {
-    throw new Error(`Invalid ${refType} name: does not conform to git ref-format rules`);
+  } catch (error) {
+    const gitError = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${refType} name: ${gitError}`);
   }
 }
 
