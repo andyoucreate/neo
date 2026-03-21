@@ -8,6 +8,9 @@ import { getDataDir, toRepoSlug } from "@/paths";
 // ─── Re-export all schemas and types from config module ──
 
 export type {
+  ConfigParseResult,
+  ConfigWarning,
+  ConfigWarningType,
   GitStrategy,
   GlobalConfig,
   McpServerConfig,
@@ -20,7 +23,9 @@ export {
   budgetConfigSchema,
   ConfigStore,
   ConfigWatcher,
+  collectConfigWarnings,
   concurrencyConfigSchema,
+  formatConfigWarnings,
   gitStrategySchema,
   globalConfigSchema,
   mcpServerConfigSchema,
@@ -35,7 +40,13 @@ export {
 // ─── Import schemas for internal use ─────────────────────
 
 import type { NeoConfig, RepoConfig, RepoConfigInput } from "@/config/index";
-import { globalConfigSchema, neoConfigSchema, repoConfigSchema } from "@/config/index";
+import {
+  collectConfigWarnings,
+  formatConfigWarnings,
+  globalConfigSchema,
+  neoConfigSchema,
+  repoConfigSchema,
+} from "@/config/index";
 
 // ─── Default global config ──────────────────────────────
 
@@ -84,6 +95,14 @@ export async function loadConfig(configPath: string): Promise<NeoConfig> {
 
   const parsed = parseYamlFile(raw, configPath);
 
+  // Collect and emit warnings for deprecated/unknown fields
+  if (parsed !== null && typeof parsed === "object") {
+    const warnings = collectConfigWarnings(parsed as Record<string, unknown>);
+    for (const message of formatConfigWarnings(warnings, configPath)) {
+      console.warn(message);
+    }
+  }
+
   const result = neoConfigSchema.safeParse(parsed);
   if (!result.success) {
     throw new Error(formatZodErrors(result.error.issues, configPath));
@@ -107,6 +126,14 @@ export async function loadGlobalConfig(): Promise<NeoConfig> {
 
   const raw = await readFile(configPath, "utf-8");
   const parsed = parseYamlFile(raw, configPath);
+
+  // Collect and emit warnings for deprecated/unknown fields
+  if (parsed !== null && typeof parsed === "object") {
+    const warnings = collectConfigWarnings(parsed as Record<string, unknown>);
+    for (const message of formatConfigWarnings(warnings, configPath)) {
+      console.warn(message);
+    }
+  }
 
   const result = globalConfigSchema.safeParse(parsed);
   if (!result.success) {

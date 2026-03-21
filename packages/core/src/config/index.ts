@@ -38,3 +38,17 @@ export { ConfigStore } from "./ConfigStore";
 // ─── Re-export ConfigWatcher ─────────────────────────────
 
 export { ConfigWatcher } from "./ConfigWatcher";
+
+// ─── Re-export warnings utilities ────────────────────────
+
+export type { ConfigParseResult, ConfigWarning, ConfigWarningType } from "./warnings";
+export {
+  collectConfigWarnings,
+  DEPRECATED_FIELDS,
+  formatConfigWarnings,
+  KNOWN_MCP_SERVER_FIELDS,
+  KNOWN_NESTED_FIELDS,
+  KNOWN_REPO_FIELDS,
+  KNOWN_TOP_LEVEL_FIELDS,
+  KNOWN_WEBHOOK_FIELDS,
+} from "./warnings";

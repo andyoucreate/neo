@@ -6,6 +6,7 @@ import { getConfigValue } from "./dotNotation";
 import { defaultConfig, mergeConfigs } from "./merge";
 import type { NeoConfig, RepoOverrideConfig } from "./schema";
 import { neoConfigSchema, repoOverrideConfigSchema } from "./schema";
+import { collectConfigWarnings, formatConfigWarnings } from "./warnings";
 
 // ─── ConfigStore ───────────────────────────────────────────
 
@@ -96,6 +97,12 @@ export class ConfigStore {
       return null;
     }
 
+    // Collect and emit warnings for deprecated/unknown fields
+    const warnings = collectConfigWarnings(raw);
+    for (const message of formatConfigWarnings(warnings, globalPath)) {
+      console.warn(message);
+    }
+
     // Validate and parse with defaults
     const parsed = neoConfigSchema.safeParse(raw);
     if (!parsed.success) {
@@ -119,6 +126,12 @@ export class ConfigStore {
 
     if (raw === null) {
       return null;
+    }
+
+    // Collect and emit warnings for deprecated/unknown fields
+    const warnings = collectConfigWarnings(raw);
+    for (const message of formatConfigWarnings(warnings, repoConfigPath)) {
+      console.warn(message);
     }
 
     // Validate repo overrides (partial subset)
