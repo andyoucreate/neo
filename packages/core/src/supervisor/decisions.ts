@@ -81,19 +81,24 @@ export class DecisionStore {
 
   /**
    * Create a new decision and persist it.
+   * Uses a mutex to serialize with other write operations and prevent race conditions.
    * @returns The generated decision ID
    */
   async create(input: DecisionInput): Promise<string> {
-    await ensureDir(this.dir, this.dirCache);
-
     const id = `dec_${randomUUID().replace(/-/g, "").slice(0, 20)}`;
-    const decision: Decision = {
-      ...input,
-      id,
-      createdAt: new Date().toISOString(),
-    };
 
-    await appendFile(this.filePath, `${JSON.stringify(decision)}\n`, "utf-8");
+    await this.withWriteLock(async () => {
+      await ensureDir(this.dir, this.dirCache);
+
+      const decision: Decision = {
+        ...input,
+        id,
+        createdAt: new Date().toISOString(),
+      };
+
+      await appendFile(this.filePath, `${JSON.stringify(decision)}\n`, "utf-8");
+    });
+
     return id;
   }
 

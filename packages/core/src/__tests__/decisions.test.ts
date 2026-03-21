@@ -523,5 +523,85 @@ describe("DecisionStore", () => {
       const pending = await store.pending();
       expect(pending).toHaveLength(10);
     });
+
+    it("handles concurrent create and answer without data loss", async () => {
+      const store = new DecisionStore(TEST_FILE);
+
+      // Create initial decisions
+      const initialIds = await Promise.all([
+        store.create(makeDecision({ question: "Initial1" })),
+        store.create(makeDecision({ question: "Initial2" })),
+      ]);
+
+      // Concurrently: answer existing decisions AND create new ones
+      const operations = [
+        store.answer(initialIds[0], "answer-0"),
+        store.create(makeDecision({ question: "Concurrent1" })),
+        store.answer(initialIds[1], "answer-1"),
+        store.create(makeDecision({ question: "Concurrent2" })),
+        store.create(makeDecision({ question: "Concurrent3" })),
+      ];
+
+      const results = await Promise.all(operations);
+
+      // Verify all initial decisions were answered
+      const answered = await store.answered();
+      expect(answered).toHaveLength(2);
+      expect(answered.map((d) => d.answer).sort()).toEqual(["answer-0", "answer-1"]);
+
+      // Verify all new decisions were created (results[1], results[3], results[4] are IDs)
+      const newIds = [results[1], results[3], results[4]] as string[];
+      expect(newIds.every((id) => id.startsWith("dec_"))).toBe(true);
+
+      // Verify total decisions in store
+      const pending = await store.pending();
+      expect(pending).toHaveLength(3);
+      expect(pending.map((d) => d.question).sort()).toEqual([
+        "Concurrent1",
+        "Concurrent2",
+        "Concurrent3",
+      ]);
+    });
+
+    it("handles concurrent create, answer, and expire without data loss", async () => {
+      const store = new DecisionStore(TEST_FILE);
+
+      // Create decisions: some will expire, some will be answered
+      const expirableId = await store.create(
+        makeDecision({
+          question: "Expirable",
+          expiresAt: "2020-01-01T00:00:00.000Z",
+          defaultAnswer: "auto",
+        }),
+      );
+      const answerableId = await store.create(makeDecision({ question: "Answerable" }));
+
+      // Concurrently: create new decisions, answer one, and run expire
+      const operations = [
+        store.create(makeDecision({ question: "New1" })),
+        store.expire(),
+        store.answer(answerableId, "manual"),
+        store.create(makeDecision({ question: "New2" })),
+      ];
+
+      await Promise.all(operations);
+
+      // Verify expirable was auto-answered
+      const expirable = await store.get(expirableId);
+      expect(expirable?.answer).toBe("auto");
+
+      // Verify answerable was manually answered
+      const answerable = await store.get(answerableId);
+      expect(answerable?.answer).toBe("manual");
+
+      // Verify new decisions exist and are pending
+      const pending = await store.pending();
+      expect(pending).toHaveLength(2);
+      expect(pending.map((d) => d.question).sort()).toEqual(["New1", "New2"]);
+
+      // Verify total answered
+      const answered = await store.answered();
+      expect(answered).toHaveLength(2);
+    });
   });
 });
