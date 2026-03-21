@@ -38,3 +38,8 @@ export { ConfigStore } from "./ConfigStore";
 // ─── Re-export ConfigWatcher ─────────────────────────────
 
 export { ConfigWatcher } from "./ConfigWatcher";
+
+// ─── Re-export parser with warnings ──────────────────────
+
+export type { ConfigWarning, ConfigWarningType, ParseResult } from "./parser";
+export { parseConfigWithWarnings, parseRepoConfigWithWarnings } from "./parser";
