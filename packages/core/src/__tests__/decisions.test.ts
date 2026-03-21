@@ -167,6 +167,39 @@ describe("DecisionStore", () => {
       const pending = await store.pending();
       expect(pending).toHaveLength(0);
     });
+
+    it("rejects concurrent answer calls for the same decisionId", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      const id = await store.create(makeDecision({ question: "Race condition test" }));
+
+      // Launch multiple concurrent answer attempts for the SAME decision
+      const results = await Promise.allSettled([
+        store.answer(id, "answer-1"),
+        store.answer(id, "answer-2"),
+        store.answer(id, "answer-3"),
+        store.answer(id, "answer-4"),
+        store.answer(id, "answer-5"),
+      ]);
+
+      // Exactly one should succeed, the rest should fail with "already answered"
+      const fulfilled = results.filter((r) => r.status === "fulfilled");
+      const rejected = results.filter((r) => r.status === "rejected");
+
+      expect(fulfilled).toHaveLength(1);
+      expect(rejected).toHaveLength(4);
+
+      // All rejections should be "already answered" errors
+      for (const result of rejected) {
+        expect((result as PromiseRejectedResult).reason.message).toMatch(
+          /Decision already answered/,
+        );
+      }
+
+      // Verify the decision was answered exactly once
+      const decision = await store.get(id);
+      expect(decision?.answer).toBeDefined();
+      expect(decision?.answeredAt).toBeDefined();
+    });
   });
 
   describe("pending", () => {
