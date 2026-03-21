@@ -72,11 +72,11 @@ export function auditLog(options: {
     name: "audit-log",
     on: "PostToolUse",
     async flush() {
-      await flushAll();
       if (flushTimer !== undefined) {
         clearInterval(flushTimer);
         flushTimer = undefined;
       }
+      await flushAll();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {
