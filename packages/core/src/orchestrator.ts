@@ -465,8 +465,8 @@ export class Orchestrator extends NeoEventEmitter {
       const branch = ctx.input.branch as string;
       const remote = ctx.repoConfig.pushRemote ?? "origin";
       try {
-        await pushSessionBranch(sessionPath, branch, remote).catch(() => {
-          // Push may fail (no remote, auth, etc.) — not critical
+        await pushSessionBranch(sessionPath, branch, remote).catch((err) => {
+          console.debug("[neo] Push failed:", err);
         });
       } catch {
         // Best-effort — don't let finalization errors mask the real result
