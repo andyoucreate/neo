@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
+import type { ShutdownManager } from "@/supervisor/shutdown";
 import type { Middleware } from "@/types";
 
 const DEFAULT_FLUSH_INTERVAL_MS = 500;
@@ -24,6 +25,7 @@ export function auditLog(options: {
   includeOutput?: boolean;
   flushIntervalMs?: number;
   flushSize?: number;
+  shutdownManager?: ShutdownManager;
 }): AuditLogMiddleware {
   const {
     dir,
@@ -31,12 +33,26 @@ export function auditLog(options: {
     includeOutput = false,
     flushIntervalMs = DEFAULT_FLUSH_INTERVAL_MS,
     flushSize = DEFAULT_FLUSH_SIZE,
+    shutdownManager,
   } = options;
 
   let dirCreated = false;
   // sessionId → buffered lines
   const buffers = new Map<string, string[]>();
   let flushTimer: ReturnType<typeof setInterval> | undefined;
+
+  // Register cleanup handler with ShutdownManager to prevent timer leaks
+  const cleanup = async () => {
+    await flushAll();
+    if (flushTimer !== undefined) {
+      clearInterval(flushTimer);
+      flushTimer = undefined;
+    }
+  };
+
+  if (shutdownManager) {
+    shutdownManager.registerHandler(cleanup);
+  }
 
   async function ensureDir(): Promise<void> {
     if (!dirCreated) {
@@ -72,11 +88,7 @@ export function auditLog(options: {
     name: "audit-log",
     on: "PostToolUse",
     async flush() {
-      await flushAll();
-      if (flushTimer !== undefined) {
-        clearInterval(flushTimer);
-        flushTimer = undefined;
-      }
+      await cleanup();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {

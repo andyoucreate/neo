@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { type FSWatcher, watch } from "chokidar";
+import type { ShutdownManager } from "@/supervisor/shutdown";
 import type { ConfigStore } from "./ConfigStore";
 
 // ─── ConfigWatcher ─────────────────────────────────────────
@@ -27,14 +28,26 @@ export class ConfigWatcher extends EventEmitter {
   private readonly store: ConfigStore;
   private readonly debounceMs: number;
   private readonly repoPath: string | undefined;
+  private readonly shutdownManager: ShutdownManager | undefined;
   private watcher: FSWatcher | null = null;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(store: ConfigStore, options?: { debounceMs?: number }) {
+  constructor(
+    store: ConfigStore,
+    options?: { debounceMs?: number; shutdownManager?: ShutdownManager },
+  ) {
     super();
     this.store = store;
     this.debounceMs = options?.debounceMs ?? 500;
     this.repoPath = store.getRepoPath();
+    this.shutdownManager = options?.shutdownManager;
+
+    // Register cleanup handler with ShutdownManager to prevent timer leaks
+    if (this.shutdownManager) {
+      this.shutdownManager.registerHandler(async () => {
+        this.stop();
+      });
+    }
   }
 
   /**

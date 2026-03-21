@@ -165,6 +165,18 @@ export type {
 } from "@/supervisor/memory/index";
 // ─── Memory ───────────────────────────────────────────
 export { LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
+export type {
+  ShutdownContext,
+  ShutdownHandler,
+  ShutdownOptions,
+} from "@/supervisor/shutdown";
+// ─── Shutdown ──────────────────────────────────────────
+export {
+  createShutdownManager,
+  ShutdownManager,
+  terminateGracefully,
+  waitForExit,
+} from "@/supervisor/shutdown";
 export * from "@/types";
 // ─── Webhook Config ────────────────────────────────────
 export type {
