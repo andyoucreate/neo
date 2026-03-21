@@ -96,7 +96,9 @@ export async function runWithRecovery(options: RecoveryOptions): Promise<Session
       if (isNonRetryable(error, nonRetryable)) throw error;
       if (attempt === maxRetries) throw buildFinalError(error, maxRetries);
 
-      // Next attempt will be "fresh" — clear session to start clean
+      // Clear session to start fresh without inheriting failed session state (ADR-020).
+      // This prevents the new session from resuming the failed session's context,
+      // ensuring a clean slate for the final recovery attempt.
       if (getStrategy(attempt + 1) === "fresh") {
         lastSessionId = undefined;
       }
