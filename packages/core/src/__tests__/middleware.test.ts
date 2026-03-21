@@ -415,6 +415,94 @@ describe("loopDetection", () => {
     const result = await chain.execute(event, ctx);
     expect(result).toHaveProperty("decision", "block");
   });
+
+  it("clearAll() removes all session histories", async () => {
+    const mw = loopDetection({ threshold: 2 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    const event1 = makeEvent({ sessionId: "session-1", input: { command: "ls" } });
+    const event2 = makeEvent({ sessionId: "session-2", input: { command: "pwd" } });
+
+    // Execute commands for both sessions
+    await chain.execute(event1, ctx);
+    await chain.execute(event2, ctx);
+    expect(mw.sessionCount()).toBe(2);
+
+    // Clear all sessions
+    mw.clearAll();
+    expect(mw.sessionCount()).toBe(0);
+
+    // Both sessions should start fresh — first execution passes
+    expect(await chain.execute(event1, ctx)).toEqual({ decision: "pass" });
+    expect(await chain.execute(event2, ctx)).toEqual({ decision: "pass" });
+  });
+
+  it("sessionCount() returns the number of tracked sessions", async () => {
+    const mw = loopDetection({ threshold: 3 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    expect(mw.sessionCount()).toBe(0);
+
+    await chain.execute(makeEvent({ sessionId: "s1", input: { command: "ls" } }), ctx);
+    expect(mw.sessionCount()).toBe(1);
+
+    await chain.execute(makeEvent({ sessionId: "s2", input: { command: "pwd" } }), ctx);
+    expect(mw.sessionCount()).toBe(2);
+
+    mw.cleanup("s1");
+    expect(mw.sessionCount()).toBe(1);
+  });
+
+  it("evicts stale entries based on TTL", async () => {
+    vi.useFakeTimers();
+    const ttlMs = 1000; // 1 second TTL for testing
+    const mw = loopDetection({ threshold: 3, ttlMs });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    const event = makeEvent({ sessionId: "stale-session", input: { command: "ls" } });
+
+    // Execute command — creates session entry
+    await chain.execute(event, ctx);
+    expect(mw.sessionCount()).toBe(1);
+
+    // Advance time beyond TTL
+    vi.advanceTimersByTime(ttlMs + 100);
+
+    // Next handler invocation triggers lazy eviction
+    const freshEvent = makeEvent({ sessionId: "fresh-session", input: { command: "pwd" } });
+    await chain.execute(freshEvent, ctx);
+
+    // Stale session evicted, only fresh session remains
+    expect(mw.sessionCount()).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it("does not evict entries within TTL", async () => {
+    vi.useFakeTimers();
+    const ttlMs = 10_000; // 10 seconds TTL
+    const mw = loopDetection({ threshold: 3, ttlMs });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    const event = makeEvent({ sessionId: "recent-session", input: { command: "ls" } });
+
+    // Execute command
+    await chain.execute(event, ctx);
+    expect(mw.sessionCount()).toBe(1);
+
+    // Advance time but stay within TTL
+    vi.advanceTimersByTime(ttlMs - 1000);
+
+    // Execute another command — lazy eviction runs but entry should remain
+    await chain.execute(event, ctx);
+    expect(mw.sessionCount()).toBe(1);
+
+    vi.useRealTimers();
+  });
 });
 
 // ─── Audit Log ─────────────────────────────────────────
