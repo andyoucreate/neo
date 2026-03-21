@@ -78,9 +78,15 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
   }
 
   if (options.env && Object.keys(options.env).length > 0) {
-    // Merge with process.env so PATH, HOME, etc. are preserved.
-    // Custom vars override process.env if there's a conflict.
-    queryOptions.env = { ...process.env, ...options.env };
+    // Only pass whitelisted environment variables to agents.
+    // Custom vars from options override whitelisted values if there's a conflict.
+    queryOptions.env = {
+      PATH: process.env.PATH,
+      HOME: process.env.HOME,
+      USER: process.env.USER,
+      TMPDIR: process.env.TMPDIR,
+      ...options.env,
+    };
   }
 
   return queryOptions;
