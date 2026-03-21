@@ -466,17 +466,20 @@ export class Orchestrator extends NeoEventEmitter {
       const remote = ctx.repoConfig.pushRemote ?? "origin";
       try {
         await pushSessionBranch(sessionPath, branch, remote).catch((err) => {
+          // biome-ignore lint/suspicious/noConsole: Debug logging for push failures
           console.debug("[neo] Push failed:", err);
         });
-      } catch {
-        // Best-effort — don't let finalization errors mask the real result
+      } catch (err) {
+        // biome-ignore lint/suspicious/noConsole: Debug logging for finalization errors
+        console.debug("[neo] Finalization error:", err);
       }
     }
 
     try {
       await removeSessionClone(sessionPath);
-    } catch {
-      // Session cleanup is best-effort
+    } catch (err) {
+      // biome-ignore lint/suspicious/noConsole: Debug logging for session cleanup errors
+      console.debug("[neo] Session cleanup failed:", err);
     }
   }
 

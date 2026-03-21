@@ -349,8 +349,9 @@ export class HeartbeatLoop {
     }
 
     // Log the config change
-    this.activityLog.log("event", "Configuration reloaded (hot-reload)").catch(() => {
-      // Non-critical — logging errors should not crash the loop
+    this.activityLog.log("event", "Configuration reloaded (hot-reload)").catch((err) => {
+      // biome-ignore lint/suspicious/noConsole: Debug logging for config reload errors
+      console.debug("[neo] Config reload log failed:", err);
     });
 
     // Interrupt the event queue wait to trigger an immediate heartbeat
