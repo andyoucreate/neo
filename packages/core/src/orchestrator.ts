@@ -254,10 +254,23 @@ export class Orchestrator extends NeoEventEmitter {
     this._paused = true;
 
     if (this._activeSessions.size > 0) {
-      await Promise.race([
-        this.drain(),
-        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
+      const activeCount = this._activeSessions.size;
+      const drainPromise = this.drain();
+      const timeoutPromise = new Promise<void>((resolve) =>
+        setTimeout(resolve, SHUTDOWN_TIMEOUT_MS),
+      );
+
+      const winner = await Promise.race([
+        drainPromise.then(() => "drain" as const),
+        timeoutPromise.then(() => "timeout" as const),
       ]);
+
+      if (winner === "timeout" && this._activeSessions.size > 0) {
+        // biome-ignore lint/suspicious/noConsole: Critical warning for forced shutdown
+        console.warn(
+          `[neo] Shutdown timeout reached after ${String(SHUTDOWN_TIMEOUT_MS)}ms — ${String(this._activeSessions.size)}/${String(activeCount)} sessions forcibly terminated`,
+        );
+      }
     }
 
     for (const mw of this.userMiddleware) {

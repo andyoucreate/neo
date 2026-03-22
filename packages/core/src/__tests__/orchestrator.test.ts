@@ -418,6 +418,91 @@ describe("shutdown", () => {
     await orchestrator.shutdown();
     expect(orchestrator.status.paused).toBe(true);
   });
+
+  it("logs warning when shutdown timeout is reached with active sessions", async () => {
+    const orchestrator = createOrchestrator();
+    const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const originalSetTimeout = global.setTimeout;
+    const spies: ReturnType<typeof vi.spyOn>[] = [];
+
+    try {
+      // Start orchestrator
+      await orchestrator.start();
+
+      // Directly inject fake active sessions to simulate hung state
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private field for test
+      (orchestrator as any)._activeSessions.set("hung-session-1", {
+        sessionId: "hung-session-1",
+        runId: "hung-run-1",
+        step: "execute",
+        agent: "test-developer",
+        repo: TMP_DIR,
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private field for test
+      (orchestrator as any)._activeSessions.set("hung-session-2", {
+        sessionId: "hung-session-2",
+        runId: "hung-run-2",
+        step: "execute",
+        agent: "test-developer",
+        repo: TMP_DIR,
+        status: "running",
+        startedAt: new Date().toISOString(),
+      });
+
+      // Verify we have 2 active sessions
+      expect(orchestrator.activeSessions.length).toBe(2);
+
+      // Mock drain() to never resolve (simulating hung sessions)
+      // biome-ignore lint/suspicious/noExplicitAny: accessing private method for test
+      const drainSpy = vi.spyOn(orchestrator as any, "drain").mockImplementation(
+        () => new Promise(() => {}), // Never resolves
+      );
+      spies.push(drainSpy);
+
+      // Mock setTimeout to resolve immediately for shutdown timeout
+      let timeoutCallCount = 0;
+      const setTimeoutSpy = vi.spyOn(global, "setTimeout").mockImplementation(
+        // biome-ignore lint/suspicious/noExplicitAny: setTimeout handler can be any function
+        (fn: any, ms?: number) => {
+          // Only fast-forward the shutdown timeout (5 min = 300000ms)
+          if (ms === 5 * 60 * 1000) {
+            timeoutCallCount++;
+            // biome-ignore lint/suspicious/noExplicitAny: NodeJS.Timeout type compatibility
+            return originalSetTimeout(() => fn(), 0) as any;
+          }
+          // biome-ignore lint/suspicious/noExplicitAny: NodeJS.Timeout type compatibility
+          return originalSetTimeout(fn, ms) as any;
+        },
+      );
+      // biome-ignore lint/suspicious/noExplicitAny: vitest spy type compatibility
+      spies.push(setTimeoutSpy as any);
+
+      // Trigger shutdown — should timeout immediately due to mocked setTimeout
+      await orchestrator.shutdown();
+
+      // Verify setTimeout was called for the timeout
+      expect(timeoutCallCount).toBe(1);
+
+      // Verify warning was logged with both sessions count
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining("Shutdown timeout reached"),
+      );
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("2/2 sessions"));
+      expect(consoleWarnSpy).toHaveBeenCalledWith(expect.stringContaining("forcibly terminated"));
+    } finally {
+      // CRITICAL: restore all mocks to prevent breaking other tests
+      consoleWarnSpy.mockRestore();
+      for (const spy of spies) {
+        spy.mockRestore();
+      }
+      // Ensure setTimeout is back to original
+      if (global.setTimeout !== originalSetTimeout) {
+        global.setTimeout = originalSetTimeout;
+      }
+    }
+  });
 });
 
 // ─── Startup recovery ───────────────────────────────────
