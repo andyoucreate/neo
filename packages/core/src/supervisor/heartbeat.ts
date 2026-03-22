@@ -153,6 +153,12 @@ interface HeartbeatModeResult {
   lastConsolidationTs: string | undefined;
 }
 
+interface ProcessDecisionsResult {
+  hasExpiredDecisions: boolean;
+  pendingDecisions: Decision[];
+  answeredDecisions: Decision[];
+}
+
 interface StateUpdateResult {
   stateUpdate: Partial<SupervisorDaemonState>;
 }
@@ -375,19 +381,8 @@ export class HeartbeatLoop {
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
     const activeRuns = await this.getActiveRuns();
 
-    // Process decision answers from inbox messages
-    const decisionStore = this.getDecisionStore();
-    await this.processDecisionAnswers(rawEvents, decisionStore);
-
-    // Auto-answer expired decisions
-    const expiredDecisions = await decisionStore.expire();
-    const hasExpiredDecisions = expiredDecisions.length > 0;
-
-    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
-    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
-    const answeredDecisions = this.config.supervisor.autoDecide
-      ? await decisionStore.answered(state?.lastHeartbeat)
-      : [];
+    // Process decisions
+    const decisionContext = await this.processDecisions(rawEvents, state);
 
     // Check for pending consolidation entries
     const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
@@ -399,7 +394,7 @@ export class HeartbeatLoop {
       totalEventCount,
       activeRuns,
       hasPendingConsolidation,
-      hasExpiredDecisions,
+      hasExpiredDecisions: decisionContext.hasExpiredDecisions,
     });
     if (skipResult.shouldSkip) return;
     if (skipResult.resetCounters) {
@@ -418,8 +413,8 @@ export class HeartbeatLoop {
       isCompaction: modeResult.isCompaction,
       isConsolidation: modeResult.isConsolidation,
       activeRuns,
-      pendingDecisions,
-      answeredDecisions,
+      pendingDecisions: decisionContext.pendingDecisions,
+      answeredDecisions: decisionContext.answeredDecisions,
       lastHeartbeat: state?.lastHeartbeat,
       lastConsolidationTimestamp: modeResult.lastConsolidationTs,
     });
@@ -512,6 +507,34 @@ export class HeartbeatLoop {
         await this.emitRunCompleted(emitOpts);
       }
     }
+  }
+
+  /**
+   * Process decision-related operations: answers from inbox, expiration, and loading context.
+   */
+  private async processDecisions(
+    rawEvents: QueuedEvent[],
+    state: SupervisorDaemonState | null,
+  ): Promise<ProcessDecisionsResult> {
+    const decisionStore = this.getDecisionStore();
+
+    // Process answers from inbox
+    await this.processDecisionAnswers(rawEvents, decisionStore);
+
+    // Expire stale decisions
+    const expiredDecisions = await decisionStore.expire();
+
+    // Load pending/answered (only in autoDecide mode)
+    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
+    const answeredDecisions = this.config.supervisor.autoDecide
+      ? await decisionStore.answered(state?.lastHeartbeat)
+      : [];
+
+    return {
+      hasExpiredDecisions: expiredDecisions.length > 0,
+      pendingDecisions,
+      answeredDecisions,
+    };
   }
 
   /**
