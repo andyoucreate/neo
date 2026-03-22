@@ -1,5 +1,5 @@
 import { createReadStream, type FSWatcher, watch } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import type { InboxMessage, QueuedEvent, WebhookIncomingEvent } from "./schemas.js";
 
@@ -310,12 +310,20 @@ export class EventQueue {
     processedAt: string,
   ): Promise<void> {
     try {
-      const content = await readFile(filePath, "utf-8");
-      const lines = content.split("\n");
+      const fileStream = createReadStream(filePath, { encoding: "utf-8" });
+      const rl = createInterface({
+        input: fileStream,
+        crlfDelay: Number.POSITIVE_INFINITY,
+      });
+
+      const updated: string[] = [];
       let changed = false;
 
-      const updated = lines.map((line) => {
-        if (!line.trim()) return line;
+      for await (const line of rl) {
+        if (!line.trim()) {
+          updated.push(line);
+          continue;
+        }
         try {
           const parsed = JSON.parse(line) as Record<string, unknown>;
           if (
@@ -324,17 +332,20 @@ export class EventQueue {
           ) {
             parsed.processedAt = processedAt;
             changed = true;
-            return JSON.stringify(parsed);
+            updated.push(JSON.stringify(parsed));
+          } else {
+            updated.push(line);
           }
         } catch (_err) {
           // Non-critical: keep malformed lines as-is (manual edits or corruption)
+          updated.push(line);
         }
-        return line;
-      });
+      }
 
       if (changed) {
-        await writeFile(filePath, updated.join("\n"), "utf-8");
-        this.fileOffsets.set(filePath, updated.join("\n").length);
+        const content = updated.length > 0 ? `${updated.join("\n")}\n` : "";
+        await writeFile(filePath, content, "utf-8");
+        this.fileOffsets.set(filePath, content.length);
       }
     } catch {
       // Non-critical: marking as processed may fail but events are already handled.

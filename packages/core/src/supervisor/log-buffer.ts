@@ -1,5 +1,5 @@
 import { createReadStream } from "node:fs";
-import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { LogBufferEntry } from "./schemas.js";
@@ -75,31 +75,34 @@ export async function readUnconsolidated(dir: string): Promise<LogBufferEntry[]>
  */
 export async function markConsolidated(dir: string, ids: string[]): Promise<void> {
   const filePath = bufferPath(dir);
-  let content: string;
+  const idSet = new Set(ids);
+  const now = new Date().toISOString();
+  const updated: string[] = [];
+
   try {
-    content = await readFile(filePath, "utf-8");
+    const fileStream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({
+      input: fileStream,
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (idSet.has(entry.id) && !entry.consolidatedAt) {
+          entry.consolidatedAt = now;
+        }
+        updated.push(JSON.stringify(entry));
+      } catch {
+        updated.push(line);
+      }
+    }
+
+    await writeFile(filePath, `${updated.join("\n")}\n`, "utf-8");
   } catch {
     return;
   }
-
-  const idSet = new Set(ids);
-  const now = new Date().toISOString();
-  const lines = content.trim().split("\n").filter(Boolean);
-  const updated: string[] = [];
-
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (idSet.has(entry.id) && !entry.consolidatedAt) {
-        entry.consolidatedAt = now;
-      }
-      updated.push(JSON.stringify(entry));
-    } catch {
-      updated.push(line);
-    }
-  }
-
-  await writeFile(filePath, `${updated.join("\n")}\n`, "utf-8");
 }
 
 /**
@@ -107,40 +110,43 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
  */
 export async function compactLogBuffer(dir: string): Promise<void> {
   const filePath = bufferPath(dir);
-  let content: string;
+  const now = Date.now();
+  const kept: string[] = [];
+
   try {
-    content = await readFile(filePath, "utf-8");
+    const fileStream = createReadStream(filePath, { encoding: "utf-8" });
+    const rl = createInterface({
+      input: fileStream,
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (entry.consolidatedAt) {
+          const consolidatedTime = new Date(entry.consolidatedAt).getTime();
+          if (now - consolidatedTime > COMPACTION_AGE_MS) {
+            continue; // Drop old consolidated entries
+          }
+        }
+        kept.push(JSON.stringify(entry));
+      } catch {
+        // Drop malformed lines during compaction
+      }
+    }
+
+    // Cap at 1MB — drop oldest entries first
+    let result = `${kept.join("\n")}\n`;
+    while (Buffer.byteLength(result, "utf-8") > MAX_FILE_BYTES && kept.length > 0) {
+      kept.shift();
+      result = `${kept.join("\n")}\n`;
+    }
+
+    await writeFile(filePath, result, "utf-8");
   } catch {
     return;
   }
-
-  const now = Date.now();
-  const lines = content.trim().split("\n").filter(Boolean);
-  const kept: string[] = [];
-
-  for (const line of lines) {
-    try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (entry.consolidatedAt) {
-        const consolidatedTime = new Date(entry.consolidatedAt).getTime();
-        if (now - consolidatedTime > COMPACTION_AGE_MS) {
-          continue; // Drop old consolidated entries
-        }
-      }
-      kept.push(JSON.stringify(entry));
-    } catch {
-      // Drop malformed lines during compaction
-    }
-  }
-
-  // Cap at 1MB — drop oldest entries first
-  let result = `${kept.join("\n")}\n`;
-  while (Buffer.byteLength(result, "utf-8") > MAX_FILE_BYTES && kept.length > 0) {
-    kept.shift();
-    result = `${kept.join("\n")}\n`;
-  }
-
-  await writeFile(filePath, result, "utf-8");
 }
 
 // ─── Digest helpers ──────────────────────────────────────
