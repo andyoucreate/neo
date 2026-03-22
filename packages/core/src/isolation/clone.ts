@@ -40,6 +40,79 @@ export function validateGitRef(refName: string, paramName: string): void {
   }
 }
 
+/**
+ * Validates that a git remote URL is safe to use for clone operations.
+ * Prevents command injection and malicious URL schemes.
+ * Only allows https://, git://, and ssh:// (git@...) schemes.
+ * Rejects file://, git::, command injection patterns, and directory traversal.
+ *
+ * @throws Error if the URL is invalid or uses an unsafe scheme
+ */
+export function validateGitUrl(url: string, paramName: string): void {
+  if (!url || typeof url !== "string") {
+    throw new Error(`${paramName} must be a non-empty string`);
+  }
+
+  const trimmedUrl = url.trim();
+
+  // Reject file:// URLs explicitly FIRST (would allow arbitrary file access)
+  if (trimmedUrl.startsWith("file://")) {
+    throw new Error(`${paramName} uses disallowed 'file://' scheme (security risk)`);
+  }
+
+  // Reject directory traversal patterns
+  if (trimmedUrl.includes("..")) {
+    throw new Error(`${paramName} contains invalid pattern '..' (directory traversal)`);
+  }
+
+  // Reject git option injection (starting with -)
+  if (trimmedUrl.startsWith("-")) {
+    throw new Error(`${paramName} cannot start with '-' (option injection)`);
+  }
+
+  // Reject dangerous git transport patterns like git::-c or git::ext
+  if (trimmedUrl.includes("git::")) {
+    throw new Error(`${paramName} contains invalid pattern 'git::' (exploit attempt)`);
+  }
+
+  // Reject shell metacharacters and command injection patterns
+  const dangerousPatterns = [
+    "@{", // git ref expansion
+    "`", // command substitution
+    "$", // variable expansion
+    "|", // pipe
+    ";", // command separator
+    "&", // background/chaining
+    "\n", // newline injection
+    "\r", // carriage return injection
+  ];
+
+  for (const pattern of dangerousPatterns) {
+    if (trimmedUrl.includes(pattern)) {
+      throw new Error(`${paramName} contains dangerous pattern '${pattern}' (command injection)`);
+    }
+  }
+
+  // Check URL scheme - only allow safe protocols
+  // Accept: https://, git://, ssh://, or SSH format (git@host:path)
+  const httpsPattern = /^https:\/\//;
+  const gitPattern = /^git:\/\//;
+  const sshUrlPattern = /^ssh:\/\//;
+  const sshScpPattern = /^[a-zA-Z0-9._-]+@[a-zA-Z0-9._-]+:/;
+
+  const isValidScheme =
+    httpsPattern.test(trimmedUrl) ||
+    gitPattern.test(trimmedUrl) ||
+    sshUrlPattern.test(trimmedUrl) ||
+    sshScpPattern.test(trimmedUrl);
+
+  if (!isValidScheme) {
+    throw new Error(
+      `${paramName} has invalid or disallowed scheme. Only https://, git://, ssh://, and git@host:path formats are allowed. Got: ${trimmedUrl.slice(0, 50)}`,
+    );
+  }
+}
+
 export interface SessionCloneInfo {
   path: string;
   branch: string;
@@ -82,6 +155,12 @@ export async function createSessionClone(options: {
       );
       return "";
     });
+
+  // SECURITY: Validate remote URL before using it for clone operations
+  // Only validate if remoteUrl is non-empty (empty means local clone fallback)
+  if (remoteUrl) {
+    validateGitUrl(remoteUrl, "remote.origin.url");
+  }
 
   // Clone from the real remote (GitHub) instead of the local path.
   // This ensures zero coupling: no hardlinks, no local-path origin,

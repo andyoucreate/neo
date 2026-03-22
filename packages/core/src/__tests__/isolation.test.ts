@@ -5,7 +5,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
-import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
+import {
+  createSessionClone,
+  listSessionClones,
+  removeSessionClone,
+  validateGitUrl,
+} from "@/isolation/clone";
 import {
   createBranch,
   deleteBranch,
@@ -611,6 +616,129 @@ describe("git.ts functions validation (security)", () => {
     await expect(pushSessionBranch(sessionDir, "feat/test;rm -rf /", "origin")).rejects.toThrow(
       /contains invalid characters/,
     );
+  });
+});
+
+// ─── Git URL Validation (Security) ─────────────────────────
+
+describe("git URL validation (security)", () => {
+  it("accepts valid https:// URLs", () => {
+    expect(() => validateGitUrl("https://github.com/user/repo.git", "url")).not.toThrow();
+    expect(() =>
+      validateGitUrl("https://gitlab.example.com/group/project.git", "url"),
+    ).not.toThrow();
+  });
+
+  it("accepts valid git:// URLs", () => {
+    expect(() => validateGitUrl("git://github.com/user/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid ssh:// URLs", () => {
+    expect(() => validateGitUrl("ssh://git@github.com/user/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid SSH SCP-style URLs", () => {
+    expect(() => validateGitUrl("git@github.com:user/repo.git", "url")).not.toThrow();
+    expect(() => validateGitUrl("user@host.example.com:path/to/repo.git", "url")).not.toThrow();
+  });
+
+  it("rejects file:// URLs (arbitrary file access)", () => {
+    expect(() => validateGitUrl("file:///etc/passwd", "url")).toThrow(
+      /disallowed 'file:\/\/' scheme/,
+    );
+    expect(() => validateGitUrl("file:///tmp/repo", "url")).toThrow(
+      /disallowed 'file:\/\/' scheme/,
+    );
+  });
+
+  it("rejects git:: exploit patterns", () => {
+    expect(() => validateGitUrl("git::-c protocol.ext.allow=always", "url")).toThrow(
+      /invalid pattern 'git::'/,
+    );
+    expect(() => validateGitUrl("git::ext::sh -c 'whoami'", "url")).toThrow(
+      /invalid pattern 'git::'/,
+    );
+  });
+
+  it("rejects URLs with directory traversal patterns", () => {
+    expect(() => validateGitUrl("https://github.com/../../../etc/passwd", "url")).toThrow(
+      /invalid pattern '\.\.'/,
+    );
+    expect(() => validateGitUrl("git@host:../../../etc/passwd", "url")).toThrow(
+      /invalid pattern '\.\.'/,
+    );
+  });
+
+  it("rejects URLs with option injection", () => {
+    expect(() => validateGitUrl("--upload-pack=evil", "url")).toThrow(/cannot start with '-'/);
+    expect(() => validateGitUrl("-c protocol.ext.allow=always", "url")).toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("rejects URLs with command injection patterns - backticks", () => {
+    expect(() => validateGitUrl("git@host:`whoami`.git", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects URLs with command injection patterns - dollar sign", () => {
+    expect(() => validateGitUrl("git@host:$(whoami).git", "url")).toThrow(/dangerous pattern/);
+    expect(() => validateGitUrl("https://github.com/$USER/repo.git", "url")).toThrow(
+      /dangerous pattern/,
+    );
+  });
+
+  it("rejects URLs with command injection patterns - @{", () => {
+    expect(() => validateGitUrl("git@host:repo@{u}.git", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects URLs with shell metacharacters - pipe", () => {
+    expect(() => validateGitUrl("git@host:repo.git | rm -rf /", "url")).toThrow(
+      /dangerous pattern/,
+    );
+  });
+
+  it("rejects URLs with shell metacharacters - semicolon", () => {
+    expect(() => validateGitUrl("git@host:repo.git; whoami", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects URLs with shell metacharacters - ampersand", () => {
+    expect(() => validateGitUrl("git@host:repo.git & whoami", "url")).toThrow(/dangerous pattern/);
+    expect(() => validateGitUrl("git@host:repo.git && whoami", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects URLs with newline injection", () => {
+    expect(() => validateGitUrl("git@host:repo.git\nrm -rf /", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects URLs with carriage return injection", () => {
+    expect(() => validateGitUrl("git@host:repo.git\rwhoami", "url")).toThrow(/dangerous pattern/);
+  });
+
+  it("rejects empty URLs", () => {
+    expect(() => validateGitUrl("", "url")).toThrow(/must be a non-empty string/);
+  });
+
+  it("rejects non-string URLs", () => {
+    // @ts-expect-error - testing runtime validation
+    expect(() => validateGitUrl(null, "url")).toThrow(/must be a non-empty string/);
+    // @ts-expect-error - testing runtime validation
+    expect(() => validateGitUrl(undefined, "url")).toThrow(/must be a non-empty string/);
+  });
+
+  it("rejects URLs with unsupported schemes", () => {
+    expect(() => validateGitUrl("http://github.com/user/repo.git", "url")).toThrow(
+      /invalid or disallowed scheme/,
+    );
+    expect(() => validateGitUrl("ftp://server.com/repo.git", "url")).toThrow(
+      /invalid or disallowed scheme/,
+    );
+    expect(() => validateGitUrl("/local/path/to/repo", "url")).toThrow(
+      /invalid or disallowed scheme/,
+    );
+  });
+
+  it("handles URLs with whitespace correctly", () => {
+    expect(() => validateGitUrl("  https://github.com/user/repo.git  ", "url")).not.toThrow();
   });
 });
 
