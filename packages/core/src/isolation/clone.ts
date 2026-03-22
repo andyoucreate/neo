@@ -7,6 +7,39 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
 
+/**
+ * Validates that a git ref name (branch, tag, remote) is safe to use.
+ * Prevents command injection by allowing only alphanumeric chars, dashes, slashes, underscores, plus, and dot.
+ * Rejects '..' to prevent directory traversal attacks.
+ * Rejects git option-like strings starting with '-' to prevent option injection.
+ *
+ * @throws Error if the ref name is invalid
+ */
+export function validateGitRef(refName: string, paramName: string): void {
+  if (!refName || typeof refName !== "string") {
+    throw new Error(`${paramName} must be a non-empty string`);
+  }
+
+  // Reject directory traversal
+  if (refName.includes("..")) {
+    throw new Error(`${paramName} contains invalid pattern '..' (directory traversal)`);
+  }
+
+  // Reject git option injection (anything starting with -)
+  if (refName.startsWith("-")) {
+    throw new Error(`${paramName} cannot start with '-' (option injection)`);
+  }
+
+  // Allow only safe characters: alphanumeric, dash, underscore, slash, plus, dot
+  // This supports semver tags like v1.2.3+build.123
+  const validRefPattern = /^[a-zA-Z0-9/_+.-]+$/;
+  if (!validRefPattern.test(refName)) {
+    throw new Error(
+      `${paramName} contains invalid characters. Only alphanumeric, dash, underscore, slash, plus, and dot are allowed. Got: ${refName}`,
+    );
+  }
+}
+
 export interface SessionCloneInfo {
   path: string;
   branch: string;
@@ -24,6 +57,11 @@ export async function createSessionClone(options: {
   baseBranch: string;
   sessionDir: string;
 }): Promise<SessionCloneInfo> {
+  // SECURITY: Validate all git ref parameters BEFORE any git operations
+  // This prevents command injection via branch names like '--upload-pack=payload'
+  validateGitRef(options.branch, "branch");
+  validateGitRef(options.baseBranch, "baseBranch");
+
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
 
@@ -37,7 +75,13 @@ export async function createSessionClone(options: {
     timeout: GIT_TIMEOUT,
   })
     .then(({ stdout }) => stdout.trim())
-    .catch(() => "");
+    .catch((err) => {
+      // No remote configured — will fall back to local clone
+      console.debug(
+        `[neo] No remote.origin.url for ${repoPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return "";
+    });
 
   // Clone from the real remote (GitHub) instead of the local path.
   // This ensures zero coupling: no hardlinks, no local-path origin,
@@ -56,7 +100,13 @@ export async function createSessionClone(options: {
       { cwd: sessionDir, timeout: GIT_TIMEOUT },
     )
       .then(({ stdout }) => stdout.trim().length > 0)
-      .catch(() => false);
+      .catch((err) => {
+        // Branch doesn't exist remotely or network error — will create new branch
+        console.debug(
+          `[neo] ls-remote failed for branch ${options.branch}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+      });
 
     if (branchExists) {
       // Fetch and checkout the existing branch
@@ -129,16 +179,22 @@ export async function listSessionClones(sessionsBaseDir: string): Promise<Sessio
         );
         const url = originUrl.trim();
         if (url) repoPath = resolve(clonePath, url);
-      } catch {
+      } catch (err) {
         // No origin or not a clone — keep clonePath as fallback
+        console.debug(
+          `[neo] Failed to get origin URL for ${clonePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       clones.push({
         path: clonePath,
         branch: branchOut.trim(),
         repoPath,
       });
-    } catch {
+    } catch (err) {
       // Not a git repo — skip
+      console.debug(
+        `[neo] Skipping ${clonePath}, not a valid git repo: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

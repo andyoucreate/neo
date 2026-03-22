@@ -29,7 +29,12 @@ import {
   buildStandardPrompt,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
-import type { LogBufferEntry, QueuedEvent, SupervisorDaemonState } from "./schemas.js";
+import type {
+  ActivityEntry,
+  LogBufferEntry,
+  QueuedEvent,
+  SupervisorDaemonState,
+} from "./schemas.js";
 import {
   type HeartbeatEvent,
   heartbeatEventSchema,
@@ -130,6 +135,36 @@ export function isRunActive(
 interface BudgetCheckResult {
   todayCost: number;
   exceeded: boolean;
+}
+
+interface ProcessDecisionsResult {
+  pendingDecisions: Decision[];
+  answeredDecisions: Decision[];
+  hasExpiredDecisions: boolean;
+}
+
+interface EventContext {
+  grouped: GroupedEvents;
+  rawEvents: QueuedEvent[];
+  totalEventCount: number;
+  activeRuns: string[];
+  memories: MemoryEntry[];
+  recentActions: ActivityEntry[];
+  mcpServerNames: string[];
+}
+
+interface PostSdkProcessingInput {
+  rawEvents: QueuedEvent[];
+  isConsolidation: boolean;
+  unconsolidated: LogBufferEntry[];
+}
+
+interface CompletionEventsInput {
+  heartbeatCount: number;
+  activeRuns: string[];
+  todayCost: number;
+  costUsd: number;
+  rawEvents: QueuedEvent[];
 }
 
 interface SkipLogicInput {
@@ -369,25 +404,12 @@ export class HeartbeatLoop {
     const budgetCheck = await this.checkBudgetExceeded(state, today);
     if (budgetCheck.exceeded) return;
 
-    // Drain events and check for active work
-    const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
-    const totalEventCount =
-      grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
-    const activeRuns = await this.getActiveRuns();
+    // Gather event context
+    const eventCtx = await this.gatherEventContext();
 
-    // Process decision answers from inbox messages
-    const decisionStore = this.getDecisionStore();
-    await this.processDecisionAnswers(rawEvents, decisionStore);
-
-    // Auto-answer expired decisions
-    const expiredDecisions = await decisionStore.expire();
-    const hasExpiredDecisions = expiredDecisions.length > 0;
-
-    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
-    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
-    const answeredDecisions = this.config.supervisor.autoDecide
-      ? await decisionStore.answered(state?.lastHeartbeat)
-      : [];
+    // Process decision answers and expiry
+    const { pendingDecisions, answeredDecisions, hasExpiredDecisions } =
+      await this.processDecisions(eventCtx.rawEvents, state?.lastHeartbeat);
 
     // Check for pending consolidation entries
     const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
@@ -396,8 +418,8 @@ export class HeartbeatLoop {
     // Handle skip logic for idle/active-work scenarios
     const skipResult = await this.handleSkipLogic({
       state,
-      totalEventCount,
-      activeRuns,
+      totalEventCount: eventCtx.totalEventCount,
+      activeRuns: eventCtx.activeRuns,
       hasPendingConsolidation,
       hasExpiredDecisions,
     });
@@ -411,27 +433,30 @@ export class HeartbeatLoop {
 
     // Build prompt and log start
     const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
-      grouped,
+      grouped: eventCtx.grouped,
       todayCost: budgetCheck.todayCost,
       heartbeatCount: modeResult.heartbeatCount,
       unconsolidated: modeResult.unconsolidated,
       isCompaction: modeResult.isCompaction,
       isConsolidation: modeResult.isConsolidation,
-      activeRuns,
+      activeRuns: eventCtx.activeRuns,
       pendingDecisions,
       answeredDecisions,
       lastHeartbeat: state?.lastHeartbeat,
       lastConsolidationTimestamp: modeResult.lastConsolidationTs,
+      memories: eventCtx.memories,
+      recentActions: eventCtx.recentActions,
+      mcpServerNames: eventCtx.mcpServerNames,
     });
     await this.activityLog.log(
       "heartbeat",
       `Heartbeat #${modeResult.heartbeatCount} starting (${modeLabel})`,
       {
         heartbeatId,
-        eventCount: totalEventCount,
-        messages: grouped.messages.length,
-        webhooks: grouped.webhooks.length,
-        runCompletions: grouped.runCompletions.length,
+        eventCount: eventCtx.totalEventCount,
+        messages: eventCtx.grouped.messages.length,
+        webhooks: eventCtx.grouped.webhooks.length,
+        runCompletions: eventCtx.grouped.runCompletions.length,
         isConsolidation: modeResult.isConsolidation,
       },
     );
@@ -448,20 +473,12 @@ export class HeartbeatLoop {
       );
     }
 
-    // Mark events as processed so they are not replayed on restart
-    if (rawEvents.length > 0) {
-      const inboxPath = path.join(this.supervisorDir, "inbox.jsonl");
-      await this.eventQueue.markProcessed(inboxPath, this.eventsPath, rawEvents);
-    }
-
-    // Post-response: mark entries consolidated and compact log buffer
-    if (modeResult.isConsolidation) {
-      const allIds = modeResult.unconsolidated.map((e) => e.id);
-      if (allIds.length > 0) {
-        await markConsolidated(this.supervisorDir, allIds);
-      }
-      await compactLogBuffer(this.supervisorDir);
-    }
+    // Handle post-SDK processing
+    await this.handlePostSdkProcessing({
+      rawEvents: eventCtx.rawEvents,
+      isConsolidation: modeResult.isConsolidation,
+      unconsolidated: modeResult.unconsolidated,
+    });
 
     // Build and apply state update
     const durationMs = Date.now() - startTime;
@@ -488,30 +505,14 @@ export class HeartbeatLoop {
       },
     );
 
-    // Emit heartbeat completed webhook event
-    await this.emitHeartbeatCompleted({
-      heartbeatNumber: modeResult.heartbeatCount + 1,
-      runsActive: activeRuns.length,
-      todayUsd: budgetCheck.todayCost + costUsd,
-      limitUsd: this.config.supervisor.dailyCapUsd,
+    // Emit completion webhook events
+    await this.emitCompletionEvents({
+      heartbeatCount: modeResult.heartbeatCount,
+      activeRuns: eventCtx.activeRuns,
+      todayCost: budgetCheck.todayCost,
+      costUsd,
+      rawEvents: eventCtx.rawEvents,
     });
-
-    // Emit run completed events for any run completions processed
-    for (const event of rawEvents) {
-      if (event.kind === "run_complete") {
-        const runData = await this.readPersistedRun(event.runId);
-        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
-          runId: event.runId,
-          status: runData?.status === "failed" ? "failed" : "completed",
-          costUsd: runData?.totalCostUsd ?? 0,
-          durationMs: runData?.durationMs ?? 0,
-        };
-        if (runData?.output) {
-          emitOpts.output = runData.output;
-        }
-        await this.emitRunCompleted(emitOpts);
-      }
-    }
   }
 
   /**
@@ -533,6 +534,107 @@ export class HeartbeatLoop {
     }
 
     return { todayCost, exceeded: false };
+  }
+
+  /**
+   * Process decision answers from inbox and expire old decisions.
+   * Returns pending, answered, and expiry status for prompt context.
+   */
+  private async processDecisions(
+    rawEvents: QueuedEvent[],
+    lastHeartbeat: string | undefined,
+  ): Promise<ProcessDecisionsResult> {
+    const decisionStore = this.getDecisionStore();
+
+    // Process decision answers from inbox messages
+    await this.processDecisionAnswers(rawEvents, decisionStore);
+
+    // Auto-answer expired decisions
+    const expiredDecisions = await decisionStore.expire();
+    const hasExpiredDecisions = expiredDecisions.length > 0;
+
+    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
+    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
+    const answeredDecisions = this.config.supervisor.autoDecide
+      ? await decisionStore.answered(lastHeartbeat)
+      : [];
+
+    return { pendingDecisions, answeredDecisions, hasExpiredDecisions };
+  }
+
+  /**
+   * Gather event context: drain queue, fetch active runs, memories, and recent actions.
+   */
+  private async gatherEventContext(): Promise<EventContext> {
+    const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
+    const totalEventCount =
+      grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
+    const activeRuns = await this.getActiveRuns();
+
+    const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
+    const store = this.getMemoryStore();
+    const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
+    const recentActions = await this.activityLog.tail(20);
+
+    return {
+      grouped,
+      rawEvents,
+      totalEventCount,
+      activeRuns,
+      memories,
+      recentActions,
+      mcpServerNames,
+    };
+  }
+
+  /**
+   * Handle post-SDK processing: mark events as processed, consolidate log buffer.
+   */
+  private async handlePostSdkProcessing(input: PostSdkProcessingInput): Promise<void> {
+    // Mark events as processed so they are not replayed on restart
+    if (input.rawEvents.length > 0) {
+      const inboxPath = path.join(this.supervisorDir, "inbox.jsonl");
+      await this.eventQueue.markProcessed(inboxPath, this.eventsPath, input.rawEvents);
+    }
+
+    // Post-response: mark entries consolidated and compact log buffer
+    if (input.isConsolidation) {
+      const allIds = input.unconsolidated.map((e) => e.id);
+      if (allIds.length > 0) {
+        await markConsolidated(this.supervisorDir, allIds);
+      }
+      await compactLogBuffer(this.supervisorDir);
+    }
+  }
+
+  /**
+   * Emit completion webhook events: heartbeat completed and run completed events.
+   */
+  private async emitCompletionEvents(input: CompletionEventsInput): Promise<void> {
+    // Emit heartbeat completed webhook event
+    await this.emitHeartbeatCompleted({
+      heartbeatNumber: input.heartbeatCount + 1,
+      runsActive: input.activeRuns.length,
+      todayUsd: input.todayCost + input.costUsd,
+      limitUsd: this.config.supervisor.dailyCapUsd,
+    });
+
+    // Emit run completed events for any run completions processed
+    for (const event of input.rawEvents) {
+      if (event.kind === "run_complete") {
+        const runData = await this.readPersistedRun(event.runId);
+        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
+          runId: event.runId,
+          status: runData?.status === "failed" ? "failed" : "completed",
+          costUsd: runData?.totalCostUsd ?? 0,
+          durationMs: runData?.durationMs ?? 0,
+        };
+        if (runData?.output) {
+          emitOpts.output = runData.output;
+        }
+        await this.emitRunCompleted(emitOpts);
+      }
+    }
   }
 
   /**
@@ -683,11 +785,10 @@ export class HeartbeatLoop {
     answeredDecisions: Decision[];
     lastHeartbeat: string | undefined;
     lastConsolidationTimestamp: string | undefined;
+    memories: MemoryEntry[];
+    recentActions: ActivityEntry[];
+    mcpServerNames: string[];
   }): Promise<{ prompt: string; modeLabel: string }> {
-    const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
-    const store = this.getMemoryStore();
-    const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
-    const recentActions = await this.activityLog.tail(20);
     const sharedOpts = {
       repos: this.config.repos,
       grouped: opts.grouped,
@@ -701,11 +802,11 @@ export class HeartbeatLoop {
       },
       activeRuns: opts.activeRuns,
       heartbeatCount: opts.heartbeatCount,
-      mcpServerNames,
+      mcpServerNames: opts.mcpServerNames,
       customInstructions: this.customInstructions,
       supervisorDir: this.supervisorDir,
-      memories,
-      recentActions,
+      memories: opts.memories,
+      recentActions: opts.recentActions,
       pendingDecisions: opts.pendingDecisions,
       answeredDecisions: opts.answeredDecisions,
       autoDecide: this.config.supervisor.autoDecide,

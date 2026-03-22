@@ -43,8 +43,13 @@ export class NeoEventEmitter {
       if (eventType !== "error") {
         try {
           this.emitter.emit("error", error);
-        } catch {
+        } catch (nestedErr) {
           // Swallow — prevent crash even if error handler throws
+          // This is a last-resort safety net to prevent infinite error loops
+          console.error(
+            "[emitter] Error handler threw:",
+            nestedErr instanceof Error ? nestedErr.message : String(nestedErr),
+          );
         }
       }
     }

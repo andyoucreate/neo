@@ -41,8 +41,11 @@ function parseMetadata(meta: string | undefined): Record<string, unknown> | unde
   if (!meta) return undefined;
   try {
     return JSON.parse(meta) as Record<string, unknown>;
-  } catch {
-    throw new Error(`Invalid --meta JSON: ${meta}`);
+  } catch (err) {
+    // Expected error: invalid JSON provided by user
+    throw new Error(
+      `Invalid --meta JSON: ${meta}. Error: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -140,8 +143,11 @@ async function runDetached(params: DetachParams): Promise<void> {
       const run = JSON.parse(raw) as PersistedRun;
       run.pid = child.pid;
       await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch {
+    } catch (err) {
       // Non-critical — worker will write PID on startup anyway
+      console.debug(
+        `[run] Failed to update run file with PID: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

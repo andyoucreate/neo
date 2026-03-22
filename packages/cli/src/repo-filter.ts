@@ -78,8 +78,11 @@ async function loadRunFile(filePath: string, runs: PersistedRun[]): Promise<void
   try {
     const content = await readFile(filePath, "utf-8");
     runs.push(JSON.parse(content) as PersistedRun);
-  } catch {
-    // Skip corrupt files
+  } catch (err) {
+    // Skip corrupt or unreadable files
+    console.debug(
+      `[repo-filter] Skipping corrupt run file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -105,7 +108,10 @@ async function loadLegacyRuns(
         }
       }
     }
-  } catch {
-    // Non-critical
+  } catch (err) {
+    // Non-critical — legacy runs directory may not exist or be unreadable
+    console.debug(
+      `[repo-filter] Failed to load legacy runs: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }

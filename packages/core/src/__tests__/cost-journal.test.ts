@@ -144,23 +144,30 @@ describe("CostJournal", () => {
     expect(total).toBeCloseTo(0.05);
   });
 
-  it("handles large journal files efficiently with streaming", async () => {
+  it("handles large files with 10k+ entries efficiently", async () => {
     const journal = new CostJournal({ dir: TMP_DIR });
-    const entryCount = 10000;
-    const costPerEntry = 0.01;
+    const targetDate = new Date("2026-03-14T12:00:00Z");
+    const otherDate = new Date("2026-03-15T12:00:00Z");
 
-    // Simulate a busy supervisor with many entries
-    for (let i = 0; i < entryCount; i++) {
-      await journal.append(
-        makeEntry({
-          timestamp: "2026-03-14T10:00:00.000Z",
-          costUsd: costPerEntry,
-          runId: `run-${i}`,
-        }),
-      );
-    }
+    // Create 10k entries on target date and 5k on other date
+    const entries = [
+      ...Array.from({ length: 10000 }, () =>
+        makeEntry({ timestamp: "2026-03-14T10:00:00.000Z", costUsd: 0.01 }),
+      ),
+      ...Array.from({ length: 5000 }, () =>
+        makeEntry({ timestamp: "2026-03-15T10:00:00.000Z", costUsd: 0.01 }),
+      ),
+    ];
 
-    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
-    expect(total).toBeCloseTo(entryCount * costPerEntry);
+    // Append all entries
+    await Promise.all(entries.map((e) => journal.append(e)));
+
+    // Should only sum entries from target date (10k * 0.01 = 100)
+    const total = await journal.getDayTotal(targetDate);
+    expect(total).toBeCloseTo(100);
+
+    // Verify other date is correctly separated
+    const otherTotal = await journal.getDayTotal(otherDate);
+    expect(otherTotal).toBeCloseTo(50);
   });
 });

@@ -37,8 +37,11 @@ export class AgentRegistry {
       let customConfigs: AgentConfig[];
       try {
         customConfigs = await loadAgentsFromDir(this.customDir);
-      } catch {
+      } catch (err) {
         // Custom dir doesn't exist — that's fine
+        console.debug(
+          `[registry] Custom agents dir not found: ${err instanceof Error ? err.message : String(err)}`,
+        );
         customConfigs = [];
       }
 

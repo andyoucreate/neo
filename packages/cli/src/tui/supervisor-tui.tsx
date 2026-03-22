@@ -674,7 +674,11 @@ async function readState(name: string): Promise<SupervisorDaemonState | null> {
   try {
     const raw = await readFile(getSupervisorStatePath(name), "utf-8");
     return JSON.parse(raw) as SupervisorDaemonState;
-  } catch {
+  } catch (err) {
+    // State file not found or malformed — supervisor not running or corrupted state
+    console.debug(
+      `[tui] Failed to read supervisor state for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
@@ -688,12 +692,19 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
     for (const line of lastLines) {
       try {
         entries.push(JSON.parse(line) as ActivityEntry);
-      } catch {
-        // Skip malformed
+      } catch (err) {
+        // Skip malformed JSONL line
+        console.debug(
+          `[tui] Skipping malformed activity line: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     return entries;
-  } catch {
+  } catch (err) {
+    // Activity file not found or unreadable
+    console.debug(
+      `[tui] Failed to read activity for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }
@@ -705,7 +716,11 @@ function readTasks(name: string): MemoryEntry[] {
     const tasks = store.query({ types: ["task"], limit: 20, sortBy: "createdAt" });
     store.close();
     return tasks;
-  } catch {
+  } catch (err) {
+    // Memory store not found or corrupted
+    console.debug(
+      `[tui] Failed to read tasks for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }
@@ -714,7 +729,11 @@ async function readDecisions(name: string): Promise<Decision[]> {
   try {
     const store = new DecisionStore(getSupervisorDecisionsPath(name));
     return await store.pending();
-  } catch {
+  } catch (err) {
+    // Decision store not found or corrupted
+    console.debug(
+      `[tui] Failed to read decisions for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }
@@ -867,8 +886,11 @@ export function SupervisorTui({ name }: { name: string }) {
         setLastSent(`Decision ${currentDecision.id.slice(4, 12)}: "${answer.trim()}"`);
         setDecisionAnswer("");
         setOptionIndex(0);
-      } catch {
-        // Decision may have been answered already
+      } catch (err) {
+        // Decision may have been answered already or store locked
+        console.debug(
+          `[tui] Failed to answer decision ${currentDecision.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     },
     [name, currentDecision],
