@@ -302,4 +302,51 @@ repos:
     expect(config.supervisor.eventTimeoutMs).toBe(300_000);
     expect(config.supervisor.heartbeatTimeoutMs).toBe(300_000);
   });
+
+  it("rejects branchPrefix with directory traversal", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+    branchPrefix: "feat/../evil"
+`);
+
+    await expect(loadConfig(CONFIG_PATH)).rejects.toThrow("directory traversal");
+  });
+
+  it("rejects branchPrefix with command injection", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+    branchPrefix: "feat; rm -rf /"
+`);
+
+    await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
+  });
+
+  it("rejects branchPrefix starting with dash", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+    branchPrefix: "-rf"
+`);
+
+    await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
+  });
+
+  it("accepts valid branchPrefix values", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+    branchPrefix: "feat"
+  - path: /other/repo
+    branchPrefix: "fix"
+  - path: /another/repo
+    branchPrefix: "chore"
+`);
+
+    const config = await loadConfig(CONFIG_PATH);
+    expect(config.repos[0]?.branchPrefix).toBe("feat");
+    expect(config.repos[1]?.branchPrefix).toBe("fix");
+    expect(config.repos[2]?.branchPrefix).toBe("chore");
+  });
 });

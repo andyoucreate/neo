@@ -174,6 +174,24 @@ describe("git operations", () => {
 
     expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
   });
+
+  it("getBranchName validates explicit branch parameter", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    // Should reject invalid branch names
+    expect(() => getBranchName(config, "abc123", "../evil")).toThrow("directory traversal");
+    expect(() => getBranchName(config, "abc123", "feat; rm -rf /")).toThrow(
+      "Only alphanumeric characters",
+    );
+    expect(() => getBranchName(config, "abc123", "-rf")).toThrow("cannot start with '-'");
+    expect(() => getBranchName(config, "abc123", "--help")).toThrow("cannot start with '-'");
+  });
 });
 
 // ─── Sandbox Config ─────────────────────────────────────
@@ -292,6 +310,12 @@ describe("validateGitRef", () => {
     expect(() => validateGitRef("feat@test", "branch")).toThrow("Only alphanumeric characters");
     expect(() => validateGitRef("feat#test", "branch")).toThrow("Only alphanumeric characters");
     expect(() => validateGitRef("feat%test", "branch")).toThrow("Only alphanumeric characters");
+  });
+
+  it("rejects names starting with dash (git option injection)", () => {
+    expect(() => validateGitRef("-rf", "branch")).toThrow("cannot start with '-'");
+    expect(() => validateGitRef("--help", "branch")).toThrow("cannot start with '-'");
+    expect(() => validateGitRef("-Ddanger", "branch")).toThrow("cannot start with '-'");
   });
 
   it("throws with custom refType in error message", () => {

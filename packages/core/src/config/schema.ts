@@ -30,7 +30,28 @@ export const repoConfigSchema = z.object({
   path: z.string(),
   name: z.string().optional(),
   defaultBranch: z.string().default("main"),
-  branchPrefix: z.string().default("feat"),
+  branchPrefix: z
+    .string()
+    .default("feat")
+    .refine(
+      (value) => {
+        // Reject directory traversal attempts
+        if (value.includes("..")) {
+          return false;
+        }
+        // Reject leading dash (git interprets as option)
+        if (value.startsWith("-")) {
+          return false;
+        }
+        // Allow only alphanumeric, slashes, dashes (not at start), underscores, dots
+        const validPattern = /^[a-zA-Z0-9/_.]([a-zA-Z0-9/_.-]*)?$/;
+        return validPattern.test(value);
+      },
+      {
+        message:
+          "branchPrefix must contain only alphanumeric characters, slashes, dashes (not at start), underscores, and dots, and cannot contain '..' (directory traversal)",
+      },
+    ),
   pushRemote: z.string().default("origin"),
   gitStrategy: gitStrategySchema,
 });

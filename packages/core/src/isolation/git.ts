@@ -10,6 +10,7 @@ const GIT_TIMEOUT = 60_000;
  * Validates a git reference name (branch, tag, remote).
  * Allows alphanumeric, slashes, dashes, underscores, dots, and plus signs (for semver).
  * Explicitly rejects '..' to prevent directory traversal.
+ * Rejects names starting with dash to prevent git option injection.
  * Throws if the name is invalid.
  */
 export function validateGitRef(ref: string, refType = "reference"): void {
@@ -24,7 +25,14 @@ export function validateGitRef(ref: string, refType = "reference"): void {
     );
   }
 
-  // Allow alphanumeric, slashes, dashes, underscores, dots, and plus signs
+  // Reject names starting with dash (git interprets as options)
+  if (ref.startsWith("-")) {
+    throw new Error(
+      `Git ${refType} name cannot start with '-' (would be interpreted as git option): ${ref}`,
+    );
+  }
+
+  // Allow alphanumeric, slashes, dashes (not at start), underscores, dots, and plus signs
   // This pattern supports conventional branch names and semver tags
   const validPattern = /^[a-zA-Z0-9/_+.-]+$/;
   if (!validPattern.test(ref)) {
@@ -77,11 +85,14 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
 
 /**
  * Resolve the branch name for a run.
- * If an explicit branch is provided, use it as-is.
+ * If an explicit branch is provided, validate and use it.
  * Otherwise, generate a deterministic name from the repo's branchPrefix and runId.
  */
 export function getBranchName(config: RepoConfig, runId: string, branch?: string): string {
-  if (branch) return branch;
+  if (branch) {
+    validateGitRef(branch, "branch");
+    return branch;
+  }
   const prefix = config.branchPrefix ?? "feat";
   const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   return `${prefix}/run-${sanitized}`;
