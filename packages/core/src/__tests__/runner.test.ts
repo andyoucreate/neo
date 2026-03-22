@@ -577,6 +577,52 @@ describe("runWithRecovery", () => {
 
     vi.doUnmock("@anthropic-ai/claude-agent-sdk");
   });
+
+  it("clears session state at START of fresh strategy, not after previous attempt", async () => {
+    vi.useRealTimers();
+    let callCount = 0;
+    const capturedOptions: Array<Record<string, unknown>> = [];
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: (args: { options: Record<string, unknown> }) => {
+        callCount++;
+        const current = callCount;
+        // Capture options at the moment runSession is called
+        capturedOptions.push({ ...args.options });
+        return {
+          async *[Symbol.asyncIterator]() {
+            if (current <= 2) {
+              yield {
+                type: "system",
+                subtype: "init",
+                session_id: `session-${current}`,
+              };
+              throw new Error(`Attempt ${current} failed`);
+            }
+            yield* successMessages("session-final");
+          },
+        };
+      },
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+
+    await freshRunWithRecovery({
+      ...makeSessionOptions(),
+      maxRetries: 3,
+      backoffBaseMs: 10,
+    });
+
+    // Verify the 3-level recovery contract:
+    // Level 1 (normal): no resume
+    expect(capturedOptions[0]?.resume).toBeUndefined();
+    // Level 2 (resume): inherits session-1
+    expect(capturedOptions[1]?.resume).toBe("session-1");
+    // Level 3 (fresh): no session inheritance — must be undefined
+    expect(capturedOptions[2]?.resume).toBeUndefined();
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
 });
 
 // ─── parseOutput ────────────────────────────────────────

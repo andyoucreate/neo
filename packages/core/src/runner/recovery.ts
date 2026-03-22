@@ -84,6 +84,11 @@ export async function runWithRecovery(options: RecoveryOptions): Promise<Session
     const strategy = getStrategy(attempt);
     onAttempt?.(attempt, strategy);
 
+    // Fresh strategy starts clean — no session inheritance
+    if (strategy === "fresh") {
+      lastSessionId = undefined;
+    }
+
     try {
       const result = await runSession({
         ...rest,
@@ -95,11 +100,6 @@ export async function runWithRecovery(options: RecoveryOptions): Promise<Session
 
       if (isNonRetryable(error, nonRetryable)) throw error;
       if (attempt === maxRetries) throw buildFinalError(error, maxRetries);
-
-      // Next attempt will be "fresh" — clear session to start clean
-      if (getStrategy(attempt + 1) === "fresh") {
-        lastSessionId = undefined;
-      }
 
       await sleep(backoffBaseMs * attempt);
     }
