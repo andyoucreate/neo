@@ -7,6 +7,33 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
 
+/**
+ * Git ref validation pattern.
+ * Allows: alphanumeric, dots, underscores, hyphens, slashes, plus signs (for semver tags).
+ * Explicitly forbids: '..' (directory traversal), special chars that could enable injection.
+ */
+const GIT_REF_PATTERN = /^[a-zA-Z0-9._/+-]+$/;
+
+/**
+ * Validate a git ref (branch, tag, or remote name).
+ * Throws if the ref contains invalid characters or directory traversal sequences.
+ */
+function validateGitRef(ref: string, refType: string): void {
+  if (!ref || ref.trim() === "") {
+    throw new Error(`${refType} cannot be empty`);
+  }
+
+  if (ref.includes("..")) {
+    throw new Error(`${refType} contains directory traversal sequence: ${ref}`);
+  }
+
+  if (!GIT_REF_PATTERN.test(ref)) {
+    throw new Error(
+      `${refType} contains invalid characters: ${ref}. Only alphanumeric, dots, underscores, hyphens, slashes, and plus signs are allowed.`,
+    );
+  }
+}
+
 export interface SessionCloneInfo {
   path: string;
   branch: string;
@@ -24,6 +51,10 @@ export async function createSessionClone(options: {
   baseBranch: string;
   sessionDir: string;
 }): Promise<SessionCloneInfo> {
+  // Validate all user-supplied branch names upfront
+  validateGitRef(options.branch, "Branch name");
+  validateGitRef(options.baseBranch, "Base branch name");
+
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
 

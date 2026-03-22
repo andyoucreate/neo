@@ -102,6 +102,61 @@ describe("session clone lifecycle", () => {
     const list = await listSessionClones(path.join(TMP_DIR, "nonexistent"));
     expect(list).toEqual([]);
   });
+
+  it("rejects branch names with directory traversal in createSessionClone", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-evil");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/../../../etc/passwd",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("directory traversal");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/valid",
+        baseBranch: "../main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("directory traversal");
+  });
+
+  it("rejects branch names with invalid characters in createSessionClone", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-evil");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test;rm -rf /",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("invalid characters");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test$())",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("invalid characters");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/valid",
+        baseBranch: "main;ls",
+        sessionDir,
+      }),
+    ).rejects.toThrow("invalid characters");
+  });
 });
 
 // ─── Git Operations ─────────────────────────────────────
