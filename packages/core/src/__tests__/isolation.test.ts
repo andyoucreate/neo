@@ -111,6 +111,64 @@ describe("session clone lifecycle", () => {
     const list = await listSessionClones(path.join(TMP_DIR, "nonexistent"));
     expect(list).toEqual([]);
   });
+
+  it("rejects createSessionClone with invalid branch name", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-malicious");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "../../../etc/passwd",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Git branch name cannot contain '..' (directory traversal attempt)");
+  });
+
+  it("rejects createSessionClone with invalid baseBranch name", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-malicious-base");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test",
+        baseBranch: "../../../etc/passwd",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Git branch name cannot contain '..' (directory traversal attempt)");
+  });
+
+  it("rejects createSessionClone with shell injection in branch name", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-injection");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat;rm -rf /",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+  });
+
+  it("rejects createSessionClone with empty branch name", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-empty");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Git branch name cannot be empty");
+  });
 });
 
 // ─── Git Operations ─────────────────────────────────────

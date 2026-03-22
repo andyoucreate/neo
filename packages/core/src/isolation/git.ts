@@ -11,7 +11,7 @@ const GIT_TIMEOUT = 60_000;
  * Allows alphanumeric, slashes, hyphens, underscores, dots, and plus signs.
  * Rejects directory traversal attempts (..).
  */
-const GIT_REF_PATTERN = /^[a-zA-Z0-9/_.\-+]+$/;
+const GIT_REF_PATTERN = /^[a-zA-Z0-9/_.+-]+$/;
 
 /**
  * Validate a git ref name (branch, tag, or remote) to prevent directory traversal.

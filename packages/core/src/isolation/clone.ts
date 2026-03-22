@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { validateGitRef } from "./git";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
@@ -24,6 +25,10 @@ export async function createSessionClone(options: {
   baseBranch: string;
   sessionDir: string;
 }): Promise<SessionCloneInfo> {
+  // Validate git ref names to prevent directory traversal and injection
+  validateGitRef(options.branch, "branch");
+  validateGitRef(options.baseBranch, "branch");
+
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
 
