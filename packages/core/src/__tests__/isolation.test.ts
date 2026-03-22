@@ -5,7 +5,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
-import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
+import {
+  createSessionClone,
+  listSessionClones,
+  removeSessionClone,
+  validateRemoteUrl,
+} from "@/isolation/clone";
 import {
   createBranch,
   deleteBranch,
@@ -109,6 +114,44 @@ describe("session clone lifecycle", () => {
   it("listSessionClones returns empty for non-existent directory", async () => {
     const list = await listSessionClones(path.join(TMP_DIR, "nonexistent"));
     expect(list).toEqual([]);
+  });
+
+  it("rejects malicious remote URLs during clone", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-malicious");
+
+    // Configure a malicious remote URL
+    await execFileAsync("git", ["config", "remote.origin.url", "--upload-pack=evil"], {
+      cwd: repoDir,
+    });
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/cannot start with '-'/);
+  });
+
+  it("rejects remote URLs with shell metacharacters", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-shell-inject");
+
+    // Configure a remote URL with shell metacharacters
+    await execFileAsync("git", ["config", "remote.origin.url", "https://example.com;whoami"], {
+      cwd: repoDir,
+    });
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/shell metacharacters/);
   });
 });
 
@@ -611,6 +654,132 @@ describe("git.ts functions validation (security)", () => {
     await expect(pushSessionBranch(sessionDir, "feat/test;rm -rf /", "origin")).rejects.toThrow(
       /contains invalid characters/,
     );
+  });
+});
+
+// ─── Remote URL Validation (Security) ─────────────────────────
+
+describe("remote URL validation (security)", () => {
+  it("accepts valid https URLs", () => {
+    expect(() => validateRemoteUrl("https://github.com/user/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid http URLs", () => {
+    expect(() => validateRemoteUrl("http://example.com/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid git@ URLs", () => {
+    expect(() => validateRemoteUrl("git@github.com:user/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid ssh:// URLs", () => {
+    expect(() => validateRemoteUrl("ssh://git@github.com/user/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid git:// URLs", () => {
+    expect(() => validateRemoteUrl("git://github.com/repo.git", "url")).not.toThrow();
+  });
+
+  it("accepts valid file:// URLs", () => {
+    expect(() => validateRemoteUrl("file:///path/to/repo", "url")).not.toThrow();
+  });
+
+  it("accepts absolute paths", () => {
+    expect(() => validateRemoteUrl("/absolute/path/to/repo", "url")).not.toThrow();
+  });
+
+  it("rejects URLs starting with dash (option injection)", () => {
+    expect(() => validateRemoteUrl("--upload-pack=evil", "url")).toThrow(/cannot start with '-'/);
+  });
+
+  it("rejects URLs with spaces", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo with spaces", "url")).toThrow(
+      /cannot contain spaces/,
+    );
+  });
+
+  it("rejects URLs with semicolons (command chaining)", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo;rm -rf /", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with pipe characters (command chaining)", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo|whoami", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with ampersand (background execution)", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo&malicious", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with dollar sign (variable expansion)", () => {
+    expect(() => validateRemoteUrl("https://example.com/$malicious", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with backticks (command substitution)", () => {
+    expect(() => validateRemoteUrl("https://example.com/`whoami`", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with redirects", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo>output", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with parentheses (subshell)", () => {
+    expect(() => validateRemoteUrl("https://example.com/(malicious)", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with braces (brace expansion)", () => {
+    expect(() => validateRemoteUrl("https://example.com/{a,b}", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with brackets (globbing)", () => {
+    expect(() => validateRemoteUrl("https://example.com/[a-z]", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects empty URLs", () => {
+    expect(() => validateRemoteUrl("", "url")).toThrow(/must be a non-empty string/);
+  });
+
+  it("rejects non-string URLs", () => {
+    expect(() => validateRemoteUrl(null as unknown as string, "url")).toThrow(
+      /must be a non-empty string/,
+    );
+  });
+
+  it("rejects URLs with unsupported schemes", () => {
+    expect(() => validateRemoteUrl("ftp://example.com/repo", "url")).toThrow(
+      /must use a safe scheme/,
+    );
+  });
+
+  it("rejects relative paths", () => {
+    expect(() => validateRemoteUrl("../relative/path", "url")).toThrow(/must use a safe scheme/);
+  });
+
+  it("rejects URLs with exclamation mark", () => {
+    expect(() => validateRemoteUrl("https://example.com/repo!test", "url")).toThrow(
+      /shell metacharacters/,
+    );
+  });
+
+  it("rejects URLs with tilde (home expansion)", () => {
+    expect(() => validateRemoteUrl("~/local/repo", "url")).toThrow(/shell metacharacters/);
   });
 });
 

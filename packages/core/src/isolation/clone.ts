@@ -40,6 +40,48 @@ export function validateGitRef(refName: string, paramName: string): void {
   }
 }
 
+/**
+ * Validates that a git remote URL is safe to use.
+ * Whitelists safe URL schemes (git@, https://, http://, file://).
+ * Rejects URLs with shell metacharacters, spaces, or option-like prefixes.
+ *
+ * @throws Error if the URL is invalid or unsafe
+ */
+export function validateRemoteUrl(url: string, paramName: string): void {
+  if (!url || typeof url !== "string") {
+    throw new Error(`${paramName} must be a non-empty string`);
+  }
+
+  const trimmedUrl = url.trim();
+
+  // Reject URLs starting with - (option injection)
+  if (trimmedUrl.startsWith("-")) {
+    throw new Error(`${paramName} cannot start with '-' (option injection)`);
+  }
+
+  // Reject shell metacharacters that could be used for injection
+  // Check this BEFORE spaces to give more specific error messages
+  const dangerousChars = /[;|&$`<>(){}[\]!*?~]/;
+  if (dangerousChars.test(trimmedUrl)) {
+    throw new Error(`${paramName} contains shell metacharacters`);
+  }
+
+  // Reject URLs with spaces (potential injection vector)
+  if (trimmedUrl.includes(" ")) {
+    throw new Error(`${paramName} cannot contain spaces`);
+  }
+
+  // Whitelist safe URL schemes
+  const safeSchemePattern = /^(https?:\/\/|git@|file:\/\/|ssh:\/\/|git:\/\/)/;
+  const isAbsolutePath = trimmedUrl.startsWith("/");
+
+  if (!safeSchemePattern.test(trimmedUrl) && !isAbsolutePath) {
+    throw new Error(
+      `${paramName} must use a safe scheme (https://, http://, git@, ssh://, git://, file://) or be an absolute path. Got: ${trimmedUrl}`,
+    );
+  }
+}
+
 export interface SessionCloneInfo {
   path: string;
   branch: string;
@@ -87,6 +129,13 @@ export async function createSessionClone(options: {
   // This ensures zero coupling: no hardlinks, no local-path origin,
   // no alternates. Falls back to local clone if no remote is configured.
   const cloneSource = remoteUrl || repoPath;
+
+  // SECURITY: Validate remote URL before passing to git clone
+  // This prevents command injection via malicious remote.origin.url config
+  if (remoteUrl) {
+    validateRemoteUrl(remoteUrl, "remote.origin.url");
+  }
+
   await execFileAsync("git", ["clone", "--branch", options.baseBranch, cloneSource, sessionDir], {
     timeout: GIT_TIMEOUT,
   });
