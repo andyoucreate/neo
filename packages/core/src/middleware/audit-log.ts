@@ -13,9 +13,12 @@ const DEFAULT_FLUSH_SIZE = 20;
  * File per session. Uses `{ decision: "async" }` so it never blocks the chain.
  *
  * Call `flush()` to force-write remaining entries (e.g. on shutdown).
+ * Call `cleanup()` to stop the flush timer and release resources.
+ * Note: `flush()` automatically calls `cleanup()` after writing.
  */
 export interface AuditLogMiddleware extends Middleware {
   flush: () => Promise<void>;
+  cleanup: () => void;
 }
 
 export function auditLog(options: {
@@ -68,15 +71,25 @@ export function auditLog(options: {
     buffers.delete(sessionId);
   }
 
+  /**
+   * Stops the periodic flush timer and releases resources.
+   * Safe to call multiple times.
+   */
+  function cleanup(): void {
+    if (flushTimer !== undefined) {
+      clearInterval(flushTimer);
+      flushTimer = undefined;
+    }
+  }
+
   return {
     name: "audit-log",
     on: "PostToolUse",
+    cleanup,
     async flush() {
+      // Flush all pending writes, then stop the timer
       await flushAll();
-      if (flushTimer !== undefined) {
-        clearInterval(flushTimer);
-        flushTimer = undefined;
-      }
+      cleanup();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {
@@ -108,11 +121,13 @@ export function auditLog(options: {
       }
 
       // Start periodic flush timer if not already running
+      // Lifecycle: timer is created on first handler call, cleaned up in flush()/cleanup()
       if (flushTimer === undefined && flushIntervalMs > 0) {
         flushTimer = setInterval(() => {
           void flushAll();
         }, flushIntervalMs);
-        // Unref so it doesn't keep the process alive
+        // Unref so it doesn't keep the process alive during shutdown
+        // Timer must still be explicitly cleared via cleanup() to prevent leaks
         if (typeof flushTimer === "object" && "unref" in flushTimer) {
           flushTimer.unref();
         }

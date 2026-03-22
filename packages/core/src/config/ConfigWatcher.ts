@@ -93,6 +93,7 @@ export class ConfigWatcher extends EventEmitter {
 
   /**
    * Handles file change events with debouncing.
+   * Timer is cleared on stop() or when a new change event arrives.
    */
   private handleChange(): void {
     // Clear existing timer to debounce rapid changes
@@ -101,8 +102,12 @@ export class ConfigWatcher extends EventEmitter {
     }
 
     this.debounceTimer = setTimeout(() => {
+      // Clear timer reference before async operation
+      // This ensures cleanup happens even if reloadConfig() throws
       this.debounceTimer = null;
-      this.reloadConfig();
+      // Note: reloadConfig() is async but not awaited here
+      // This is intentional - fire-and-forget for file watch events
+      void this.reloadConfig();
     }, this.debounceMs);
 
     // Unref so it doesn't keep the process alive during shutdown
