@@ -1,9 +1,25 @@
 import { createReadStream } from "node:fs";
-import { appendFile } from "node:fs/promises";
+import { appendFile, stat } from "node:fs/promises";
 import { createInterface } from "node:readline";
 import { fileForDate, toDateKey } from "@/shared/date";
 import { ensureDir } from "@/shared/fs";
 import type { CostEntry } from "@/types";
+
+/**
+ * Error thrown when a journal file exceeds the maximum allowed size.
+ */
+export class JournalFileSizeError extends Error {
+  constructor(
+    public readonly filePath: string,
+    public readonly fileSizeBytes: number,
+    public readonly maxSizeBytes: number,
+  ) {
+    super(
+      `Journal file exceeds maximum size: ${filePath} (${(fileSizeBytes / 1024 / 1024).toFixed(2)}MB > ${(maxSizeBytes / 1024 / 1024).toFixed(2)}MB)`,
+    );
+    this.name = "JournalFileSizeError";
+  }
+}
 
 /**
  * Append-only JSONL journal for cost tracking.
@@ -13,9 +29,11 @@ export class CostJournal {
   private readonly dir: string;
   private readonly dirCache = new Set<string>();
   private dayCache: { key: string; total: number } | null = null;
+  private readonly maxFileSizeBytes: number;
 
-  constructor(options: { dir: string }) {
+  constructor(options: { dir: string; maxFileSizeBytes?: number }) {
     this.dir = options.dir;
+    this.maxFileSizeBytes = options.maxFileSizeBytes ?? 100 * 1024 * 1024; // 100MB default
   }
 
   async append(entry: CostEntry): Promise<void> {
@@ -38,6 +56,12 @@ export class CostJournal {
     let total = 0;
 
     try {
+      // Validate file size before reading
+      const stats = await stat(file);
+      if (stats.size > this.maxFileSizeBytes) {
+        throw new JournalFileSizeError(file, stats.size, this.maxFileSizeBytes);
+      }
+
       const stream = createReadStream(file, { encoding: "utf-8" });
       const rl = createInterface({ input: stream, crlfDelay: Number.POSITIVE_INFINITY });
 
