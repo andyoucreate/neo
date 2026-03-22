@@ -44,6 +44,31 @@ import {
   supervisorStoppedEventSchema,
 } from "./webhookEvents.js";
 
+// ─── SDK Query Options Types ────────────────────────────────
+
+/**
+ * Options passed to the Claude Agent SDK query() method.
+ * Defines allowed tools, MCP servers, and session behavior for supervisor heartbeats.
+ *
+ * This type replaces the previous `Record<string, unknown>` usage to provide
+ * explicit type safety for SDK options. Note: still uses `as never` cast due to
+ * SDK accepting wider option types than documented.
+ */
+interface SDKQueryOptions {
+  /** Working directory for command execution (defaults to user home) */
+  cwd: string;
+  /** List of allowed tool names (includes MCP tool patterns like 'mcp__<server>__*') */
+  allowedTools: string[];
+  /** Permission mode - supervisor bypasses all permission checks */
+  permissionMode: "bypassPermissions";
+  /** Skip permission prompts (required for autonomous operation) */
+  allowDangerouslySkipPermissions: boolean;
+  /** MCP server configurations from global config */
+  mcpServers: GlobalConfig["mcpServers"];
+  /** Whether to persist session history between heartbeats (always false for supervisor) */
+  persistSession: boolean;
+}
+
 /** Consolidation runs every N heartbeats */
 const DEFAULT_CONSOLIDATION_INTERVAL = 5;
 
@@ -778,7 +803,7 @@ export class HeartbeatLoop {
         }
       }
 
-      const queryOptions: Record<string, unknown> = {
+      const queryOptions: SDKQueryOptions = {
         cwd: homedir(),
         allowedTools,
         permissionMode: "bypassPermissions",
