@@ -23,24 +23,32 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
+  // SECURITY: Validate all git ref parameters to prevent command injection
   validateGitRef(branch, "branch");
   validateGitRef(baseBranch, "baseBranch");
+
   await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
+  // SECURITY: Validate all git ref parameters to prevent command injection
   validateGitRef(branch, "branch");
   validateGitRef(remote, "remote");
+
   await git(repoPath, ["push", remote, branch]);
 }
 
 export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
+  // SECURITY: Validate all git ref parameters to prevent command injection
   validateGitRef(remote, "remote");
+
   await git(repoPath, ["fetch", remote]);
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  // SECURITY: Validate all git ref parameters to prevent command injection
   validateGitRef(branch, "branch");
+
   await git(repoPath, ["branch", "-D", branch]);
 }
 
@@ -95,7 +103,9 @@ export async function pushSessionBranch(
   branch: string,
   remote: string,
 ): Promise<void> {
+  // SECURITY: Validate all git ref parameters to prevent command injection
   validateGitRef(branch, "branch");
   validateGitRef(remote, "remote");
+
   await git(sessionPath, ["push", "-u", remote, branch]);
 }

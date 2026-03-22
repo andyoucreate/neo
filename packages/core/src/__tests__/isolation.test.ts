@@ -352,6 +352,138 @@ describe("git ref validation (security)", () => {
       }),
     ).rejects.toThrow(/must be a non-empty string/);
   });
+
+  it("accepts semver tags with plus and dots", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-semver");
+
+    // Should not throw - semver tags with + and . are valid
+    const info = await createSessionClone({
+      repoPath: repoDir,
+      branch: "v1.2.3+build.123",
+      baseBranch: "main",
+      sessionDir,
+    });
+
+    expect(info.branch).toBe("v1.2.3+build.123");
+  });
+});
+
+// ─── Git.ts Security Validation ─────────────────────────
+
+describe("git.ts security validation", () => {
+  it("createBranch rejects branch with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "--upload-pack=malicious", "main")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("createBranch rejects baseBranch with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "feat/test", "--upload-pack=malicious")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("createBranch rejects branch with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "feat/../../../etc/passwd", "main")).rejects.toThrow(
+      /invalid pattern '\.\.'/,
+    );
+  });
+
+  it("createBranch rejects branch with shell metacharacters", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "feat/test$(whoami)", "main")).rejects.toThrow(
+      /contains invalid characters/,
+    );
+  });
+
+  it("deleteBranch rejects branch with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(deleteBranch(repoDir, "--force")).rejects.toThrow(/cannot start with '-'/);
+  });
+
+  it("deleteBranch rejects branch with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(deleteBranch(repoDir, "../main")).rejects.toThrow(/invalid pattern '\.\.'/);
+  });
+
+  it("pushBranch rejects branch with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushBranch(repoDir, "--force", "origin")).rejects.toThrow(/cannot start with '-'/);
+  });
+
+  it("pushBranch rejects remote with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushBranch(repoDir, "main", "--upload-pack=evil")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("pushBranch rejects remote with shell metacharacters", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushBranch(repoDir, "main", "origin;rm -rf /")).rejects.toThrow(
+      /contains invalid characters/,
+    );
+  });
+
+  it("fetchRemote rejects remote with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(fetchRemote(repoDir, "--upload-pack=evil")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("fetchRemote rejects remote with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(fetchRemote(repoDir, "../../../etc/passwd")).rejects.toThrow(
+      /invalid pattern '\.\.'/,
+    );
+  });
+
+  it("pushSessionBranch rejects branch with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushSessionBranch(repoDir, "--force", "origin")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("pushSessionBranch rejects remote with option injection", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushSessionBranch(repoDir, "main", "--upload-pack=evil")).rejects.toThrow(
+      /cannot start with '-'/,
+    );
+  });
+
+  it("pushSessionBranch rejects branch with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushSessionBranch(repoDir, "feat/../main", "origin")).rejects.toThrow(
+      /invalid pattern '\.\.'/,
+    );
+  });
+
+  it("git.ts functions accept valid semver tags with plus and dots", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    // Should not throw - semver tags with + and . are valid
+    await expect(createBranch(repoDir, "v1.2.3+build.123", "main")).resolves.not.toThrow();
+  });
 });
 
 // ─── Git.ts Functions Validation (Security) ─────────────────────────
