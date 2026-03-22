@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ensureDir } from "@/shared/fs";
@@ -226,9 +226,19 @@ export class DecisionStore {
     return decisions;
   }
 
+  /**
+   * Atomically write all decisions to disk.
+   * Uses temp file + rename to prevent corruption on crash mid-write.
+   */
   private async writeAll(decisions: Decision[]): Promise<void> {
     await ensureDir(this.dir, this.dirCache);
     const content = `${decisions.map((d) => JSON.stringify(d)).join("\n")}\n`;
-    await writeFile(this.filePath, content, "utf-8");
+
+    // Write to temporary file first
+    const tmpPath = `${this.filePath}.tmp`;
+    await writeFile(tmpPath, content, "utf-8");
+
+    // Atomic rename — this is the critical moment
+    await rename(tmpPath, this.filePath);
   }
 }
