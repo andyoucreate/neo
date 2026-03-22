@@ -261,13 +261,11 @@ export class Orchestrator extends NeoEventEmitter {
     }
 
     for (const mw of this.userMiddleware) {
+      if ("cleanup" in mw && typeof mw.cleanup === "function") {
+        await (mw as { cleanup: () => Promise<void> }).cleanup();
+      }
       if ("flush" in mw && typeof mw.flush === "function") {
         await (mw as { flush: () => Promise<void> }).flush();
-      }
-      if ("cleanup" in mw && typeof mw.cleanup === "function") {
-        for (const session of this._activeSessions.values()) {
-          (mw as { cleanup: (id: string) => void }).cleanup(session.sessionId);
-        }
       }
     }
 

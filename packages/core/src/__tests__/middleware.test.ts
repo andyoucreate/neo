@@ -526,6 +526,38 @@ describe("auditLog", () => {
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(2);
   });
+
+  it("cleanup() stops timer and flushes pending writes", async () => {
+    const mw = auditLog({ dir: TMP_DIR, flushSize: 10, flushIntervalMs: 1000 });
+    const chain = buildMiddlewareChain([mw]);
+    const ctx = makeContext();
+
+    // Add an entry but don't trigger auto-flush (below flushSize)
+    await chain.execute(makeEvent({ hookEvent: "PostToolUse", sessionId: "session-cleanup" }), ctx);
+
+    // Call cleanup
+    await mw.cleanup();
+
+    // Verify file was written despite not reaching flushSize
+    const filePath = path.join(TMP_DIR, "session-cleanup.jsonl");
+    const content = await readFile(filePath, "utf-8");
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(1);
+
+    const entry = JSON.parse(lines[0] ?? "") as Record<string, unknown>;
+    expect(entry.sessionId).toBe("session-cleanup");
+  });
+
+  it("cleanup() can be called multiple times safely", async () => {
+    const mw = auditLog({ dir: TMP_DIR, flushSize: 10, flushIntervalMs: 1000 });
+
+    // Call cleanup multiple times without error
+    await mw.cleanup();
+    await mw.cleanup();
+    await mw.cleanup();
+
+    // Should not throw
+  });
 });
 
 // ─── Budget Guard ──────────────────────────────────────

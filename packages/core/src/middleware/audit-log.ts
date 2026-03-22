@@ -13,9 +13,11 @@ const DEFAULT_FLUSH_SIZE = 20;
  * File per session. Uses `{ decision: "async" }` so it never blocks the chain.
  *
  * Call `flush()` to force-write remaining entries (e.g. on shutdown).
+ * Call `cleanup()` to stop timers and flush pending writes.
  */
 export interface AuditLogMiddleware extends Middleware {
   flush: () => Promise<void>;
+  cleanup: () => Promise<void>;
 }
 
 export function auditLog(options: {
@@ -77,6 +79,13 @@ export function auditLog(options: {
         clearInterval(flushTimer);
         flushTimer = undefined;
       }
+    },
+    async cleanup() {
+      if (flushTimer !== undefined) {
+        clearInterval(flushTimer);
+        flushTimer = undefined;
+      }
+      await flushAll();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {
