@@ -58,6 +58,7 @@ vi.mock("@/isolation/clone", () => ({
     }),
   removeSessionClone: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
+  validateGitRef: () => undefined,
 }));
 
 vi.mock("@/isolation/git", () => ({
