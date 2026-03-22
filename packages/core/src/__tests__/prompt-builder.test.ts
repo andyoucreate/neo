@@ -538,11 +538,10 @@ describe("buildIdlePrompt", () => {
     expect(result).toContain("90% remaining");
   });
 
-  it("dispatches scout when repos and budget available", () => {
+  it("yields when repos and budget available", () => {
     const result = buildIdlePrompt(baseOpts());
-    expect(result).toContain("scout");
-    expect(result).toContain("neo run scout");
-    expect(result).toContain("/repos/myapp");
+    expect(result).toContain("Nothing to do");
+    expect(result).not.toContain("scout");
   });
 
   it("yields without scout when no repos configured", () => {

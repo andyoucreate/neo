@@ -799,7 +799,7 @@ export function isIdleHeartbeat(opts: PromptOptions): boolean {
 /**
  * Build the idle prompt.
  * Used when there are no events, no active runs, and no pending tasks.
- * If repos are configured and budget allows, instructs the supervisor to dispatch a scout.
+ * If there are pending decisions, surfaces them. Otherwise, yields.
  */
 export function buildIdlePrompt(opts: StandardPromptOptions): string {
   const budgetLine = `Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)`;
@@ -880,29 +880,8 @@ Repositories:
 ${repoList}
 </context>
 
-<reference>
-${getCommandsSection(opts.heartbeatCount)}
-</reference>
-
 <directive>
-Idle — no work in progress. Use this downtime to dispatch a \`scout\` agent on one of your repositories.
-
-The scout explores the codebase and surfaces bugs, improvements, security issues, and tech debt. It creates decisions (via \`neo decision create\`) for each critical or high-impact finding, so the user can choose what to act on.
-
-**Rules:**
-- Pick the repo that was least recently scouted (check your memory for previous scout runs).
-- Only ONE scout at a time — never dispatch multiple scouts in parallel.
-- Use \`--branch main\` (or the repo's default branch) — scouts are read-only.
-- Log your decision before dispatching.
-
-**Example:**
-\`\`\`bash
-neo log decision "Idle — dispatching scout on <repo>"
-neo run scout --prompt "Explore this repository. Surface bugs, improvements, security issues, and tech debt. Create decisions for critical and high-impact findings." \\
-  --repo <path> \\
-  --branch <default-branch> \\
-  --meta '{"stage":"scout","label":"scout-<repo-name>"}'
-\`\`\`
+Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any other output.
 </directive>`;
 }
 
