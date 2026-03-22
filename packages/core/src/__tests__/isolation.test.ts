@@ -170,6 +170,152 @@ describe("git operations", () => {
   });
 });
 
+// ─── Git Ref Validation (Security) ─────────────────────────
+
+describe("git ref validation (security)", () => {
+  it("rejects branch names with option injection attempts", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-inject");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "--upload-pack=malicious",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/cannot start with '-'/);
+  });
+
+  it("rejects baseBranch names with option injection attempts", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-inject-base");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/safe",
+        baseBranch: "--upload-pack=malicious",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/cannot start with '-'/);
+  });
+
+  it("rejects branch names with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-traversal");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/../../../etc/passwd",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/invalid pattern '\.\.'/);
+  });
+
+  it("rejects baseBranch names with directory traversal", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-base-traversal");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/safe",
+        baseBranch: "../main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/invalid pattern '\.\.'/);
+  });
+
+  it("rejects branch names with special characters", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-special");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test;rm -rf /",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/contains invalid characters/);
+  });
+
+  it("rejects branch names with shell metacharacters", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-meta");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test$(whoami)",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/contains invalid characters/);
+  });
+
+  it("accepts valid branch names with slashes, dashes, and underscores", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-valid");
+
+    // Should not throw
+    const info = await createSessionClone({
+      repoPath: repoDir,
+      branch: "feat/PROJ-123_add-feature",
+      baseBranch: "main",
+      sessionDir,
+    });
+
+    expect(info.branch).toBe("feat/PROJ-123_add-feature");
+  });
+
+  it("accepts valid branch names with numbers", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-numbers");
+
+    // Should not throw
+    const info = await createSessionClone({
+      repoPath: repoDir,
+      branch: "fix/issue-42",
+      baseBranch: "main",
+      sessionDir,
+    });
+
+    expect(info.branch).toBe("fix/issue-42");
+  });
+
+  it("rejects empty branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-empty");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/must be a non-empty string/);
+  });
+
+  it("rejects empty baseBranch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-empty-base");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "feat/test",
+        baseBranch: "",
+        sessionDir,
+      }),
+    ).rejects.toThrow(/must be a non-empty string/);
+  });
+});
+
 // ─── Sandbox Config ─────────────────────────────────────
 
 describe("buildSandboxConfig", () => {
