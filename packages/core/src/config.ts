@@ -78,8 +78,11 @@ export async function loadConfig(configPath: string): Promise<NeoConfig> {
   let raw: string;
   try {
     raw = await readFile(configPath, "utf-8");
-  } catch {
-    throw new Error(`Config file not found: ${configPath}. Run 'neo init' to get started.`);
+  } catch (err) {
+    // Expected error: config file not found
+    throw new Error(
+      `Config file not found: ${configPath}. Run 'neo init' to get started. (${err instanceof Error ? err.message : String(err)})`,
+    );
   }
 
   const parsed = parseYamlFile(raw, configPath);

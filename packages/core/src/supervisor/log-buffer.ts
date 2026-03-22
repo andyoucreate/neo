@@ -31,8 +31,11 @@ function parseLines(content: string): LogBufferEntry[] {
   for (const line of lines) {
     try {
       entries.push(JSON.parse(line) as LogBufferEntry);
-    } catch {
-      // Skip malformed lines
+    } catch (err) {
+      // Skip malformed JSONL line
+      console.debug(
+        `[log-buffer] Skipping malformed line: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
   return entries;
@@ -45,7 +48,11 @@ export async function readLogBuffer(dir: string): Promise<LogBufferEntry[]> {
   try {
     const content = await readFile(bufferPath(dir), "utf-8");
     return parseLines(content);
-  } catch {
+  } catch (err) {
+    // Buffer file not found or unreadable
+    console.debug(
+      `[log-buffer] Failed to read buffer: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }
@@ -75,7 +82,11 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
   let content: string;
   try {
     content = await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    // Buffer file not found — nothing to mark
+    console.debug(
+      `[log-buffer] Failed to read for consolidation: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
 
@@ -91,7 +102,11 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
         entry.consolidatedAt = now;
       }
       updated.push(JSON.stringify(entry));
-    } catch {
+    } catch (err) {
+      // Preserve malformed lines as-is during consolidation
+      console.debug(
+        `[log-buffer] Preserving malformed line during consolidation: ${err instanceof Error ? err.message : String(err)}`,
+      );
       updated.push(line);
     }
   }
@@ -107,7 +122,11 @@ export async function compactLogBuffer(dir: string): Promise<void> {
   let content: string;
   try {
     content = await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    // Buffer file not found — nothing to compact
+    console.debug(
+      `[log-buffer] Failed to read for compaction: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return;
   }
 
@@ -125,8 +144,11 @@ export async function compactLogBuffer(dir: string): Promise<void> {
         }
       }
       kept.push(JSON.stringify(entry));
-    } catch {
+    } catch (err) {
       // Drop malformed lines during compaction
+      console.debug(
+        `[log-buffer] Dropping malformed line during compaction: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -210,8 +232,11 @@ export async function appendLogBuffer(dir: string, entry: LogBufferEntry): Promi
   try {
     // Ensure directory exists (appendFile will create the file but not the dir)
     await appendFile(bufferPath(dir), `${JSON.stringify(entry)}\n`, "utf-8");
-  } catch {
+  } catch (err) {
     // Best-effort — don't crash the CLI if buffer write fails
+    console.debug(
+      `[log-buffer] Failed to append entry: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 
@@ -222,7 +247,11 @@ export async function getLogBufferSize(dir: string): Promise<number> {
   try {
     const stats = await stat(bufferPath(dir));
     return stats.size;
-  } catch {
+  } catch (err) {
+    // Buffer file not found or inaccessible
+    console.debug(
+      `[log-buffer] Failed to get buffer size: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return 0;
   }
 }

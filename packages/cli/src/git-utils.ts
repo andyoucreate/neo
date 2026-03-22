@@ -21,8 +21,11 @@ export async function detectDefaultBranch(cwd?: string): Promise<string> {
     const ref = stdout.trim();
     const branch = ref.replace(/^refs\/remotes\/origin\//, "");
     if (branch && branch !== ref) return branch;
-  } catch {
-    // origin/HEAD may not be set — fall through
+  } catch (err) {
+    // origin/HEAD may not be set — fall through to branch detection
+    console.debug(
+      `[git-utils] origin/HEAD not set: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Fallback: check if common default branch names exist locally
@@ -30,8 +33,11 @@ export async function detectDefaultBranch(cwd?: string): Promise<string> {
     try {
       await execFileAsync("git", ["rev-parse", "--verify", `refs/heads/${candidate}`], opts);
       return candidate;
-    } catch {
+    } catch (err) {
       // branch doesn't exist — try next
+      console.debug(
+        `[git-utils] Branch ${candidate} not found: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -45,7 +51,11 @@ export async function isGitRepo(cwd?: string): Promise<boolean> {
   try {
     await execFileAsync("git", ["rev-parse", "--git-dir"], { cwd });
     return true;
-  } catch {
+  } catch (err) {
+    // Not a git repository
+    console.debug(
+      `[git-utils] Not a git repo: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return false;
   }
 }

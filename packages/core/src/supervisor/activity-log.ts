@@ -45,7 +45,11 @@ export class ActivityLog {
     let content: string;
     try {
       content = await readFile(this.filePath, "utf-8");
-    } catch {
+    } catch (err) {
+      // Activity log file not found — no entries yet
+      console.debug(
+        `[ActivityLog] Failed to read activity log: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
 
@@ -56,8 +60,11 @@ export class ActivityLog {
     for (const line of lastLines) {
       try {
         entries.push(JSON.parse(line) as ActivityEntry);
-      } catch {
-        // Skip malformed lines
+      } catch (err) {
+        // Skip malformed JSONL line
+        console.debug(
+          `[ActivityLog] Skipping malformed line: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     return entries;

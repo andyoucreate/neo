@@ -37,16 +37,22 @@ export class StatusReader {
     let raw: string;
     try {
       raw = await readFile(this.statePath, "utf-8");
-    } catch {
+    } catch (err) {
       // File not found — supervisor not running
+      console.debug(
+        `[StatusReader] State file not found: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
-    } catch {
+    } catch (err) {
       // Malformed JSON — treat as not running
+      console.debug(
+        `[StatusReader] Malformed state JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
 
@@ -95,8 +101,11 @@ export class StatusReader {
     let content: string;
     try {
       content = readFileSync(this.activityPath, "utf-8");
-    } catch {
+    } catch (err) {
       // File not found — no activity yet
+      console.debug(
+        `[StatusReader] Activity file not found: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return [];
     }
 
@@ -111,8 +120,11 @@ export class StatusReader {
         if (result.success) {
           entries.push(result.data);
         }
-      } catch {
-        // Skip malformed lines
+      } catch (err) {
+        // Skip malformed JSONL line
+        console.debug(
+          `[StatusReader] Skipping malformed activity line: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -151,7 +163,11 @@ export class StatusReader {
         if (await this.isRunning(filePath)) count++;
       }
       return count;
-    } catch {
+    } catch (err) {
+      // Runs directory unreadable or corrupted
+      console.debug(
+        `[StatusReader] Failed to count active runs: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return 0;
     }
   }
@@ -196,7 +212,11 @@ export class StatusReader {
       const content = await readFile(filePath, "utf-8");
       const run = JSON.parse(content) as PersistedRun;
       return run.status === "running";
-    } catch {
+    } catch (err) {
+      // Run file corrupted or unreadable
+      console.debug(
+        `[StatusReader] Failed to read run file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return false;
     }
   }

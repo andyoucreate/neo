@@ -218,7 +218,11 @@ export class SupervisorDaemon {
     try {
       const raw = await readFile(statePath, "utf-8");
       return JSON.parse(raw) as SupervisorDaemonState;
-    } catch {
+    } catch (err) {
+      // State file not found or corrupted — treat as no previous state
+      console.debug(
+        `[SupervisorDaemon] Failed to read state: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   }
@@ -233,7 +237,11 @@ export class SupervisorDaemon {
       const raw = await readFile(lockPath, "utf-8");
       const pid = Number.parseInt(raw.trim(), 10);
       return Number.isNaN(pid) ? null : pid;
-    } catch {
+    } catch (err) {
+      // Lock file not found or unreadable — no lock exists
+      console.debug(
+        `[SupervisorDaemon] Failed to read lock PID from ${lockPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   }
