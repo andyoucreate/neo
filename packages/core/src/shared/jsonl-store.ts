@@ -1,9 +1,12 @@
 import { createReadStream } from "node:fs";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { z } from "zod";
 import { ensureDir } from "@/shared/fs";
+
+/** Maximum file size for operations that read entire file into memory (100MB) */
+const MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024;
 
 /**
  * Generic append-only JSONL store with versioned updates.
@@ -42,6 +45,9 @@ export class JsonlStore<T extends Record<string, unknown>> {
   /** In-memory index tracking latest version per ID */
   private index = new Map<string, number>();
 
+  /** Flag to track if index has been initialized from disk */
+  private indexInitialized = false;
+
   constructor(options: {
     filePath: string;
     schema: z.ZodSchema<T>;
@@ -56,12 +62,28 @@ export class JsonlStore<T extends Record<string, unknown>> {
   /**
    * Append a new record to the JSONL file.
    * Records are written with _version: 1 (initial version).
+   *
+   * @throws Error if a record with the same ID already exists
    */
   async append(record: T): Promise<void> {
     await this.withWriteLock(async () => {
       await ensureDir(this.dir, this.dirCache);
 
       const id = String(record[this.idField]);
+
+      // Ensure index is initialized from disk before checking for duplicates
+      if (!this.indexInitialized) {
+        await this.rebuildIndex();
+        this.indexInitialized = true;
+      }
+
+      // Check if ID already exists in index to prevent duplicate version 1
+      if (this.index.has(id)) {
+        throw new Error(
+          `Record with id "${id}" already exists. Use update() to modify existing records.`,
+        );
+      }
+
       const versioned = { ...record, _version: 1 };
 
       await appendFile(this.filePath, `${JSON.stringify(versioned)}\n`, "utf-8");
@@ -119,6 +141,8 @@ export class JsonlStore<T extends Record<string, unknown>> {
    */
   async readAll(): Promise<T[]> {
     const records = await this.streamAndMergeRecords();
+    // Mark index as initialized after first read
+    this.indexInitialized = true;
     return this.validateAndStripVersions(records);
   }
 
@@ -214,6 +238,14 @@ export class JsonlStore<T extends Record<string, unknown>> {
     this.index.clear();
 
     try {
+      // Guard against OOM on large files
+      const stats = await stat(this.filePath);
+      if (stats.size > MAX_FILE_SIZE_BYTES) {
+        throw new Error(
+          `File size (${stats.size} bytes) exceeds maximum (${MAX_FILE_SIZE_BYTES} bytes). Use compact() to reduce file size.`,
+        );
+      }
+
       const content = await readFile(this.filePath, "utf-8");
       const lines = content.split("\n").filter((line) => line.trim());
 
@@ -275,6 +307,22 @@ export class JsonlStore<T extends Record<string, unknown>> {
    */
   async compact(): Promise<void> {
     await this.withWriteLock(async () => {
+      // Guard against OOM on corrupted/malicious files
+      try {
+        const stats = await stat(this.filePath);
+        if (stats.size > MAX_FILE_SIZE_BYTES) {
+          throw new Error(
+            `File size (${stats.size} bytes) exceeds maximum (${MAX_FILE_SIZE_BYTES} bytes). Cannot compact oversized file.`,
+          );
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          throw error;
+        }
+        // File doesn't exist yet — nothing to compact
+        return;
+      }
+
       const records = await this.readAll();
 
       await ensureDir(this.dir, this.dirCache);
