@@ -291,10 +291,13 @@ export class Orchestrator extends NeoEventEmitter {
     if (this.eventJournal) {
       this.eventJournal.append(event).catch((err) => {
         // biome-ignore lint/suspicious/noConsole: Log journal write failures for debugging
-        console.debug("[neo] Event journal append failed:", err);
+        console.debug(
+          "[neo] Event journal append failed:",
+          err instanceof Error ? err.message : err,
+        );
       });
     }
-    // Fire-and-forget webhook dispatch
+    // Fire-and-forget webhook dispatch — errors are logged inside WebhookDispatcher
     if (this.webhookDispatcher) {
       this.webhookDispatcher.dispatch(event);
     }
