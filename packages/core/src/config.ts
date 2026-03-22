@@ -23,6 +23,7 @@ export {
   concurrencyConfigSchema,
   gitStrategySchema,
   globalConfigSchema,
+  journalConfigSchema,
   mcpServerConfigSchema,
   neoConfigSchema,
   recoveryConfigSchema,

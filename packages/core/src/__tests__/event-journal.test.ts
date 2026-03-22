@@ -1,7 +1,7 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { EventJournal } from "@/events/journal";
+import { EventJournal, JournalFileSizeError } from "@/events/journal";
 import type { NeoEvent } from "@/types";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_event_journal_test__");
@@ -126,5 +126,67 @@ describe("EventJournal", () => {
     const content = await readFile(file, "utf-8");
     const lines = content.trim().split("\n");
     expect(lines).toHaveLength(1);
+  });
+
+  it("rejects append when file exceeds max size", async () => {
+    const maxSize = 1024; // 1KB for testing
+    const journal = new EventJournal({ dir: TMP_DIR, maxFileSizeBytes: maxSize });
+
+    // Create directory and oversized file
+    await mkdir(TMP_DIR, { recursive: true });
+    const file = path.join(TMP_DIR, "events-2026-03.jsonl");
+    await writeFile(file, "x".repeat(maxSize + 100), "utf-8");
+
+    await expect(journal.append(makeEvent())).rejects.toThrow(JournalFileSizeError);
+  });
+
+  it("throws JournalFileSizeError with correct details on append", async () => {
+    const maxSize = 500;
+    const journal = new EventJournal({ dir: TMP_DIR, maxFileSizeBytes: maxSize });
+
+    // Create directory and oversized file
+    await mkdir(TMP_DIR, { recursive: true });
+    const file = path.join(TMP_DIR, "events-2026-03.jsonl");
+    const content = "x".repeat(maxSize + 200);
+    await writeFile(file, content, "utf-8");
+
+    try {
+      await journal.append(makeEvent());
+      expect.fail("Should have thrown JournalFileSizeError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(JournalFileSizeError);
+      const err = error as JournalFileSizeError;
+      expect(err.filePath).toBe(file);
+      expect(err.fileSizeBytes).toBe(content.length);
+      expect(err.maxSizeBytes).toBe(maxSize);
+      expect(err.message).toContain("exceeds maximum size");
+    }
+  });
+
+  it("accepts append when file is within size limit", async () => {
+    const maxSize = 1024 * 1024; // 1MB
+    const journal = new EventJournal({ dir: TMP_DIR, maxFileSizeBytes: maxSize });
+
+    // First append creates file
+    await journal.append(makeEvent());
+
+    // Second append should succeed — file is small
+    await journal.append(makeEvent({ sessionId: "session-2" } as Partial<NeoEvent>));
+
+    const file = path.join(TMP_DIR, "events-2026-03.jsonl");
+    const content = await readFile(file, "utf-8");
+    const lines = content.trim().split("\n");
+    expect(lines).toHaveLength(2);
+  });
+
+  it("uses default max size of 500MB", async () => {
+    const journal = new EventJournal({ dir: TMP_DIR });
+
+    // Should succeed with default limit
+    await journal.append(makeEvent());
+
+    const file = path.join(TMP_DIR, "events-2026-03.jsonl");
+    const content = await readFile(file, "utf-8");
+    expect(content.trim()).toBeTruthy();
   });
 });

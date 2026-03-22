@@ -73,6 +73,18 @@ export const sessionsConfigSchema = z
   })
   .default({ initTimeoutMs: 120_000, maxDurationMs: 3_600_000, dir: "/tmp/neo-sessions" });
 
+// ─── Journal config schema ───────────────────────────────
+
+export const journalConfigSchema = z
+  .object({
+    maxCostJournalSizeBytes: z.number().default(100 * 1024 * 1024), // 100MB
+    maxEventJournalSizeBytes: z.number().default(500 * 1024 * 1024), // 500MB
+  })
+  .default({
+    maxCostJournalSizeBytes: 100 * 1024 * 1024,
+    maxEventJournalSizeBytes: 500 * 1024 * 1024,
+  });
+
 // ─── Supervisor config schema ────────────────────────────
 
 export const supervisorConfigSchema = z
@@ -124,6 +136,8 @@ export const globalConfigSchema = z.object({
   recovery: recoveryConfigSchema,
 
   sessions: sessionsConfigSchema,
+
+  journal: journalConfigSchema.optional(),
 
   webhooks: z
     .array(

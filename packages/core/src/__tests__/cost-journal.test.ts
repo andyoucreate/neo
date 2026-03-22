@@ -1,7 +1,7 @@
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { CostJournal } from "@/cost/journal";
+import { CostJournal, JournalFileSizeError } from "@/cost/journal";
 import type { CostEntry } from "@/types";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_cost_journal_test__");
@@ -169,5 +169,62 @@ describe("CostJournal", () => {
     // Verify other date is correctly separated
     const otherTotal = await journal.getDayTotal(otherDate);
     expect(otherTotal).toBeCloseTo(50);
+  });
+
+  it("rejects file exceeding max size threshold", async () => {
+    const maxSize = 1024; // 1KB for testing
+    const journal = new CostJournal({ dir: TMP_DIR, maxFileSizeBytes: maxSize });
+
+    // Create directory and file larger than maxSize
+    await mkdir(TMP_DIR, { recursive: true });
+    const file = path.join(TMP_DIR, "cost-2026-03.jsonl");
+    await writeFile(file, "x".repeat(maxSize + 100), "utf-8");
+
+    await expect(journal.getDayTotal(new Date("2026-03-14T12:00:00Z"))).rejects.toThrow(
+      JournalFileSizeError,
+    );
+  });
+
+  it("throws JournalFileSizeError with correct details", async () => {
+    const maxSize = 500;
+    const journal = new CostJournal({ dir: TMP_DIR, maxFileSizeBytes: maxSize });
+
+    // Create directory and file larger than maxSize
+    await mkdir(TMP_DIR, { recursive: true });
+    const file = path.join(TMP_DIR, "cost-2026-03.jsonl");
+    const content = "x".repeat(maxSize + 200);
+    await writeFile(file, content, "utf-8");
+
+    try {
+      await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+      expect.fail("Should have thrown JournalFileSizeError");
+    } catch (error) {
+      expect(error).toBeInstanceOf(JournalFileSizeError);
+      const err = error as JournalFileSizeError;
+      expect(err.filePath).toBe(file);
+      expect(err.fileSizeBytes).toBe(content.length);
+      expect(err.maxSizeBytes).toBe(maxSize);
+      expect(err.message).toContain("exceeds maximum size");
+    }
+  });
+
+  it("accepts file exactly at max size threshold", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+    const entry = makeEntry({ costUsd: 0.05 });
+
+    await journal.append(entry);
+
+    // Should not throw — file is within limit
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBeCloseTo(0.05);
+  });
+
+  it("uses default max size of 100MB", async () => {
+    const journal = new CostJournal({ dir: TMP_DIR });
+
+    // This should not throw because default is 100MB
+    await journal.append(makeEntry({ costUsd: 0.05 }));
+    const total = await journal.getDayTotal(new Date("2026-03-14T12:00:00Z"));
+    expect(total).toBeCloseTo(0.05);
   });
 });

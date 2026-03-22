@@ -2,6 +2,7 @@ import type { NeoConfig, RepoOverrideConfig } from "./schema";
 import {
   budgetConfigSchema,
   concurrencyConfigSchema,
+  journalConfigSchema,
   recoveryConfigSchema,
   sessionsConfigSchema,
 } from "./schema";
@@ -18,6 +19,7 @@ export const defaultConfig: NeoConfig = {
   budget: budgetConfigSchema.parse(undefined),
   recovery: recoveryConfigSchema.parse(undefined),
   sessions: sessionsConfigSchema.parse(undefined),
+  journal: journalConfigSchema.parse(undefined),
   webhooks: [],
   supervisor: {
     port: 7777,
