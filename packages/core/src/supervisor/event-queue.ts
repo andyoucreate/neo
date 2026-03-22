@@ -174,6 +174,8 @@ export class EventQueue {
         this.wakeUp = null;
         resolve();
       }, timeoutMs);
+      // Unref so it doesn't keep the process alive
+      timer.unref();
 
       this.wakeUp = () => {
         clearTimeout(timer);

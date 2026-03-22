@@ -256,7 +256,11 @@ export class Orchestrator extends NeoEventEmitter {
     if (this._activeSessions.size > 0) {
       await Promise.race([
         this.drain(),
-        new Promise<void>((resolve) => setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)),
+        new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS);
+          // Unref so it doesn't keep the process alive
+          timer.unref();
+        }),
       ]);
     }
 

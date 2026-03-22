@@ -205,10 +205,12 @@ export class ShutdownManager {
     // Race shutdown tasks against timeout
     const shutdownTasks = this.runShutdownTasks();
     const timeout = new Promise<void>((resolve) => {
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         activityLog?.log("error", `Shutdown timeout (${timeoutMs}ms) exceeded, forcing exit`);
         resolve();
       }, timeoutMs);
+      // Unref so it doesn't keep the process alive
+      timer.unref();
     });
 
     await Promise.race([shutdownTasks, timeout]);
@@ -278,6 +280,8 @@ export class ShutdownManager {
           }
           resolve();
         }, FORCE_KILL_DELAY_MS);
+        // Unref so it doesn't keep the process alive
+        forceKillTimer.unref();
 
         child.once("exit", () => {
           clearTimeout(forceKillTimer);
@@ -379,6 +383,8 @@ export function waitForExit(child: ChildProcess, timeoutMs: number): Promise<boo
     const timer = setTimeout(() => {
       resolve(false);
     }, timeoutMs);
+    // Unref so it doesn't keep the process alive
+    timer.unref();
 
     child.once("exit", () => {
       clearTimeout(timer);

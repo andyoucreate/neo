@@ -98,9 +98,13 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
   const initTimer = setTimeout(() => {
     abortController.abort(new Error("Session init timeout exceeded"));
   }, initTimeoutMs);
+  // Unref so it doesn't keep the process alive
+  initTimer.unref();
   const maxDurationTimer = setTimeout(() => {
     abortController.abort(new Error("Session max duration exceeded"));
   }, maxDurationMs);
+  // Unref so it doesn't keep the process alive
+  maxDurationTimer.unref();
 
   try {
     const sdk = await import("@anthropic-ai/claude-agent-sdk");

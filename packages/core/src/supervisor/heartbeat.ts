@@ -863,6 +863,8 @@ export class HeartbeatLoop {
     const timeout = setTimeout(() => {
       abortController.abort(new Error("Heartbeat timeout exceeded"));
     }, this.config.supervisor.heartbeatTimeoutMs);
+    // Unref so it doesn't keep the process alive
+    timeout.unref();
 
     let output = "";
     let costUsd = 0;
