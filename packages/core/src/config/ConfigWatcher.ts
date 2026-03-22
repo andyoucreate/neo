@@ -104,6 +104,8 @@ export class ConfigWatcher extends EventEmitter {
       this.debounceTimer = null;
       this.reloadConfig();
     }, this.debounceMs);
+    // Unref so it doesn't keep the process alive
+    this.debounceTimer.unref();
   }
 
   /**
