@@ -68,9 +68,25 @@ export async function writeFileAtomic(
   const uniqueSuffix = `${Date.now()}.${randomBytes(8).toString("hex")}`;
   const tmpPath = path.join(dir, `.${path.basename(filePath)}.tmp.${uniqueSuffix}`);
 
-  // Write to temp file first
-  await writeFile(tmpPath, content, encoding);
+  try {
+    // Write to temp file first
+    // When content is Buffer, encoding is ignored by writeFile
+    if (Buffer.isBuffer(content)) {
+      await writeFile(tmpPath, content);
+    } else {
+      await writeFile(tmpPath, content, encoding);
+    }
 
-  // Atomic rename (POSIX guarantees atomicity)
-  await rename(tmpPath, filePath);
+    // Atomic rename (POSIX guarantees atomicity)
+    await rename(tmpPath, filePath);
+  } catch (error) {
+    // Clean up temp file on any error
+    try {
+      const { unlink } = await import("node:fs/promises");
+      await unlink(tmpPath);
+    } catch {
+      // Temp file may not exist if writeFile failed before creating it
+    }
+    throw error;
+  }
 }

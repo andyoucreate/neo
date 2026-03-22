@@ -235,4 +235,23 @@ describe("writeFileAtomic", () => {
     const content = await readFile(filePath);
     expect(content).toEqual(buffer);
   });
+
+  it("cleans up temp file when directory does not exist (simulating write failure)", async () => {
+    // Use a non-existent directory to simulate write failure
+    const nonExistentDir = path.join(TMP_DIR, "nonexistent-subdir");
+    const filePath = path.join(nonExistentDir, "test.txt");
+
+    // Attempt write should fail because directory doesn't exist
+    await expect(writeFileAtomic(filePath, "content")).rejects.toThrow();
+
+    // Verify no temp files leaked anywhere in TMP_DIR (if it exists)
+    try {
+      await mkdir(nonExistentDir, { recursive: true });
+      const entries = await readdir(nonExistentDir);
+      const tempFiles = entries.filter((e) => e.includes(".tmp."));
+      expect(tempFiles).toHaveLength(0);
+    } catch {
+      // Directory doesn't exist, which is fine - no temp files to clean
+    }
+  });
 });

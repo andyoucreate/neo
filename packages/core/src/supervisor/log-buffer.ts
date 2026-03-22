@@ -1,5 +1,6 @@
-import { appendFile, readFile, stat, writeFile } from "node:fs/promises";
+import { appendFile, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { writeFileAtomic } from "@/shared/fs";
 import type { LogBufferEntry } from "./schemas.js";
 
 const LOG_BUFFER_FILE = "log-buffer.jsonl";
@@ -111,7 +112,7 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
     }
   }
 
-  await writeFile(filePath, `${updated.join("\n")}\n`, "utf-8");
+  await writeFileAtomic(filePath, `${updated.join("\n")}\n`, "utf-8");
 }
 
 /**
@@ -159,7 +160,7 @@ export async function compactLogBuffer(dir: string): Promise<void> {
     result = `${kept.join("\n")}\n`;
   }
 
-  await writeFile(filePath, result, "utf-8");
+  await writeFileAtomic(filePath, result, "utf-8");
 }
 
 // ─── Digest helpers ──────────────────────────────────────

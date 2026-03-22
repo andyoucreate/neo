@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
@@ -13,6 +13,7 @@ import {
   isToolUseMessage,
   type SDKStreamMessage,
 } from "@/sdk-types";
+import { writeFileAtomic } from "@/shared/fs";
 import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
@@ -959,7 +960,7 @@ export class HeartbeatLoop {
       const raw = await readFile(this.statePath, "utf-8");
       const state = JSON.parse(raw) as SupervisorDaemonState;
       Object.assign(state, updates);
-      await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
+      await writeFileAtomic(this.statePath, JSON.stringify(state, null, 2), "utf-8");
     } catch {
       // Non-critical
     }

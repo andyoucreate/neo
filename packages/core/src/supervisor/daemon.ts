@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
+import { writeFileAtomic } from "@/shared/fs";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
 import { DecisionStore } from "./decisions.js";
@@ -229,7 +230,7 @@ export class SupervisorDaemon {
 
   private async writeState(state: SupervisorDaemonState): Promise<void> {
     const statePath = path.join(this.dir, "state.json");
-    await writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
+    await writeFileAtomic(statePath, JSON.stringify(state, null, 2), "utf-8");
   }
 
   private async readLockPid(lockPath: string): Promise<number | null> {

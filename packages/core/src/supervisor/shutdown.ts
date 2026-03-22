@@ -1,8 +1,9 @@
 import type { ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { removeSessionClone } from "@/isolation/clone";
+import { writeFileAtomic } from "@/shared/fs";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 
@@ -341,7 +342,7 @@ export class ShutdownManager {
 
       run.status = "failed";
       run.updatedAt = new Date().toISOString();
-      await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      await writeFileAtomic(filePath, JSON.stringify(run, null, 2), "utf-8");
 
       await activityLog?.log("event", `Marked orphaned run ${run.runId} as failed`);
     } catch (err) {
