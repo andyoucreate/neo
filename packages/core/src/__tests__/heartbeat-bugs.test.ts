@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { isRunActive, STALE_GRACE_PERIOD_MS } from "@/supervisor/heartbeat";
+import { isRunActive, STALE_GRACE_PERIOD_MS } from "@/supervisor/heartbeat-state";
 import { activityEntrySchema } from "@/supervisor/schemas";
 import type { PersistedRun } from "@/types";
 

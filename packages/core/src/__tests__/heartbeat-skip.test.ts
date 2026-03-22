@@ -5,6 +5,7 @@ import type { GlobalConfig } from "@/config";
 import { ActivityLog } from "@/supervisor/activity-log";
 import { EventQueue } from "@/supervisor/event-queue";
 import { HeartbeatLoop } from "@/supervisor/heartbeat";
+import * as heartbeatState from "@/supervisor/heartbeat-state";
 import type { SupervisorDaemonState } from "@/supervisor/schemas";
 
 // ─── Mocks ────────────────────────────────────────────────
@@ -33,6 +34,17 @@ vi.mock("@/paths", () => ({
   toRepoSlug: () => "test-repo",
   getRepoRunsDir: () => "/tmp/heartbeat-skip-test/.neo/runs/test-repo",
 }));
+
+// Mock getActiveRuns as it's now external - must return empty array by default
+vi.mock("@/supervisor/heartbeat-state", async () => {
+  const actual = await vi.importActual<typeof import("@/supervisor/heartbeat-state")>(
+    "@/supervisor/heartbeat-state",
+  );
+  return {
+    ...actual,
+    getActiveRuns: vi.fn(async () => []),
+  };
+});
 
 // ─── Test Setup ───────────────────────────────────────────
 
@@ -192,8 +204,9 @@ describe("heartbeat skip integration", () => {
       });
 
       // Mock active runs (simulate active work)
-      // @ts-expect-error - mocking private method for testing
-      vi.spyOn(loop, "getActiveRuns").mockResolvedValue(["run-1 [running] developer on test-repo"]);
+      vi.spyOn(heartbeatState, "getActiveRuns").mockResolvedValue([
+        "run-1 [running] developer on test-repo",
+      ]);
 
       // activeWorkSkipCount at threshold - should NOT skip
       await createState({ activeWorkSkipCount: 2 });
@@ -225,8 +238,9 @@ describe("heartbeat skip integration", () => {
       });
 
       // Mock active runs
-      // @ts-expect-error - mocking private method for testing
-      vi.spyOn(loop, "getActiveRuns").mockResolvedValue(["run-1 [running] developer on test-repo"]);
+      vi.spyOn(heartbeatState, "getActiveRuns").mockResolvedValue([
+        "run-1 [running] developer on test-repo",
+      ]);
 
       // activeWorkSkipCount below threshold - should skip
       await createState({ activeWorkSkipCount: 0 });
@@ -420,8 +434,9 @@ describe("heartbeat skip integration", () => {
       });
 
       // Mock active runs
-      // @ts-expect-error - mocking private method for testing
-      vi.spyOn(loop, "getActiveRuns").mockResolvedValue(["run-1 [running] developer on test-repo"]);
+      vi.spyOn(heartbeatState, "getActiveRuns").mockResolvedValue([
+        "run-1 [running] developer on test-repo",
+      ]);
 
       // @ts-expect-error - accessing private method for testing
       await loop.runHeartbeat();

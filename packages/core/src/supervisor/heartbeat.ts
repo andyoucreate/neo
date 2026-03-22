@@ -1,25 +1,33 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
-import { getDataDir, getRunsDir } from "@/paths";
-import {
-  isAssistantMessage,
-  isInitMessage,
-  isResultMessage,
-  isToolResultMessage,
-  isToolUseMessage,
-  type SDKStreamMessage,
-} from "@/sdk-types";
-import { isProcessAlive } from "@/shared/process";
-import type { PersistedRun } from "@/types";
+import { getDataDir } from "@/paths";
+import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
 import type { ActivityLog } from "./activity-log.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
+import { processDecisions } from "./heartbeat-decisions.js";
+import {
+  emitHeartbeatCompleted,
+  emitRunCompletedEvent,
+  emitRunDispatchedEvent,
+  emitSupervisorStarted,
+  emitSupervisorStopped,
+  logStreamMessage,
+  type WebhookEventEmitter,
+} from "./heartbeat-logging.js";
+import { determineHeartbeatMode } from "./heartbeat-mode.js";
+import {
+  buildStateUpdate,
+  getActiveRuns,
+  readPersistedRun,
+  readState,
+  updateState,
+} from "./heartbeat-state.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
-import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
+import { compactLogBuffer, markConsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
 import {
@@ -35,112 +43,17 @@ import type {
   QueuedEvent,
   SupervisorDaemonState,
 } from "./schemas.js";
-import {
-  type HeartbeatEvent,
-  heartbeatEventSchema,
-  type RunCompletedEvent,
-  type RunDispatchedEvent,
-  runCompletedEventSchema,
-  runDispatchedEventSchema,
-  type SupervisorStartedEvent,
-  type SupervisorStoppedEvent,
-  type SupervisorWebhookEvent,
-  supervisorStartedEventSchema,
-  supervisorStoppedEventSchema,
-} from "./webhookEvents.js";
 
-/** Consolidation runs every N heartbeats */
-const DEFAULT_CONSOLIDATION_INTERVAL = 5;
-
-// ─── Consolidation logic ────────────────────────────────
-
-/**
- * Determine whether this heartbeat should be a consolidation cycle.
- * Consolidation runs every `consolidationInterval` heartbeats,
- * or earlier if there are pending unconsolidated entries (after at least 2 heartbeats).
- */
-export function shouldConsolidate(
-  heartbeatCount: number,
-  lastConsolidationHeartbeat: number,
-  consolidationInterval: number,
-  hasPendingEntries: boolean,
-): boolean {
-  const since = heartbeatCount - lastConsolidationHeartbeat;
-  if (since >= consolidationInterval) return true;
-  if (hasPendingEntries && since >= 2) return true;
-  return false;
-}
-
-/**
- * Determine whether this heartbeat should run compaction.
- * Compaction is a deep cleanup pass that runs every ~50 heartbeats.
- */
-export function shouldCompact(
-  heartbeatCount: number,
-  lastCompactionHeartbeat: number,
-  compactionInterval = 50,
-): boolean {
-  const since = heartbeatCount - lastCompactionHeartbeat;
-  return since >= compactionInterval;
-}
-
-/** Grace period before a run without PID can be considered stale (ms). */
-export const STALE_GRACE_PERIOD_MS = 30_000;
-
-/**
- * Determine if a persisted run is actually active (not stale).
- *
- * For "running" status, validates:
- * - If PID exists and process is alive → active
- * - If PID exists but process is dead → stale (ghost run)
- * - If no PID and within grace period → active (still starting up)
- * - If no PID and past grace period → stale (ghost run)
- *
- * For "paused" status: always considered active (waiting for user action).
- */
-export function isRunActive(
-  run: PersistedRun,
-  isAlive: (pid: number) => boolean = isProcessAlive,
-  now: number = Date.now(),
-): boolean {
-  // Skip non-active statuses
-  if (run.status !== "running" && run.status !== "paused") {
-    return false;
-  }
-
-  // Paused runs are always considered active (waiting for user action)
-  if (run.status === "paused") {
-    return true;
-  }
-
-  // For running status, validate the run is actually alive
-  // If PID exists and process is alive, it's active
-  if (run.pid && isAlive(run.pid)) {
-    return true;
-  }
-
-  // If PID exists but process is dead, it's a stale ghost run
-  if (run.pid) {
-    return false;
-  }
-
-  // No PID: check grace period (run may still be starting up)
-  const ageMs = now - new Date(run.createdAt).getTime();
-
-  return ageMs < STALE_GRACE_PERIOD_MS;
-}
+export type { WebhookEventEmitter } from "./heartbeat-logging.js";
+// Re-export for backward compatibility
+export { shouldCompact, shouldConsolidate } from "./heartbeat-mode.js";
+export { isRunActive, STALE_GRACE_PERIOD_MS } from "./heartbeat-state.js";
 
 // ─── Helper types for runHeartbeat refactoring ───────────
 
 interface BudgetCheckResult {
   todayCost: number;
   exceeded: boolean;
-}
-
-interface ProcessDecisionsResult {
-  pendingDecisions: Decision[];
-  answeredDecisions: Decision[];
-  hasExpiredDecisions: boolean;
 }
 
 interface EventContext {
@@ -156,7 +69,7 @@ interface EventContext {
 interface PostSdkProcessingInput {
   rawEvents: QueuedEvent[];
   isConsolidation: boolean;
-  unconsolidated: LogBufferEntry[];
+  unconsolidatedIds: string[];
 }
 
 interface CompletionEventsInput {
@@ -180,22 +93,7 @@ interface SkipLogicResult {
   resetCounters: boolean;
 }
 
-interface HeartbeatModeResult {
-  isConsolidation: boolean;
-  isCompaction: boolean;
-  unconsolidated: LogBufferEntry[];
-  heartbeatCount: number;
-  lastConsolidationTs: string | undefined;
-}
-
-interface StateUpdateResult {
-  stateUpdate: Partial<SupervisorDaemonState>;
-}
-
 // ─── HeartbeatLoop ───────────────────────────────────────
-
-/** Callback for emitting webhook events */
-export type WebhookEventEmitter = (event: SupervisorWebhookEvent) => void | Promise<void>;
 
 export interface HeartbeatLoopOptions {
   config: GlobalConfig;
@@ -298,7 +196,7 @@ export class HeartbeatLoop {
     await this.initConfigWatcher();
 
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop started");
-    await this.emitSupervisorStarted();
+    await emitSupervisorStarted(this.sessionId, this.onWebhookEvent, this.activityLog);
 
     while (!this.stopping) {
       try {
@@ -331,7 +229,7 @@ export class HeartbeatLoop {
       await this.eventQueue.waitForEvent(this.config.supervisor.eventTimeoutMs);
     }
 
-    await this.emitSupervisorStopped("shutdown");
+    await emitSupervisorStopped(this.sessionId, "shutdown", this.onWebhookEvent, this.activityLog);
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop stopped");
   }
 
@@ -397,7 +295,7 @@ export class HeartbeatLoop {
   private async runHeartbeat(): Promise<void> {
     const startTime = Date.now();
     const heartbeatId = randomUUID();
-    const state = await this.readState();
+    const state = await readState(this.statePath);
     const today = new Date().toISOString().slice(0, 10);
 
     // Check budget and return early if exceeded
@@ -408,12 +306,19 @@ export class HeartbeatLoop {
     const eventCtx = await this.gatherEventContext();
 
     // Process decision answers and expiry
-    const { pendingDecisions, answeredDecisions, hasExpiredDecisions } =
-      await this.processDecisions(eventCtx.rawEvents, state?.lastHeartbeat);
+    const { pendingDecisions, answeredDecisions, hasExpiredDecisions } = await processDecisions(
+      eventCtx.rawEvents,
+      state?.lastHeartbeat,
+      this.getDecisionStore(),
+      this.activityLog,
+      this.config.supervisor.autoDecide,
+    );
+
+    // Determine heartbeat mode
+    const modeResult = await determineHeartbeatMode(this.supervisorDir, state);
 
     // Check for pending consolidation entries
-    const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
-    const hasPendingConsolidation = unconsolidatedEntries.length > 0;
+    const hasPendingConsolidation = modeResult.unconsolidated.length > 0;
 
     // Handle skip logic for idle/active-work scenarios
     const skipResult = await this.handleSkipLogic({
@@ -425,11 +330,8 @@ export class HeartbeatLoop {
     });
     if (skipResult.shouldSkip) return;
     if (skipResult.resetCounters) {
-      await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
+      await updateState(this.statePath, { idleSkipCount: 0, activeWorkSkipCount: 0 });
     }
-
-    // Determine heartbeat mode
-    const modeResult = await this.determineHeartbeatMode(state);
 
     // Build prompt and log start
     const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
@@ -474,16 +376,18 @@ export class HeartbeatLoop {
     }
 
     // Handle post-SDK processing
+    const unconsolidatedIds = modeResult.unconsolidated.map((e) => e.id);
     await this.handlePostSdkProcessing({
       rawEvents: eventCtx.rawEvents,
       isConsolidation: modeResult.isConsolidation,
-      unconsolidated: modeResult.unconsolidated,
+      unconsolidatedIds,
     });
 
     // Build and apply state update
     const durationMs = Date.now() - startTime;
-    const { stateUpdate } = this.buildStateUpdate({
+    const { stateUpdate } = buildStateUpdate({
       state,
+      sessionId: this.sessionId,
       today,
       todayCost: budgetCheck.todayCost,
       costUsd,
@@ -491,7 +395,7 @@ export class HeartbeatLoop {
       isConsolidation: modeResult.isConsolidation,
       isCompaction: modeResult.isCompaction,
     });
-    await this.updateState(stateUpdate);
+    await updateState(this.statePath, stateUpdate);
 
     await this.activityLog.log(
       "heartbeat",
@@ -537,39 +441,13 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Process decision answers from inbox and expire old decisions.
-   * Returns pending, answered, and expiry status for prompt context.
-   */
-  private async processDecisions(
-    rawEvents: QueuedEvent[],
-    lastHeartbeat: string | undefined,
-  ): Promise<ProcessDecisionsResult> {
-    const decisionStore = this.getDecisionStore();
-
-    // Process decision answers from inbox messages
-    await this.processDecisionAnswers(rawEvents, decisionStore);
-
-    // Auto-answer expired decisions
-    const expiredDecisions = await decisionStore.expire();
-    const hasExpiredDecisions = expiredDecisions.length > 0;
-
-    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
-    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
-    const answeredDecisions = this.config.supervisor.autoDecide
-      ? await decisionStore.answered(lastHeartbeat)
-      : [];
-
-    return { pendingDecisions, answeredDecisions, hasExpiredDecisions };
-  }
-
-  /**
    * Gather event context: drain queue, fetch active runs, memories, and recent actions.
    */
   private async gatherEventContext(): Promise<EventContext> {
     const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
-    const activeRuns = await this.getActiveRuns();
+    const activeRuns = await getActiveRuns();
 
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
     const store = this.getMemoryStore();
@@ -599,9 +477,8 @@ export class HeartbeatLoop {
 
     // Post-response: mark entries consolidated and compact log buffer
     if (input.isConsolidation) {
-      const allIds = input.unconsolidated.map((e) => e.id);
-      if (allIds.length > 0) {
-        await markConsolidated(this.supervisorDir, allIds);
+      if (input.unconsolidatedIds.length > 0) {
+        await markConsolidated(this.supervisorDir, input.unconsolidatedIds);
       }
       await compactLogBuffer(this.supervisorDir);
     }
@@ -612,27 +489,46 @@ export class HeartbeatLoop {
    */
   private async emitCompletionEvents(input: CompletionEventsInput): Promise<void> {
     // Emit heartbeat completed webhook event
-    await this.emitHeartbeatCompleted({
-      heartbeatNumber: input.heartbeatCount + 1,
-      runsActive: input.activeRuns.length,
-      todayUsd: input.todayCost + input.costUsd,
-      limitUsd: this.config.supervisor.dailyCapUsd,
-    });
+    await emitHeartbeatCompleted(
+      this.sessionId,
+      {
+        heartbeatNumber: input.heartbeatCount + 1,
+        runsActive: input.activeRuns.length,
+        todayUsd: input.todayCost + input.costUsd,
+        limitUsd: this.config.supervisor.dailyCapUsd,
+      },
+      this.onWebhookEvent,
+      this.activityLog,
+    );
 
     // Emit run completed events for any run completions processed
     for (const event of input.rawEvents) {
       if (event.kind === "run_complete") {
-        const runData = await this.readPersistedRun(event.runId);
-        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
+        const runData = await readPersistedRun(event.runId);
+        const emitOpts: {
+          runId: string;
+          status: "completed" | "failed" | "cancelled";
+          output?: string;
+          costUsd: number;
+          durationMs: number;
+        } = {
           runId: event.runId,
-          status: runData?.status === "failed" ? "failed" : "completed",
+          status: (runData?.status === "failed" ? "failed" : "completed") as
+            | "completed"
+            | "failed"
+            | "cancelled",
           costUsd: runData?.totalCostUsd ?? 0,
           durationMs: runData?.durationMs ?? 0,
         };
         if (runData?.output) {
           emitOpts.output = runData.output;
         }
-        await this.emitRunCompleted(emitOpts);
+        await emitRunCompletedEvent(
+          this.sessionId,
+          emitOpts,
+          this.onWebhookEvent,
+          this.activityLog,
+        );
       }
     }
   }
@@ -676,7 +572,7 @@ export class HeartbeatLoop {
     if (result.shouldSkip) {
       // Update skip counters based on whether there's active work
       if (hasActiveWork) {
-        await this.updateState({
+        await updateState(this.statePath, {
           activeWorkSkipCount: activeWorkSkipCount + 1,
           idleSkipCount: 0,
         });
@@ -685,7 +581,7 @@ export class HeartbeatLoop {
           `Active-work skip #${activeWorkSkipCount + 1}/${this.config.supervisor.activeWorkSkipMax} — ${result.reason}`,
         );
       } else {
-        await this.updateState({
+        await updateState(this.statePath, {
           idleSkipCount: idleSkipCount + 1,
           activeWorkSkipCount: 0,
         });
@@ -699,75 +595,6 @@ export class HeartbeatLoop {
 
     const needsReset = idleSkipCount > 0 || activeWorkSkipCount > 0;
     return { shouldSkip: false, resetCounters: needsReset };
-  }
-
-  /**
-   * Determine heartbeat mode: compaction > consolidation > standard.
-   */
-  private async determineHeartbeatMode(
-    state: SupervisorDaemonState | null,
-  ): Promise<HeartbeatModeResult> {
-    const heartbeatCount = state?.heartbeatCount ?? 0;
-    const lastConsolidation = state?.lastConsolidationHeartbeat ?? 0;
-    const lastCompaction = state?.lastCompactionHeartbeat ?? 0;
-    const lastConsolidationTs = state?.lastConsolidationTimestamp;
-    const unconsolidated = await readUnconsolidated(this.supervisorDir);
-
-    const hasNewEntriesSinceLastConsolidation = lastConsolidationTs
-      ? unconsolidated.some((e) => e.timestamp > lastConsolidationTs)
-      : unconsolidated.length > 0;
-
-    const hasPendingEntries = unconsolidated.length > 0;
-    const isCompaction = shouldCompact(heartbeatCount, lastCompaction);
-    const wouldConsolidate = shouldConsolidate(
-      heartbeatCount,
-      lastConsolidation,
-      DEFAULT_CONSOLIDATION_INTERVAL,
-      hasPendingEntries,
-    );
-    const isConsolidation =
-      isCompaction || (wouldConsolidate && hasNewEntriesSinceLastConsolidation);
-
-    return {
-      isConsolidation,
-      isCompaction,
-      unconsolidated,
-      heartbeatCount,
-      lastConsolidationTs,
-    };
-  }
-
-  /**
-   * Build the state update object after heartbeat completion.
-   */
-  private buildStateUpdate(opts: {
-    state: SupervisorDaemonState | null;
-    today: string;
-    todayCost: number;
-    costUsd: number;
-    heartbeatCount: number;
-    isConsolidation: boolean;
-    isCompaction: boolean;
-  }): StateUpdateResult {
-    const stateUpdate: Partial<SupervisorDaemonState> = {
-      sessionId: this.sessionId,
-      lastHeartbeat: new Date().toISOString(),
-      heartbeatCount: opts.heartbeatCount + 1,
-      totalCostUsd: (opts.state?.totalCostUsd ?? 0) + opts.costUsd,
-      todayCostUsd: opts.todayCost + opts.costUsd,
-      costResetDate: opts.today,
-    };
-
-    if (opts.isConsolidation) {
-      stateUpdate.lastConsolidationHeartbeat = opts.heartbeatCount + 1;
-      stateUpdate.lastConsolidationTimestamp = new Date().toISOString();
-    }
-
-    if (opts.isCompaction) {
-      stateUpdate.lastCompactionHeartbeat = opts.heartbeatCount + 1;
-    }
-
-    return { stateUpdate };
   }
 
   /**
@@ -931,7 +758,9 @@ export class HeartbeatLoop {
             turnCount = msg.num_turns ?? 0;
           }
 
-          await this.logStreamMessage(msg, heartbeatId);
+          await logStreamMessage(msg, heartbeatId, this.activityLog, (opts) =>
+            this.emitRunDispatched(opts),
+          );
         }
       } finally {
         // Properly cleanup iterator when done or aborted
@@ -943,67 +772,6 @@ export class HeartbeatLoop {
     }
 
     return { output, costUsd, turnCount };
-  }
-
-  private async readState(): Promise<SupervisorDaemonState | null> {
-    try {
-      const raw = await readFile(this.statePath, "utf-8");
-      return JSON.parse(raw) as SupervisorDaemonState;
-    } catch {
-      return null;
-    }
-  }
-
-  private async updateState(updates: Partial<SupervisorDaemonState>): Promise<void> {
-    try {
-      const raw = await readFile(this.statePath, "utf-8");
-      const state = JSON.parse(raw) as SupervisorDaemonState;
-      Object.assign(state, updates);
-      await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
-    } catch {
-      // Non-critical
-    }
-  }
-
-  /**
-   * Read persisted run files and return summaries of active (running/paused) runs.
-   * Validates that "running" runs are actually alive by checking their PID.
-   * Stale runs (dead PID past grace period) are filtered out to prevent ghost runs.
-   */
-  private async getActiveRuns(): Promise<string[]> {
-    const runsDir = getRunsDir();
-    if (!existsSync(runsDir)) return [];
-
-    try {
-      const entries = await readdir(runsDir, { withFileTypes: true });
-      const active: string[] = [];
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const subDir = path.join(runsDir, entry.name);
-        const files = await readdir(subDir);
-
-        for (const f of files) {
-          if (!f.endsWith(".json")) continue;
-          try {
-            const raw = await readFile(path.join(subDir, f), "utf-8");
-            const run = JSON.parse(raw) as PersistedRun;
-
-            if (isRunActive(run)) {
-              active.push(
-                `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
-              );
-            }
-          } catch {
-            // Corrupted or partial file — skip
-          }
-        }
-      }
-
-      return active;
-    } catch {
-      return [];
-    }
   }
 
   /**
@@ -1039,262 +807,13 @@ export class HeartbeatLoop {
     return undefined;
   }
 
-  /** Route a single SDK stream message to the appropriate log handler. */
-  private async logStreamMessage(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (isAssistantMessage(msg)) {
-      await this.logContentBlocks(msg, heartbeatId);
-    } else if (isToolUseMessage(msg)) {
-      await this.logToolUse(msg, heartbeatId);
-    } else if (isToolResultMessage(msg)) {
-      await this.logToolResult(msg, heartbeatId);
-    }
-  }
-
-  /** Log thinking and plan blocks from assistant content — no truncation. */
-  private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isAssistantMessage(msg)) return;
-    const content = msg.message?.content;
-    if (!content) return;
-
-    for (const block of content) {
-      if (block.type === "thinking" && block.thinking) {
-        await this.activityLog.log("thinking", block.thinking, { heartbeatId });
-      }
-      if (block.type === "text" && block.text) {
-        await this.activityLog.log("plan", block.text, { heartbeatId });
-        break; // Only log first text block per message
-      }
-    }
-  }
-
-  /** Log tool use events — distinguish MCP tools from built-in tools. */
-  private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isToolUseMessage(msg)) return;
-    const toolName = msg.tool;
-    const isMcp = toolName.startsWith("mcp__");
-    await this.activityLog.log(
-      isMcp ? "tool_use" : "action",
-      isMcp ? toolName : `Tool use: ${toolName}`,
-      { heartbeatId, tool: toolName, input: msg.input },
-    );
-  }
-
-  /** Detect agent dispatches from bash tool results. */
-  private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isToolResultMessage(msg)) return;
-    const result = msg.result ?? "";
-    const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
-    const runId = runMatch?.[1];
-    if (runId) {
-      await this.activityLog.log("dispatch", `Agent dispatched: ${runId}`, {
-        heartbeatId,
-        runId,
-      });
-
-      // Emit run dispatched webhook event
-      // Extract additional info from the result if available.
-      //
-      // Expected tool result formats from `neo run` command output:
-      //   - "Run <runId> dispatched"
-      //   - "agent: <name>" or "Agent: <name>" or "agent <name>"
-      //   - "repo: <path>" or "Repo: <path>" or "repo <path>"
-      //   - "branch: <name>" or "Branch: <name>" or "branch <name>"
-      //
-      // These patterns are best-effort extraction. If the format changes,
-      // values will default to "unknown" without breaking the event emission.
-      const agentMatch = /agent[:\s]+(\S+)/i.exec(result);
-      const repoMatch = /repo[:\s]+(\S+)/i.exec(result);
-      const branchMatch = /branch[:\s]+(\S+)/i.exec(result);
-
-      const agent = agentMatch?.[1] ?? "unknown";
-      const repo = repoMatch?.[1] ?? "unknown";
-      const branch = branchMatch?.[1] ?? "unknown";
-
-      await this.emitRunDispatched({
-        runId,
-        agent,
-        repo,
-        branch,
-        prompt: result.slice(0, 500),
-      });
-    }
-  }
-
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
-   * Process decision:answer events from inbox messages.
-   * Expected format: "decision:answer <decisionId> <answer>"
+   * Emit RunDispatchedEvent from tool result detection (wrapper for heartbeat-logging)
    */
-  private async processDecisionAnswers(
-    rawEvents: QueuedEvent[],
-    store: DecisionStore,
-  ): Promise<void> {
-    for (const event of rawEvents) {
-      if (event.kind !== "message") continue;
-
-      const text = event.data.text.trim();
-      const match = /^decision:answer\s+(\S+)\s+(.+)$/i.exec(text);
-      if (!match) continue;
-
-      const decisionId = match[1];
-      const answer = match[2];
-      if (!decisionId || !answer) continue;
-
-      try {
-        await store.answer(decisionId, answer);
-        await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
-          decisionId,
-          answer,
-        });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
-          decisionId,
-          answer,
-        });
-      }
-    }
-  }
-
-  /**
-   * Read persisted run data to extract actual status, cost, and duration.
-   * Returns null if the run file cannot be found or parsed.
-   */
-  private async readPersistedRun(runId: string): Promise<{
-    status: PersistedRun["status"];
-    totalCostUsd: number;
-    durationMs: number;
-    output: string | undefined;
-  } | null> {
-    const runsDir = getRunsDir();
-    if (!existsSync(runsDir)) return null;
-
-    try {
-      const entries = await readdir(runsDir, { withFileTypes: true });
-
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const subDir = path.join(runsDir, entry.name);
-        const runPath = path.join(subDir, `${runId}.json`);
-
-        if (existsSync(runPath)) {
-          const raw = await readFile(runPath, "utf-8");
-          const run = JSON.parse(raw) as PersistedRun;
-
-          // Calculate total cost from all steps
-          const totalCostUsd = Object.values(run.steps).reduce(
-            (sum, step) => sum + (step.costUsd ?? 0),
-            0,
-          );
-
-          // Calculate duration from createdAt to updatedAt
-          const durationMs = new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime();
-
-          // Get output from the last completed step
-          const completedSteps = Object.values(run.steps).filter(
-            (s) => s.status === "success" || s.status === "failure",
-          );
-          const lastStep = completedSteps[completedSteps.length - 1];
-          const output =
-            typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
-
-          return { status: run.status, totalCostUsd, durationMs, output };
-        }
-      }
-    } catch {
-      // Non-critical — return null if we can't read run data
-    }
-
-    return null;
-  }
-
-  // ─── Webhook event emission ───────────────────────────────
-
-  /**
-   * Emit a webhook event if a callback is configured.
-   * Validates the event against its schema before emission.
-   */
-  private async emitWebhookEvent(event: SupervisorWebhookEvent): Promise<void> {
-    if (!this.onWebhookEvent) return;
-
-    try {
-      // Validate event against schema before emission
-      switch (event.type) {
-        case "supervisor_started":
-          supervisorStartedEventSchema.parse(event);
-          break;
-        case "heartbeat":
-          heartbeatEventSchema.parse(event);
-          break;
-        case "run_dispatched":
-          runDispatchedEventSchema.parse(event);
-          break;
-        case "run_completed":
-          runCompletedEventSchema.parse(event);
-          break;
-        case "supervisor_stopped":
-          supervisorStoppedEventSchema.parse(event);
-          break;
-      }
-
-      await this.onWebhookEvent(event);
-    } catch (error) {
-      // Log validation/emission errors but don't fail the heartbeat
-      const msg = error instanceof Error ? error.message : String(error);
-      await this.activityLog.log("error", `Webhook event emission failed: ${msg}`, {
-        eventType: event.type,
-      });
-    }
-  }
-
-  /** Emit SupervisorStartedEvent */
-  private async emitSupervisorStarted(): Promise<void> {
-    const event: SupervisorStartedEvent = {
-      type: "supervisor_started",
-      supervisorId: this.sessionId,
-      startedAt: new Date().toISOString(),
-    };
-    await this.emitWebhookEvent(event);
-  }
-
-  /** Emit SupervisorStoppedEvent */
-  private async emitSupervisorStopped(
-    reason: "shutdown" | "budget_exceeded" | "error" | "manual",
-  ): Promise<void> {
-    const event: SupervisorStoppedEvent = {
-      type: "supervisor_stopped",
-      supervisorId: this.sessionId,
-      stoppedAt: new Date().toISOString(),
-      reason,
-    };
-    await this.emitWebhookEvent(event);
-  }
-
-  /** Emit HeartbeatEvent */
-  private async emitHeartbeatCompleted(opts: {
-    heartbeatNumber: number;
-    runsActive: number;
-    todayUsd: number;
-    limitUsd: number;
-  }): Promise<void> {
-    const event: HeartbeatEvent = {
-      type: "heartbeat",
-      supervisorId: this.sessionId,
-      heartbeatNumber: opts.heartbeatNumber,
-      timestamp: new Date().toISOString(),
-      runsActive: opts.runsActive,
-      budget: {
-        todayUsd: opts.todayUsd,
-        limitUsd: opts.limitUsd,
-      },
-    };
-    await this.emitWebhookEvent(event);
-  }
-
-  /** Emit RunDispatchedEvent from tool result detection */
   private async emitRunDispatched(opts: {
     runId: string;
     agent: string;
@@ -1302,35 +821,6 @@ export class HeartbeatLoop {
     branch: string;
     prompt: string;
   }): Promise<void> {
-    const event: RunDispatchedEvent = {
-      type: "run_dispatched",
-      supervisorId: this.sessionId,
-      runId: opts.runId,
-      agent: opts.agent,
-      repo: opts.repo,
-      branch: opts.branch,
-      prompt: opts.prompt.slice(0, 500), // Truncate to schema max
-    };
-    await this.emitWebhookEvent(event);
-  }
-
-  /** Emit RunCompletedEvent when processing run_complete events */
-  private async emitRunCompleted(opts: {
-    runId: string;
-    status: "completed" | "failed" | "cancelled";
-    output?: string;
-    costUsd: number;
-    durationMs: number;
-  }): Promise<void> {
-    const event: RunCompletedEvent = {
-      type: "run_completed",
-      supervisorId: this.sessionId,
-      runId: opts.runId,
-      status: opts.status,
-      output: opts.output?.slice(0, 1000), // Truncate to schema max
-      costUsd: opts.costUsd,
-      durationMs: opts.durationMs,
-    };
-    await this.emitWebhookEvent(event);
+    await emitRunDispatchedEvent(this.sessionId, opts, this.onWebhookEvent, this.activityLog);
   }
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shouldConsolidate } from "@/supervisor/heartbeat";
+import { shouldConsolidate } from "@/supervisor/heartbeat-mode";
 
 describe("shouldConsolidate", () => {
   const interval = 5;
