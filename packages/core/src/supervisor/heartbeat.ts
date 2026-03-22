@@ -431,40 +431,21 @@ export class HeartbeatLoop {
     // Determine heartbeat mode
     const modeResult = await this.determineHeartbeatMode(state);
 
-    // Build prompt and log start
-    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
-      grouped: eventCtx.grouped,
-      todayCost: budgetCheck.todayCost,
-      heartbeatCount: modeResult.heartbeatCount,
-      unconsolidated: modeResult.unconsolidated,
-      isCompaction: modeResult.isCompaction,
-      isConsolidation: modeResult.isConsolidation,
-      activeRuns: eventCtx.activeRuns,
+    // Prepare prompt and log heartbeat start
+    const { prompt, modeLabel } = await this.prepareAndLogHeartbeatStart({
+      heartbeatId,
+      eventCtx,
+      budgetCheck,
+      modeResult,
       pendingDecisions,
       answeredDecisions,
       lastHeartbeat: state?.lastHeartbeat,
-      lastConsolidationTimestamp: modeResult.lastConsolidationTs,
-      memories: eventCtx.memories,
-      recentActions: eventCtx.recentActions,
-      mcpServerNames: eventCtx.mcpServerNames,
     });
-    await this.activityLog.log(
-      "heartbeat",
-      `Heartbeat #${modeResult.heartbeatCount} starting (${modeLabel})`,
-      {
-        heartbeatId,
-        eventCount: eventCtx.totalEventCount,
-        messages: eventCtx.grouped.messages.length,
-        webhooks: eventCtx.grouped.webhooks.length,
-        runCompletions: eventCtx.grouped.runCompletions.length,
-        isConsolidation: modeResult.isConsolidation,
-      },
-    );
 
     // Call SDK with timeout + shutdown abort
     const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
 
-    // Warn if SDK stream completed without any turns — indicates silent timeout
+    // Warn if SDK stream completed without any turns
     if (turnCount === 0) {
       await this.activityLog.log(
         "warning",
@@ -480,30 +461,19 @@ export class HeartbeatLoop {
       unconsolidated: modeResult.unconsolidated,
     });
 
-    // Build and apply state update
+    // Apply state update and log completion
     const durationMs = Date.now() - startTime;
-    const { stateUpdate } = this.buildStateUpdate({
+    await this.applyStateUpdateAndLogCompletion({
+      heartbeatId,
       state,
       today,
-      todayCost: budgetCheck.todayCost,
+      budgetCheck,
+      modeResult,
+      modeLabel,
       costUsd,
-      heartbeatCount: modeResult.heartbeatCount,
-      isConsolidation: modeResult.isConsolidation,
-      isCompaction: modeResult.isCompaction,
+      turnCount,
+      durationMs,
     });
-    await this.updateState(stateUpdate);
-
-    await this.activityLog.log(
-      "heartbeat",
-      `Heartbeat #${modeResult.heartbeatCount + 1} complete (${modeLabel})`,
-      {
-        heartbeatId,
-        costUsd,
-        durationMs,
-        turnCount,
-        isConsolidation: modeResult.isConsolidation,
-      },
-    );
 
     // Emit completion webhook events
     await this.emitCompletionEvents({
@@ -635,6 +605,90 @@ export class HeartbeatLoop {
         await this.emitRunCompleted(emitOpts);
       }
     }
+  }
+
+  /**
+   * Prepare heartbeat prompt and log the start of the heartbeat cycle.
+   */
+  private async prepareAndLogHeartbeatStart(opts: {
+    heartbeatId: string;
+    eventCtx: EventContext;
+    budgetCheck: BudgetCheckResult;
+    modeResult: HeartbeatModeResult;
+    pendingDecisions: Decision[];
+    answeredDecisions: Decision[];
+    lastHeartbeat: string | undefined;
+  }): Promise<{ prompt: string; modeLabel: string }> {
+    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
+      grouped: opts.eventCtx.grouped,
+      todayCost: opts.budgetCheck.todayCost,
+      heartbeatCount: opts.modeResult.heartbeatCount,
+      unconsolidated: opts.modeResult.unconsolidated,
+      isCompaction: opts.modeResult.isCompaction,
+      isConsolidation: opts.modeResult.isConsolidation,
+      activeRuns: opts.eventCtx.activeRuns,
+      pendingDecisions: opts.pendingDecisions,
+      answeredDecisions: opts.answeredDecisions,
+      lastHeartbeat: opts.lastHeartbeat,
+      lastConsolidationTimestamp: opts.modeResult.lastConsolidationTs,
+      memories: opts.eventCtx.memories,
+      recentActions: opts.eventCtx.recentActions,
+      mcpServerNames: opts.eventCtx.mcpServerNames,
+    });
+
+    await this.activityLog.log(
+      "heartbeat",
+      `Heartbeat #${opts.modeResult.heartbeatCount} starting (${modeLabel})`,
+      {
+        heartbeatId: opts.heartbeatId,
+        eventCount: opts.eventCtx.totalEventCount,
+        messages: opts.eventCtx.grouped.messages.length,
+        webhooks: opts.eventCtx.grouped.webhooks.length,
+        runCompletions: opts.eventCtx.grouped.runCompletions.length,
+        isConsolidation: opts.modeResult.isConsolidation,
+      },
+    );
+
+    return { prompt, modeLabel };
+  }
+
+  /**
+   * Apply state update and log heartbeat completion.
+   */
+  private async applyStateUpdateAndLogCompletion(opts: {
+    heartbeatId: string;
+    state: SupervisorDaemonState | null;
+    today: string;
+    budgetCheck: BudgetCheckResult;
+    modeResult: HeartbeatModeResult;
+    modeLabel: string;
+    costUsd: number;
+    turnCount: number;
+    durationMs: number;
+  }): Promise<void> {
+    const { stateUpdate } = this.buildStateUpdate({
+      state: opts.state,
+      today: opts.today,
+      todayCost: opts.budgetCheck.todayCost,
+      costUsd: opts.costUsd,
+      heartbeatCount: opts.modeResult.heartbeatCount,
+      isConsolidation: opts.modeResult.isConsolidation,
+      isCompaction: opts.modeResult.isCompaction,
+    });
+
+    await this.updateState(stateUpdate);
+
+    await this.activityLog.log(
+      "heartbeat",
+      `Heartbeat #${opts.modeResult.heartbeatCount + 1} complete (${opts.modeLabel})`,
+      {
+        heartbeatId: opts.heartbeatId,
+        costUsd: opts.costUsd,
+        durationMs: opts.durationMs,
+        turnCount: opts.turnCount,
+        isConsolidation: opts.modeResult.isConsolidation,
+      },
+    );
   }
 
   /**
