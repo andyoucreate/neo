@@ -6,7 +6,13 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
 import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
-import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
+import {
+  createBranch,
+  getBranchName,
+  getCurrentBranch,
+  pushBranch,
+  validateGitRef,
+} from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import type { ResolvedAgent } from "@/types";
 
@@ -225,5 +231,125 @@ describe("buildSandboxConfig", () => {
 
     expect(config.readablePaths).toContain("/tmp/session");
     expect(config.writablePaths).not.toContain("/tmp/session");
+  });
+});
+
+// ─── Git Reference Validation ───────────────────────────
+
+describe("validateGitRef", () => {
+  it("accepts valid branch names", () => {
+    expect(() => validateGitRef("feat/add-auth", "branch")).not.toThrow();
+    expect(() => validateGitRef("fix/bug-123", "branch")).not.toThrow();
+    expect(() => validateGitRef("main", "branch")).not.toThrow();
+    expect(() => validateGitRef("feat/PROJ-42-add-feature", "branch")).not.toThrow();
+    expect(() => validateGitRef("release/v1.2.3", "branch")).not.toThrow();
+  });
+
+  it("accepts valid tag names with semver and plus signs", () => {
+    expect(() => validateGitRef("v1.2.3", "tag")).not.toThrow();
+    expect(() => validateGitRef("v1.2.3+build.123", "tag")).not.toThrow();
+    expect(() => validateGitRef("v2.0.0-alpha+exp.sha.5114f85", "tag")).not.toThrow();
+  });
+
+  it("accepts valid remote names", () => {
+    expect(() => validateGitRef("origin", "remote")).not.toThrow();
+    expect(() => validateGitRef("upstream", "remote")).not.toThrow();
+  });
+
+  it("rejects empty or whitespace-only names", () => {
+    expect(() => validateGitRef("", "branch")).toThrow("cannot be empty");
+    expect(() => validateGitRef("  ", "branch")).toThrow("cannot be empty");
+  });
+
+  it("rejects directory traversal attempts", () => {
+    expect(() => validateGitRef("../../../etc/passwd", "branch")).toThrow(
+      "directory traversal attempt",
+    );
+    expect(() => validateGitRef("feat/../main", "branch")).toThrow("directory traversal attempt");
+    expect(() => validateGitRef("..", "branch")).toThrow("directory traversal attempt");
+  });
+
+  it("rejects shell metacharacters and special symbols", () => {
+    expect(() => validateGitRef("feat/test; rm -rf /", "branch")).toThrow(
+      "Only alphanumeric characters",
+    );
+    expect(() => validateGitRef("feat/test && echo pwned", "branch")).toThrow(
+      "Only alphanumeric characters",
+    );
+    expect(() => validateGitRef("feat/test|cat /etc/passwd", "branch")).toThrow(
+      "Only alphanumeric characters",
+    );
+    expect(() => validateGitRef("feat/test$USER", "branch")).toThrow(
+      "Only alphanumeric characters",
+    );
+    expect(() => validateGitRef("feat/test`whoami`", "branch")).toThrow(
+      "Only alphanumeric characters",
+    );
+  });
+
+  it("rejects spaces and special characters", () => {
+    expect(() => validateGitRef("feat test", "branch")).toThrow("Only alphanumeric characters");
+    expect(() => validateGitRef("feat@test", "branch")).toThrow("Only alphanumeric characters");
+    expect(() => validateGitRef("feat#test", "branch")).toThrow("Only alphanumeric characters");
+    expect(() => validateGitRef("feat%test", "branch")).toThrow("Only alphanumeric characters");
+  });
+
+  it("throws with custom refType in error message", () => {
+    expect(() => validateGitRef("", "branch")).toThrow("Git branch name");
+    expect(() => validateGitRef("", "tag")).toThrow("Git tag name");
+    expect(() => validateGitRef("", "remote")).toThrow("Git remote name");
+  });
+});
+
+// ─── Git Reference Validation in Operations ────────────
+
+describe("git operations with validation", () => {
+  it("createBranch rejects invalid branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "../evil", "main")).rejects.toThrow(
+      "directory traversal attempt",
+    );
+    await expect(createBranch(repoDir, "feat; rm -rf /", "main")).rejects.toThrow(
+      "Only alphanumeric characters",
+    );
+    await expect(createBranch(repoDir, "valid-branch", "../evil-base")).rejects.toThrow(
+      "directory traversal attempt",
+    );
+  });
+
+  it("pushBranch rejects invalid branch and remote names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    await createBranch(repoDir, "feat/test", "main");
+
+    await expect(pushBranch(repoDir, "../evil", "origin")).rejects.toThrow(
+      "directory traversal attempt",
+    );
+    await expect(pushBranch(repoDir, "feat/test", "../evil-remote")).rejects.toThrow(
+      "directory traversal attempt",
+    );
+  });
+
+  it("createSessionClone rejects invalid branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+    const sessionDir = path.join(TMP_DIR, "session-evil");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "../evil",
+        baseBranch: "main",
+        sessionDir,
+      }),
+    ).rejects.toThrow("directory traversal attempt");
+
+    await expect(
+      createSessionClone({
+        repoPath: repoDir,
+        branch: "valid-branch",
+        baseBranch: "; rm -rf /",
+        sessionDir,
+      }),
+    ).rejects.toThrow("Only alphanumeric characters");
   });
 });
