@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { getRepoRunsDir, getRunsDir, toRepoSlug } from "@/paths";
+import { writeFileAtomic } from "@/shared/fs";
 import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 
@@ -39,7 +40,7 @@ export class RunStore {
         this.createdDirs.add(repoDir);
       }
       const filePath = path.join(repoDir, `${run.runId}.json`);
-      await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      await writeFileAtomic(filePath, JSON.stringify(run, null, 2), "utf-8");
     } catch {
       // Non-critical — don't fail the dispatch if persistence fails
     }
@@ -113,7 +114,7 @@ export class RunStore {
 
     run.status = "failed";
     run.updatedAt = new Date().toISOString();
-    await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+    await writeFileAtomic(filePath, JSON.stringify(run, null, 2), "utf-8");
 
     return run;
   }

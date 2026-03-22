@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
-import { ensureDir } from "@/shared/fs";
+import { ensureDir, writeFileAtomic } from "@/shared/fs";
 
 // ─── Schemas ─────────────────────────────────────────────
 
@@ -229,6 +229,6 @@ export class DecisionStore {
   private async writeAll(decisions: Decision[]): Promise<void> {
     await ensureDir(this.dir, this.dirCache);
     const content = `${decisions.map((d) => JSON.stringify(d)).join("\n")}\n`;
-    await writeFile(this.filePath, content, "utf-8");
+    await writeFileAtomic(this.filePath, content, "utf-8");
   }
 }
