@@ -117,6 +117,9 @@ export class ConfigWatcher extends EventEmitter {
       this.debounceTimer = null;
       this.reloadConfig();
     }, this.debounceMs);
+
+    // Unref timer so it doesn't prevent process shutdown
+    this.debounceTimer.unref();
   }
 
   /**

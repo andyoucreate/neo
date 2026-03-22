@@ -125,9 +125,7 @@ export function auditLog(options: {
           void flushAll();
         }, flushIntervalMs);
         // Unref so it doesn't keep the process alive
-        if (typeof flushTimer === "object" && "unref" in flushTimer) {
-          flushTimer.unref();
-        }
+        flushTimer.unref();
       }
 
       return { decision: "async", asyncTimeout: 5_000 };
