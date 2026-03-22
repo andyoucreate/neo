@@ -39,6 +39,7 @@ export function auditLog(options: {
   // sessionId → buffered lines
   const buffers = new Map<string, string[]>();
   let flushTimer: ReturnType<typeof setInterval> | undefined;
+  let flushing = false;
 
   async function ensureDir(): Promise<void> {
     if (!dirCreated) {
@@ -70,22 +71,40 @@ export function auditLog(options: {
     buffers.delete(sessionId);
   }
 
+  function stopTimer(): void {
+    if (flushTimer !== undefined) {
+      clearInterval(flushTimer);
+      flushTimer = undefined;
+    }
+  }
+
   return {
     name: "audit-log",
     on: "PostToolUse",
     async flush() {
-      await flushAll();
-      if (flushTimer !== undefined) {
-        clearInterval(flushTimer);
-        flushTimer = undefined;
+      if (flushing) return;
+      flushing = true;
+      try {
+        stopTimer();
+        await flushAll();
+      } finally {
+        flushing = false;
       }
     },
     async cleanup() {
-      if (flushTimer !== undefined) {
-        clearInterval(flushTimer);
-        flushTimer = undefined;
+      if (flushing) return;
+      flushing = true;
+      try {
+        stopTimer();
+        await flushAll();
+      } catch (err) {
+        // Log error but don't throw — cleanup must complete
+        console.error(
+          `[audit-log] Error during cleanup: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      } finally {
+        flushing = false;
       }
-      await flushAll();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {

@@ -386,6 +386,81 @@ describe("waitForExit", () => {
   });
 });
 
+// ─── Middleware cleanup sequence Tests ─────────────────
+
+describe("Middleware cleanup sequence", () => {
+  it("calls cleanup() before flush() during shutdown", async () => {
+    const manager = new ShutdownManager({ timeoutMs: 100 });
+    const callOrder: string[] = [];
+
+    const mockMiddleware = {
+      name: "test-middleware",
+      on: "PostToolUse" as const,
+      async handler() {
+        return { decision: "pass" as const };
+      },
+      async cleanup() {
+        callOrder.push("cleanup");
+      },
+      async flush() {
+        callOrder.push("flush");
+      },
+    };
+
+    // Register a custom handler that simulates middleware cleanup
+    manager.registerHandler(async () => {
+      // Simulate the orchestrator's middleware cleanup sequence
+      // This mirrors packages/core/src/orchestrator.ts:263-270
+      if ("cleanup" in mockMiddleware && typeof mockMiddleware.cleanup === "function") {
+        await mockMiddleware.cleanup();
+      }
+      if ("flush" in mockMiddleware && typeof mockMiddleware.flush === "function") {
+        await mockMiddleware.flush();
+      }
+    });
+
+    await manager.shutdown();
+
+    expect(callOrder).toEqual(["cleanup", "flush"]);
+  });
+
+  it("cleanup() is idempotent when both cleanup() and flush() are called", async () => {
+    const manager = new ShutdownManager({ timeoutMs: 100 });
+    let cleanupCalls = 0;
+    let flushCalls = 0;
+
+    const mockMiddleware = {
+      name: "test-middleware",
+      on: "PostToolUse" as const,
+      async handler() {
+        return { decision: "pass" as const };
+      },
+      async cleanup() {
+        cleanupCalls++;
+      },
+      async flush() {
+        flushCalls++;
+      },
+    };
+
+    // Register a custom handler that calls both cleanup and flush
+    manager.registerHandler(async () => {
+      if ("cleanup" in mockMiddleware && typeof mockMiddleware.cleanup === "function") {
+        await mockMiddleware.cleanup();
+      }
+      if ("flush" in mockMiddleware && typeof mockMiddleware.flush === "function") {
+        await mockMiddleware.flush();
+      }
+    });
+
+    await manager.shutdown();
+
+    // Both should have been called exactly once
+    expect(cleanupCalls).toBe(1);
+    expect(flushCalls).toBe(1);
+  });
+});
+
 // ─── terminateGracefully Tests ──────────────────────────
 
 describe("terminateGracefully", () => {

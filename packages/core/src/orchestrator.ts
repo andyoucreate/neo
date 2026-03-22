@@ -871,6 +871,7 @@ export class Orchestrator extends NeoEventEmitter {
           webhooks.push({
             url: `http://localhost:${String(state.port)}/webhook`,
             events: ["session:complete", "session:fail", "budget:alert"],
+            // gitleaks:allow - this is a config reference, not a hardcoded secret
             secret: this.config.supervisor.secret,
             timeoutMs: 5000,
           });
