@@ -41,19 +41,6 @@ export function auditLog(options: {
   const buffers = new Map<string, string[]>();
   let flushTimer: ReturnType<typeof setInterval> | undefined;
 
-  // Register cleanup handler with ShutdownManager to prevent timer leaks
-  const cleanup = async () => {
-    await flushAll();
-    if (flushTimer !== undefined) {
-      clearInterval(flushTimer);
-      flushTimer = undefined;
-    }
-  };
-
-  if (shutdownManager) {
-    shutdownManager.registerHandler(cleanup);
-  }
-
   async function ensureDir(): Promise<void> {
     if (!dirCreated) {
       await mkdir(dir, { recursive: true });
@@ -84,11 +71,29 @@ export function auditLog(options: {
     buffers.delete(sessionId);
   }
 
+  // Private: flush buffers only, don't clear timer
+  async function _flush(): Promise<void> {
+    await flushAll();
+  }
+
+  // Cleanup: flush buffers AND clear timer (for shutdown)
+  const cleanup = async () => {
+    await _flush();
+    if (flushTimer !== undefined) {
+      clearInterval(flushTimer);
+      flushTimer = undefined;
+    }
+  };
+
+  if (shutdownManager) {
+    shutdownManager.registerHandler(cleanup);
+  }
+
   return {
     name: "audit-log",
     on: "PostToolUse",
     async flush() {
-      await cleanup();
+      await _flush();
     },
     async handler(event, context) {
       const entry: Record<string, unknown> = {

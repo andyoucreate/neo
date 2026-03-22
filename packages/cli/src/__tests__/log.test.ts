@@ -28,6 +28,7 @@ async function readJsonl(filename: string): Promise<unknown[]> {
       .filter(Boolean)
       .map((line) => JSON.parse(line));
   } catch {
+    // File may not exist yet in tests — return empty array
     return [];
   }
 }

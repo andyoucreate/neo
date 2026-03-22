@@ -37,6 +37,7 @@ function createEmbedder(): Embedder | null {
   try {
     return new LocalEmbedder();
   } catch {
+    // Embeddings optional — gracefully degrade if model loading fails
     return null;
   }
 }

@@ -65,6 +65,8 @@ export class ConfigWatcher extends EventEmitter {
       ignoreInitial: true,
       // Don't error if files don't exist — they may be created later
       ignorePermissionErrors: true,
+      // Don't keep process alive — allows clean shutdown
+      persistent: false,
     });
 
     this.watcher.on("change", () => this.handleChange());

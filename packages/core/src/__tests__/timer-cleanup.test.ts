@@ -96,9 +96,11 @@ describe("AuditLog timer cleanup", () => {
 
     await vi.advanceTimersByTimeAsync(100);
 
-    // Manual cleanup via flush should still work
+    // Manual flush works and timer stays alive (expected behavior)
     await middleware.flush();
-    await vi.runAllTimersAsync();
+
+    const timersAfterFlush = vi.getTimerCount();
+    expect(timersAfterFlush).toBeGreaterThan(0); // Timer still active
   });
 
   it("prevents timer leak when middleware is garbage collected", async () => {
@@ -128,6 +130,40 @@ describe("AuditLog timer cleanup", () => {
 
     const timersAfter = vi.getTimerCount();
     expect(timersAfter).toBe(0);
+  });
+
+  it("recreates timer after manual flush when new event arrives", async () => {
+    const auditDir = path.join(TMP_DIR, "audit-manual-flush");
+    const shutdownManager = new ShutdownManager({ timeoutMs: 1000 });
+
+    const middleware = auditLog({
+      dir: auditDir,
+      flushIntervalMs: 500,
+      shutdownManager,
+    });
+
+    // Trigger timer creation with first event
+    await middleware.handler(makeEvent({ sessionId: "test-session-1" }), makeContext());
+    await vi.advanceTimersByTimeAsync(100);
+
+    const timersBefore = vi.getTimerCount();
+    expect(timersBefore).toBeGreaterThan(0);
+
+    // Manually flush (should NOT clear timer)
+    await middleware.flush();
+
+    const timersAfterFlush = vi.getTimerCount();
+    expect(timersAfterFlush).toBeGreaterThan(0); // Timer still alive
+
+    // New event arrives, should continue using existing timer
+    await middleware.handler(makeEvent({ sessionId: "test-session-2" }), makeContext());
+    await vi.advanceTimersByTimeAsync(100);
+
+    const timersAfterNewEvent = vi.getTimerCount();
+    expect(timersAfterNewEvent).toBeGreaterThan(0); // Timer still alive
+
+    // Cleanup to prevent infinite loop
+    await shutdownManager.shutdown();
   });
 });
 
