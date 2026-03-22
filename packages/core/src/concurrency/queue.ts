@@ -47,6 +47,9 @@ export class PriorityQueue<T> {
     for (let i = 0; i < this.items.length; i++) {
       const existing = this.items[i];
       if (existing && this.comparePriority(item, existing) < 0) {
+        if (i < 0 || i > this.items.length) {
+          throw new Error(`Invalid splice index: ${i} (queue size: ${this.items.length})`);
+        }
         this.items.splice(i, 0, item);
         inserted = true;
         break;
@@ -77,6 +80,9 @@ export class PriorityQueue<T> {
   remove(predicate: (item: T) => boolean): boolean {
     const index = this.items.findIndex((entry) => predicate(entry.value));
     if (index === -1) return false;
+    if (index < 0 || index >= this.items.length) {
+      throw new Error(`Invalid splice index: ${index} (queue size: ${this.items.length})`);
+    }
     this.items.splice(index, 1);
     return true;
   }
@@ -85,6 +91,9 @@ export class PriorityQueue<T> {
   dequeueWhere(predicate: (item: T) => boolean): T | undefined {
     const index = this.items.findIndex((entry) => predicate(entry.value));
     if (index === -1) return undefined;
+    if (index < 0 || index >= this.items.length) {
+      throw new Error(`Invalid splice index: ${index} (queue size: ${this.items.length})`);
+    }
     const removed = this.items.splice(index, 1)[0];
     if (!removed) return undefined;
     return removed.value;
