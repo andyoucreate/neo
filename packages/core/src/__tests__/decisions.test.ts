@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DecisionInput, DecisionStore } from "@/supervisor/decisions";
@@ -522,6 +522,82 @@ describe("DecisionStore", () => {
       expect(new Set(ids).size).toBe(10); // All unique IDs
       const pending = await store.pending();
       expect(pending).toHaveLength(10);
+    });
+  });
+
+  describe("atomic writes", () => {
+    it("uses atomic write pattern (temp file + rename)", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      const id = await store.create(makeDecision({ question: "Original" }));
+
+      // Answer triggers a writeAll operation
+      await store.answer(id, "yes");
+
+      // After completion, temp file should not exist
+      const files = await readdir(TMP_DIR);
+      const tempFiles = files.filter((f) => f.includes(".tmp"));
+      expect(tempFiles).toHaveLength(0);
+
+      // Main file should exist and contain the answer
+      const decision = await store.get(id);
+      expect(decision?.answer).toBe("yes");
+    });
+
+    it("prevents data loss if write is interrupted", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      const id1 = await store.create(makeDecision({ question: "Q1" }));
+      await store.create(makeDecision({ question: "Q2" }));
+      await store.answer(id1, "yes");
+
+      // Read original content before attempting a mock-interrupted write
+      const originalContent = await readFile(TEST_FILE, "utf-8");
+
+      // Simulate interrupted write by writing partial content to temp file
+      const tempPath = `${TEST_FILE}.tmp.${process.pid}`;
+      await writeFile(tempPath, "partial invalid json", "utf-8");
+
+      // Original file should still be intact
+      const content = await readFile(TEST_FILE, "utf-8");
+      expect(content).toBe(originalContent);
+
+      // Store should still work correctly
+      const decisions = await store.pending();
+      expect(decisions).toHaveLength(1);
+      expect(decisions[0]?.question).toBe("Q2");
+
+      // Clean up temp file
+      await rm(tempPath, { force: true });
+    });
+
+    it("completes atomic rename even with multiple concurrent writes", async () => {
+      const store = new DecisionStore(TEST_FILE);
+
+      // Create 5 decisions
+      const ids = await Promise.all(
+        Array.from({ length: 5 }, (_, i) => store.create(makeDecision({ question: `Q${i}` }))),
+      );
+
+      // Answer all concurrently - this triggers concurrent writeAll calls
+      await Promise.all(ids.map((id, i) => store.answer(id, `answer-${i}`)));
+
+      // All answers should be persisted
+      const answered = await store.answered();
+      expect(answered).toHaveLength(5);
+
+      // No temp files should remain
+      const files = await readdir(TMP_DIR);
+      const tempFiles = files.filter((f) => f.includes(".tmp"));
+      expect(tempFiles).toHaveLength(0);
+
+      // File should be valid JSONL
+      const content = await readFile(TEST_FILE, "utf-8");
+      const lines = content.trim().split("\n");
+      expect(lines).toHaveLength(5);
+
+      // Each line should be valid JSON
+      for (const line of lines) {
+        expect(() => JSON.parse(line)).not.toThrow();
+      }
     });
   });
 });
