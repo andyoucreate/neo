@@ -949,7 +949,11 @@ export class HeartbeatLoop {
     try {
       const raw = await readFile(this.statePath, "utf-8");
       return JSON.parse(raw) as SupervisorDaemonState;
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        // biome-ignore lint/suspicious/noConsole: Intentional warning for corrupted state file
+        console.warn(`[Heartbeat] Corrupted state file at ${this.statePath}: ${err.message}`);
+      }
       return null;
     }
   }
@@ -960,7 +964,13 @@ export class HeartbeatLoop {
       const state = JSON.parse(raw) as SupervisorDaemonState;
       Object.assign(state, updates);
       await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
-    } catch {
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        // biome-ignore lint/suspicious/noConsole: Intentional warning for corrupted state file during update
+        console.warn(
+          `[Heartbeat] Corrupted state file during update at ${this.statePath}: ${err.message}`,
+        );
+      }
       // Non-critical
     }
   }
@@ -994,7 +1004,13 @@ export class HeartbeatLoop {
                 `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
               );
             }
-          } catch {
+          } catch (err) {
+            if (err instanceof SyntaxError) {
+              // biome-ignore lint/suspicious/noConsole: Intentional warning for corrupted run file
+              console.warn(
+                `[Heartbeat] Corrupted run file ${path.join(subDir, f)}: ${err.message}`,
+              );
+            }
             // Corrupted or partial file — skip
           }
         }
@@ -1181,27 +1197,38 @@ export class HeartbeatLoop {
         const runPath = path.join(subDir, `${runId}.json`);
 
         if (existsSync(runPath)) {
-          const raw = await readFile(runPath, "utf-8");
-          const run = JSON.parse(raw) as PersistedRun;
+          try {
+            const raw = await readFile(runPath, "utf-8");
+            const run = JSON.parse(raw) as PersistedRun;
 
-          // Calculate total cost from all steps
-          const totalCostUsd = Object.values(run.steps).reduce(
-            (sum, step) => sum + (step.costUsd ?? 0),
-            0,
-          );
+            // Calculate total cost from all steps
+            const totalCostUsd = Object.values(run.steps).reduce(
+              (sum, step) => sum + (step.costUsd ?? 0),
+              0,
+            );
 
-          // Calculate duration from createdAt to updatedAt
-          const durationMs = new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime();
+            // Calculate duration from createdAt to updatedAt
+            const durationMs =
+              new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime();
 
-          // Get output from the last completed step
-          const completedSteps = Object.values(run.steps).filter(
-            (s) => s.status === "success" || s.status === "failure",
-          );
-          const lastStep = completedSteps[completedSteps.length - 1];
-          const output =
-            typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
+            // Get output from the last completed step
+            const completedSteps = Object.values(run.steps).filter(
+              (s) => s.status === "success" || s.status === "failure",
+            );
+            const lastStep = completedSteps[completedSteps.length - 1];
+            const output =
+              typeof lastStep?.rawOutput === "string"
+                ? lastStep.rawOutput.slice(0, 1000)
+                : undefined;
 
-          return { status: run.status, totalCostUsd, durationMs, output };
+            return { status: run.status, totalCostUsd, durationMs, output };
+          } catch (err) {
+            if (err instanceof SyntaxError) {
+              // biome-ignore lint/suspicious/noConsole: Intentional warning for corrupted run file
+              console.warn(`[Heartbeat] Corrupted run file ${runPath}: ${err.message}`);
+            }
+            return null;
+          }
         }
       }
     } catch {

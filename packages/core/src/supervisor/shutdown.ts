@@ -345,6 +345,10 @@ export class ShutdownManager {
 
       await activityLog?.log("event", `Marked orphaned run ${run.runId} as failed`);
     } catch (err) {
+      if (err instanceof SyntaxError) {
+        // biome-ignore lint/suspicious/noConsole: Intentional warning for corrupted run file during shutdown
+        console.warn(`[ShutdownManager] Corrupted run file ${filePath}: ${err.message}`);
+      }
       // Non-critical — file may be corrupt or locked
       console.debug(
         `[ShutdownManager] Failed to mark run as failed in ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
