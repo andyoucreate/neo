@@ -168,6 +168,72 @@ describe("git operations", () => {
 
     expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
   });
+
+  it("rejects branch names with directory traversal", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(() => getBranchName(config, "abc123", "feat/../../../etc/passwd")).toThrow(
+      "directory traversal",
+    );
+    expect(() => getBranchName(config, "abc123", "../main")).toThrow("directory traversal");
+  });
+
+  it("rejects branch names with invalid characters", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(() => getBranchName(config, "abc123", "feat/test;rm -rf /")).toThrow(
+      "invalid characters",
+    );
+    expect(() => getBranchName(config, "abc123", "feat/test$()")).toThrow("invalid characters");
+    expect(() => getBranchName(config, "abc123", "feat/test`whoami`")).toThrow(
+      "invalid characters",
+    );
+    expect(() => getBranchName(config, "abc123", "feat/test|ls")).toThrow("invalid characters");
+    expect(() => getBranchName(config, "abc123", "feat/test&ls")).toThrow("invalid characters");
+  });
+
+  it("accepts valid branch names with allowed special chars", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    expect(getBranchName(config, "abc123", "feat/PROJ-42-add-auth")).toBe("feat/PROJ-42-add-auth");
+    expect(getBranchName(config, "abc123", "feature/test_branch")).toBe("feature/test_branch");
+    expect(getBranchName(config, "abc123", "release/v1.2.3")).toBe("release/v1.2.3");
+    expect(getBranchName(config, "abc123", "hotfix/1.0.0+build.123")).toBe(
+      "hotfix/1.0.0+build.123",
+    );
+  });
+
+  it("createBranch validates branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "feat/../../../etc/passwd", "main")).rejects.toThrow(
+      "directory traversal",
+    );
+    await expect(createBranch(repoDir, "feat/test;rm -rf /", "main")).rejects.toThrow(
+      "invalid characters",
+    );
+    await expect(createBranch(repoDir, "feat/valid", "../main")).rejects.toThrow(
+      "directory traversal",
+    );
+  });
 });
 
 // ─── Sandbox Config ─────────────────────────────────────
