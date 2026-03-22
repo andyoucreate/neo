@@ -1,4 +1,6 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { appendFile } from "node:fs/promises";
+import { createInterface } from "node:readline";
 import { fileForDate, toDateKey } from "@/shared/date";
 import { ensureDir } from "@/shared/fs";
 import type { CostEntry } from "@/types";
@@ -36,8 +38,10 @@ export class CostJournal {
     let total = 0;
 
     try {
-      const content = await readFile(file, "utf-8");
-      for (const line of content.split("\n")) {
+      const stream = createReadStream(file, { encoding: "utf-8" });
+      const lines = createInterface({ input: stream });
+
+      for await (const line of lines) {
         if (!line.trim()) continue;
         const entry = JSON.parse(line) as CostEntry;
         if (toDateKey(new Date(entry.timestamp)) === dayKey) {
