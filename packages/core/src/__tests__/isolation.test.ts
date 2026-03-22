@@ -276,6 +276,9 @@ describe("validateGitRef", () => {
     expect(() => validateGitRef("branch/.", "branch")).toThrow(
       "Invalid git branch name. Single dot references are not allowed",
     );
+    expect(() => validateGitRef("feat/./main", "branch")).toThrow(
+      "Invalid git branch name. Single dot references are not allowed",
+    );
   });
 
   it("rejects names starting with hyphen (flag injection)", () => {

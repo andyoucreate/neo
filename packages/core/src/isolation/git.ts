@@ -28,8 +28,8 @@ export function validateGitRef(ref: string, refType = "ref"): void {
     );
   }
 
-  // Reject single dot references (., ./, /., etc.) which are special git refs
-  if (ref === "." || ref.startsWith("./") || ref.endsWith("/.")) {
+  // Reject single dot references (., ./, /., /./, etc.) which are special git refs
+  if (ref === "." || ref.startsWith("./") || ref.endsWith("/.") || ref.includes("/./")) {
     throw new Error(`Invalid git ${refType} name. Single dot references are not allowed: ${ref}`);
   }
 
