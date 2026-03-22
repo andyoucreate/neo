@@ -68,10 +68,15 @@ export class SupervisorDaemon {
 
     // Recover session ID from previous state or generate new one
     const existingState = await this.readState();
-    if (existingState?.sessionId && existingState.status !== "stopped") {
+    const isSessionContinuation = existingState?.sessionId && existingState.status !== "stopped";
+    if (isSessionContinuation) {
       this.sessionId = existingState.sessionId;
     } else {
       this.sessionId = randomUUID();
+      // SessionId changed — mark all running persisted runs as orphaned
+      if (existingState?.sessionId && existingState.sessionId !== this.sessionId) {
+        await this.markOrphanedRunsFromSessionMismatch(existingState.sessionId, this.sessionId);
+      }
     }
 
     // Initialize activity log
@@ -278,5 +283,75 @@ export class SupervisorDaemon {
         `Failed to answer decision ${decisionId}: ${err instanceof Error ? err.message : String(err)}`,
       );
     }
+  }
+
+  /**
+   * Mark all running persisted runs as orphaned when supervisor sessionId changes.
+   * This handles the case where supervisor crashes and restarts with a new sessionId,
+   * preventing ghost runs from being incorrectly marked as active.
+   */
+  private async markOrphanedRunsFromSessionMismatch(
+    oldSessionId: string,
+    newSessionId: string,
+  ): Promise<void> {
+    try {
+      const { getRunsDir } = await import("@/paths");
+      const runsDir = getRunsDir();
+      if (!existsSync(runsDir)) return;
+
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(runsDir, { withFileTypes: true });
+      let orphanedCount = 0;
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const subDir = path.join(runsDir, entry.name);
+        orphanedCount += await this.markOrphanedRunsInDirectory(subDir, oldSessionId);
+      }
+
+      if (orphanedCount > 0) {
+        await this.activityLog?.log(
+          "event",
+          `SessionId mismatch detected (${oldSessionId} → ${newSessionId}): marked ${orphanedCount} runs as orphaned`,
+        );
+      }
+    } catch {
+      // Non-critical — don't fail startup
+    }
+  }
+
+  /**
+   * Mark orphaned runs in a single directory.
+   */
+  private async markOrphanedRunsInDirectory(
+    dirPath: string,
+    oldSessionId: string,
+  ): Promise<number> {
+    const { readdir, readFile, writeFile } = await import("node:fs/promises");
+    const files = await readdir(dirPath);
+    let count = 0;
+
+    for (const f of files) {
+      if (!f.endsWith(".json")) continue;
+      try {
+        const filePath = path.join(dirPath, f);
+        const raw = await readFile(filePath, "utf-8");
+        const run = JSON.parse(raw) as import("@/types").PersistedRun;
+
+        if (
+          (run.status === "running" || run.status === "paused") &&
+          run.supervisorSessionId === oldSessionId
+        ) {
+          run.status = "failed";
+          run.updatedAt = new Date().toISOString();
+          await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+          count++;
+        }
+      } catch {
+        // Corrupted or partial file — skip
+      }
+    }
+
+    return count;
   }
 }

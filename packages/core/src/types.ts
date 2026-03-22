@@ -40,6 +40,7 @@ export interface PersistedRun {
   branch?: string | undefined;
   sessionPath?: string | undefined;
   pid?: number | undefined;
+  supervisorSessionId?: string | undefined;
   status: "running" | "paused" | "completed" | "failed";
   steps: Record<string, StepResult>;
   createdAt: string;
