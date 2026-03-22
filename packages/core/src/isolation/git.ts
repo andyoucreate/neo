@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import type { RepoConfig } from "@/config";
+import { validateGitRef } from "@/isolation/clone";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
@@ -22,18 +23,24 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(baseBranch, "baseBranch");
   await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(repoPath, ["push", remote, branch]);
 }
 
 export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
+  validateGitRef(remote, "remote");
   await git(repoPath, ["fetch", remote]);
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(repoPath, ["branch", "-D", branch]);
 }
 
@@ -88,5 +95,7 @@ export async function pushSessionBranch(
   branch: string,
   remote: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(sessionPath, ["push", "-u", remote, branch]);
 }
