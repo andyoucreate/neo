@@ -29,6 +29,10 @@ export async function createSessionClone(options: {
   validateGitRef(options.branch, "branch");
   validateGitRef(options.baseBranch, "branch");
 
+  // Store validated values in immutable constants to prevent TOCTOU bypass
+  const validatedBranch = options.branch;
+  const validatedBaseBranch = options.baseBranch;
+
   const repoPath = resolve(options.repoPath);
   const sessionDir = resolve(options.sessionDir);
 
@@ -48,16 +52,16 @@ export async function createSessionClone(options: {
   // This ensures zero coupling: no hardlinks, no local-path origin,
   // no alternates. Falls back to local clone if no remote is configured.
   const cloneSource = remoteUrl || repoPath;
-  await execFileAsync("git", ["clone", "--branch", options.baseBranch, cloneSource, sessionDir], {
+  await execFileAsync("git", ["clone", "--branch", validatedBaseBranch, cloneSource, sessionDir], {
     timeout: GIT_TIMEOUT,
   });
 
   // If branch === baseBranch, we're already on it after clone — nothing to do
-  if (options.branch !== options.baseBranch) {
+  if (validatedBranch !== validatedBaseBranch) {
     // Check if the target branch already exists on the remote (e.g. fixer on existing PR)
     const branchExists = await execFileAsync(
       "git",
-      ["ls-remote", "--heads", "origin", options.branch],
+      ["ls-remote", "--heads", "origin", validatedBranch],
       { cwd: sessionDir, timeout: GIT_TIMEOUT },
     )
       .then(({ stdout }) => stdout.trim().length > 0)
@@ -65,24 +69,24 @@ export async function createSessionClone(options: {
 
     if (branchExists) {
       // Fetch and checkout the existing branch
-      await execFileAsync("git", ["fetch", "origin", options.branch], {
+      await execFileAsync("git", ["fetch", "origin", validatedBranch], {
         cwd: sessionDir,
         timeout: GIT_TIMEOUT,
       });
-      await execFileAsync("git", ["checkout", "-b", options.branch, `origin/${options.branch}`], {
+      await execFileAsync("git", ["checkout", "-b", validatedBranch, `origin/${validatedBranch}`], {
         cwd: sessionDir,
         timeout: GIT_TIMEOUT,
       });
     } else {
       // Create a new branch from baseBranch
-      await execFileAsync("git", ["checkout", "-b", options.branch], {
+      await execFileAsync("git", ["checkout", "-b", validatedBranch], {
         cwd: sessionDir,
         timeout: GIT_TIMEOUT,
       });
     }
   }
 
-  return { path: sessionDir, branch: options.branch, repoPath };
+  return { path: sessionDir, branch: validatedBranch, repoPath };
 }
 
 /**

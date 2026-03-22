@@ -266,6 +266,30 @@ describe("validateGitRef", () => {
     );
   });
 
+  it("rejects single dot references", () => {
+    expect(() => validateGitRef(".", "branch")).toThrow(
+      "Invalid git branch name. Single dot references are not allowed",
+    );
+    expect(() => validateGitRef("./branch", "branch")).toThrow(
+      "Invalid git branch name. Single dot references are not allowed",
+    );
+    expect(() => validateGitRef("branch/.", "branch")).toThrow(
+      "Invalid git branch name. Single dot references are not allowed",
+    );
+  });
+
+  it("rejects names starting with hyphen (flag injection)", () => {
+    expect(() => validateGitRef("-upload-pack", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+    expect(() => validateGitRef("--help", "remote")).toThrow(
+      "Invalid git remote name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+    expect(() => validateGitRef("-v", "tag")).toThrow(
+      "Invalid git tag name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+  });
+
   it("rejects invalid characters", () => {
     expect(() => validateGitRef("feat@master", "branch")).toThrow(
       "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",

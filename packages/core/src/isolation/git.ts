@@ -9,9 +9,9 @@ const GIT_TIMEOUT = 60_000;
 /**
  * Regex for valid git ref names (branches, tags, remotes).
  * Allows alphanumeric, slashes, hyphens, underscores, dots, and plus signs.
- * Rejects directory traversal attempts (..).
+ * Rejects directory traversal attempts (..) and flag injection (leading hyphen).
  */
-const GIT_REF_PATTERN = /^[a-zA-Z0-9/_.+-]+$/;
+const GIT_REF_PATTERN = /^(?!-)[a-zA-Z0-9/_.+-]+$/;
 
 /**
  * Validate a git ref name (branch, tag, or remote) to prevent directory traversal.
@@ -26,6 +26,11 @@ export function validateGitRef(ref: string, refType = "ref"): void {
     throw new Error(
       `Git ${refType} name cannot contain '..' (directory traversal attempt): ${ref}`,
     );
+  }
+
+  // Reject single dot references (., ./, /., etc.) which are special git refs
+  if (ref === "." || ref.startsWith("./") || ref.endsWith("/.")) {
+    throw new Error(`Invalid git ${refType} name. Single dot references are not allowed: ${ref}`);
   }
 
   if (!GIT_REF_PATTERN.test(ref)) {
