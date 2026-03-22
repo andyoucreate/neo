@@ -1,4 +1,4 @@
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type DecisionInput, DecisionStore } from "@/supervisor/decisions";
@@ -522,6 +522,51 @@ describe("DecisionStore", () => {
       expect(new Set(ids).size).toBe(10); // All unique IDs
       const pending = await store.pending();
       expect(pending).toHaveLength(10);
+    });
+  });
+
+  describe("atomic writes", () => {
+    it("does not leave temp files behind after successful write", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      const id = await store.create(makeDecision({ question: "Q1" }));
+
+      await store.answer(id, "yes");
+
+      // Check no temp files left in directory
+      const files = await readdir(TMP_DIR);
+      const tempFiles = files.filter((f) => f.includes(".tmp."));
+      expect(tempFiles).toHaveLength(0);
+
+      // Verify the answer was persisted
+      const decision = await store.get(id);
+      expect(decision?.answer).toBe("yes");
+    });
+
+    it("prevents race conditions with multiple concurrent writes", async () => {
+      const store = new DecisionStore(TEST_FILE);
+
+      // Create multiple decisions
+      const ids = await Promise.all([
+        store.create(makeDecision({ question: "Q1" })),
+        store.create(makeDecision({ question: "Q2" })),
+        store.create(makeDecision({ question: "Q3" })),
+        store.create(makeDecision({ question: "Q4" })),
+        store.create(makeDecision({ question: "Q5" })),
+      ]);
+
+      // Answer them all concurrently
+      await Promise.all(ids.map((id, i) => store.answer(id, `answer-${i}`)));
+
+      // Verify no temp files left
+      const files = await readdir(TMP_DIR);
+      const tempFiles = files.filter((f) => f.includes(".tmp."));
+      expect(tempFiles).toHaveLength(0);
+
+      // Verify all answers persisted correctly
+      const decisions = await Promise.all(ids.map((id) => store.get(id)));
+      for (let i = 0; i < ids.length; i++) {
+        expect(decisions[i]?.answer).toBe(`answer-${i}`);
+      }
     });
   });
 });

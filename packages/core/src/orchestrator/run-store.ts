@@ -1,5 +1,6 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { getRepoRunsDir, getRunsDir, toRepoSlug } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
@@ -28,6 +29,7 @@ export class RunStore {
 
   /**
    * Persist a run to disk. Creates the repo subdirectory if needed.
+   * Uses atomic write (temp file + rename) to prevent corruption.
    * Fails silently — run persistence is non-critical.
    */
   async persistRun(run: PersistedRun): Promise<void> {
@@ -39,7 +41,20 @@ export class RunStore {
         this.createdDirs.add(repoDir);
       }
       const filePath = path.join(repoDir, `${run.runId}.json`);
-      await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      const tmpPath = `${filePath}.tmp.${randomUUID()}`;
+
+      try {
+        await writeFile(tmpPath, JSON.stringify(run, null, 2), "utf-8");
+        await rename(tmpPath, filePath);
+      } catch (error) {
+        // Clean up temp file if rename fails
+        try {
+          await unlink(tmpPath);
+        } catch {
+          // Cleanup failed — non-critical
+        }
+        throw error;
+      }
     } catch {
       // Non-critical — don't fail the dispatch if persistence fails
     }
@@ -93,6 +108,7 @@ export class RunStore {
   /**
    * Check if a run file represents an orphaned run.
    * If so, update its status to "failed" and return it.
+   * Uses atomic write (temp file + rename) to prevent corruption.
    */
   private async recoverRunIfOrphaned(filePath: string): Promise<PersistedRun | null> {
     const content = await readFile(filePath, "utf-8");
@@ -113,7 +129,20 @@ export class RunStore {
 
     run.status = "failed";
     run.updatedAt = new Date().toISOString();
-    await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+
+    const tmpPath = `${filePath}.tmp.${randomUUID()}`;
+    try {
+      await writeFile(tmpPath, JSON.stringify(run, null, 2), "utf-8");
+      await rename(tmpPath, filePath);
+    } catch (error) {
+      // Clean up temp file if rename fails
+      try {
+        await unlink(tmpPath);
+      } catch {
+        // Cleanup failed — non-critical
+      }
+      throw error;
+    }
 
     return run;
   }

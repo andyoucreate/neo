@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ensureDir } from "@/shared/fs";
@@ -234,11 +234,21 @@ export class DecisionStore {
     await ensureDir(this.dir, this.dirCache);
     const content = `${decisions.map((d) => JSON.stringify(d)).join("\n")}\n`;
 
-    // Write to temporary file first
-    const tmpPath = `${this.filePath}.tmp`;
-    await writeFile(tmpPath, content, "utf-8");
+    // Write to temporary file with random suffix to prevent race conditions
+    const tmpPath = `${this.filePath}.tmp.${randomUUID()}`;
 
-    // Atomic rename — this is the critical moment
-    await rename(tmpPath, this.filePath);
+    try {
+      await writeFile(tmpPath, content, "utf-8");
+      // Atomic rename — this is the critical moment
+      await rename(tmpPath, this.filePath);
+    } catch (error) {
+      // Clean up temp file if rename fails
+      try {
+        await unlink(tmpPath);
+      } catch {
+        // Cleanup failed — non-critical
+      }
+      throw error;
+    }
   }
 }

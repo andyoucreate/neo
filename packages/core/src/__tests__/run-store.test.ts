@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -507,6 +507,100 @@ describe("RunStore", () => {
       expect(orphaned).toHaveLength(2);
       const runIds = orphaned.map((r) => r.runId).sort();
       expect(runIds).toEqual(["orphan", "orphan-2"]);
+    });
+  });
+
+  describe("atomic writes", () => {
+    it("does not leave temp files behind after successful persistRun", async () => {
+      const store = new RunStore();
+      const testRunId = `atomic-test-${Date.now()}`;
+      const run = makeRun({ runId: testRunId, repo: "/tmp/my-repo" });
+
+      await store.persistRun(run);
+
+      // persistRun uses getRepoRunsDir() which writes to ~/.neo/runs/<slug>
+      const slug = toRepoSlug({ path: run.repo });
+      const repoDir = path.join(GLOBAL_RUNS_DIR, slug);
+      const runPath = path.join(repoDir, `${testRunId}.json`);
+
+      try {
+        // Check no temp files left in directory
+        const files = await readdir(repoDir);
+        const tempFiles = files.filter((f) => f.includes(".tmp."));
+        expect(tempFiles).toHaveLength(0);
+
+        // Verify the run was persisted
+        const content = await readFile(runPath, "utf-8");
+        const persisted = JSON.parse(content);
+        expect(persisted.runId).toBe(testRunId);
+      } finally {
+        await rm(runPath, { force: true });
+      }
+    });
+
+    it("does not leave temp files behind after successful recoverRunIfOrphaned", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      const deadPid = 999999999;
+      const runFilePath = path.join(repoDir, "orphan-run.json");
+      const orphanedRun = makeRun({
+        runId: "orphan-run",
+        status: "running",
+        pid: deadPid,
+      });
+      await writeFile(runFilePath, JSON.stringify(orphanedRun));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+      await store.recoverOrphanedRuns();
+
+      // Check no temp files left in directory
+      const files = await readdir(repoDir);
+      const tempFiles = files.filter((f) => f.includes(".tmp."));
+      expect(tempFiles).toHaveLength(0);
+
+      // Verify the run status was updated
+      const content = await readFile(runFilePath, "utf-8");
+      const updated = JSON.parse(content);
+      expect(updated.status).toBe("failed");
+    });
+
+    it("prevents corruption with concurrent persistRun calls", async () => {
+      const store = new RunStore();
+      const timestamp = Date.now();
+      const runIds = [
+        `concurrent-1-${timestamp}`,
+        `concurrent-2-${timestamp}`,
+        `concurrent-3-${timestamp}`,
+      ];
+
+      // Persist multiple runs concurrently
+      await Promise.all(
+        runIds.map((runId) => store.persistRun(makeRun({ runId, repo: "/tmp/my-repo" }))),
+      );
+
+      const slug = toRepoSlug({ path: "/tmp/my-repo" });
+      const repoDir = path.join(GLOBAL_RUNS_DIR, slug);
+
+      try {
+        // Check no temp files left
+        const files = await readdir(repoDir);
+        const tempFiles = files.filter((f) => f.includes(".tmp."));
+        expect(tempFiles).toHaveLength(0);
+
+        // Verify all runs were persisted correctly
+        for (const runId of runIds) {
+          const runPath = path.join(repoDir, `${runId}.json`);
+          const content = await readFile(runPath, "utf-8");
+          const persisted = JSON.parse(content);
+          expect(persisted.runId).toBe(runId);
+        }
+      } finally {
+        // Cleanup
+        for (const runId of runIds) {
+          await rm(path.join(repoDir, `${runId}.json`), { force: true });
+        }
+      }
     });
   });
 });
