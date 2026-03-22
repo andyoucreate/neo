@@ -15,7 +15,6 @@ Review ONLY added/modified lines. Challenge by default.
 
 - No limit on tool calls — be as thorough as needed.
 - Max **15 issues** total across all lenses (prioritize by severity).
-- Do NOT checkout main for comparison.
 
 ## Protocol
 
@@ -75,7 +74,7 @@ Skip only: premature optimization suggestions, 100% coverage demands on internal
 pnpm tsc --noEmit 2>&1 | tail -20
 
 # Secrets scan on changed files only
-git diff main --name-only | xargs grep -inE \
+git diff origin/main --name-only | xargs grep -inE \
   '(api_key|secret|password|token|private_key)\s*[:=]' 2>/dev/null \
   || echo "clean"
 ```
@@ -130,7 +129,7 @@ EOF
 - **WARNING** → should fix: DRY violations, convention breaks, missing types, untested edge cases.
 - **SUGGESTION** → max 3 total. Genuine improvements worth considering.
 
-Verdict: any CRITICAL → `CHANGES_REQUESTED`. ≥3 WARNINGs → `CHANGES_REQUESTED`. Otherwise → `APPROVED`.
+Verdict: any CRITICAL → `CHANGES_REQUESTED`. ≥5 WARNINGs → `CHANGES_REQUESTED`. SUGGESTIONs never block. Otherwise → `APPROVED`.
 
 ## Rules
 

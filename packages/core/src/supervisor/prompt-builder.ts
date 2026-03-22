@@ -25,6 +25,11 @@ export interface PromptOptions {
   answeredDecisions?: Decision[] | undefined;
   /** When true, supervisor answers decisions autonomously instead of waiting for human input */
   autoDecide?: boolean | undefined;
+  /**
+   * True when there are pending decisions regardless of autoDecide mode.
+   * Used by buildIdlePrompt to block scout dispatch when the user has unanswered decisions.
+   */
+  hasPendingDecisions?: boolean | undefined;
 }
 
 export interface StandardPromptOptions extends PromptOptions {}
@@ -52,7 +57,8 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Keep initiative boundaries strict: decisions for initiative A must not be influenced by unrelated state from B.
 - Your user-visible channel is \`neo log\` only; produce concise tool calls (not reasoning/explanations) and avoid wasted tokens.
 - You may inspect repositories available via \`neo repos\`, read-only to launch agents.
-- Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.`;
+- Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.
+- **No duplicate dispatches**: before dispatching a \`developer\` for any finding, ALWAYS check for open or recently merged PRs on the same topic: \`gh pr list --repo <repo> --search "<keywords>" --state open\` and \`--state merged --limit 5\`. If a similar PR exists → skip and log with \`neo log discovery\`. Dispatching duplicate agents wastes budget and pollutes the PR list.`;
 
 // ─── Commands reference (data — lives in <reference>) ───
 
@@ -294,13 +300,10 @@ function buildFocusSection(memories: MemoryEntry[]): string {
 
 /**
  * Build the pending decisions section.
- * Shows decisions awaiting supervisor response with clear instructions.
- * When autoDecide is true, instructs the supervisor to answer decisions autonomously.
+ * Shows decisions awaiting supervisor response with autoDecide instructions.
+ * Only rendered in autoDecide mode (decisions are empty otherwise).
  */
-function buildPendingDecisionsSection(
-  decisions: Decision[] | undefined,
-  autoDecide = false,
-): string {
+function buildPendingDecisionsSection(decisions: Decision[] | undefined): string {
   if (!decisions || decisions.length === 0) {
     return "";
   }
@@ -323,8 +326,7 @@ function buildPendingDecisionsSection(
     }
   }
 
-  const instruction = autoDecide
-    ? `You are in **autoDecide** mode — answer each pending decision yourself based on available context, project knowledge, and best engineering judgment.
+  const instruction = `You are in **autoDecide** mode — answer each pending decision yourself based on available context, project knowledge, and best engineering judgment.
 
 \`\`\`bash
 neo decision answer <decision_id> <answer>
@@ -332,11 +334,7 @@ neo decision answer <decision_id> <answer>
 
 For each decision: analyze the options, consider the project context and risk, then answer decisively. Prefer safe, incremental choices when uncertain. Log your reasoning before answering.
 
-**Merge authority:** In autoDecide mode you MAY merge branches when the PR is ready (CI green, reviews approved). Use \`gh pr merge\` with the appropriate merge strategy.`
-    : `To answer a decision, emit a \`decision:answer\` event:
-\`\`\`bash
-neo event emit decision:answer --data '{"id":"<decision_id>","answer":"<option_key>"}'
-\`\`\``;
+**Merge authority:** In autoDecide mode you MAY merge branches when the PR is ready (CI green, reviews approved). Use \`gh pr merge\` with the appropriate merge strategy.`;
 
   return `Pending decisions (${decisions.length}):
 ${lines.join("\n")}
@@ -388,7 +386,7 @@ function buildFullContext(opts: PromptOptions): string {
   }
 
   // 2b. Decisions — pending questions requiring supervisor response
-  const pendingDecisions = buildPendingDecisionsSection(opts.pendingDecisions, opts.autoDecide);
+  const pendingDecisions = buildPendingDecisionsSection(opts.pendingDecisions);
   if (pendingDecisions) {
     parts.push(pendingDecisions);
   }
@@ -807,7 +805,9 @@ export function buildIdlePrompt(opts: StandardPromptOptions): string {
   const budgetLine = `Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)`;
   const hasRepos = opts.repos.length > 0;
   const hasBudget = opts.budgetStatus.remainingPct > 10;
-  const hasPendingDecisions = (opts.pendingDecisions?.length ?? 0) > 0;
+  // Use hasPendingDecisions (always reflects reality) rather than pendingDecisions.length
+  // (which is empty in non-autoDecide mode even when decisions exist).
+  const hasPendingDecisions = opts.hasPendingDecisions ?? (opts.pendingDecisions?.length ?? 0) > 0;
 
   // If no repos or no budget, just yield
   if (!hasRepos || !hasBudget) {
@@ -827,7 +827,7 @@ Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any ot
 
   // If there are pending decisions from a previous scout
   if (hasPendingDecisions) {
-    const pendingSection = buildPendingDecisionsSection(opts.pendingDecisions, opts.autoDecide);
+    const pendingSection = buildPendingDecisionsSection(opts.pendingDecisions);
 
     // In autoDecide mode, supervisor should answer decisions instead of waiting
     if (opts.autoDecide) {

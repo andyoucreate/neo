@@ -14,13 +14,33 @@ Infer the project setup from `package.json`, config files, and source convention
 Read the latest PR review comments to understand what needs fixing:
 
 ```bash
-gh pr view --json number --jq '.number' | xargs -I{} gh api repos/{owner}/{repo}/pulls/{}/comments --jq '.[-5:][] | "[\(.user.login)] \(.path):\(.line) — \(.body)"'
+# Detect PR number from branch if not provided in the prompt
+PR_NUMBER=$(gh pr view --json number --jq '.number' 2>/dev/null)
+
+# Fetch the last 5 review comments
+gh pr view "$PR_NUMBER" --json reviews --jq \
+  '.reviews[-5:] | .[] | "[\(.author.login)] \(.body)"' 2>/dev/null \
+  || echo "No review comments found — using issues from prompt"
 ```
 
 If comments are unavailable, fall back to issues provided in the prompt.
 
 Group issues by file. Prioritize: CRITICAL → HIGH → WARNING.
 If fixing requires modifying more than 3 files, STOP and escalate immediately.
+
+### 1b. Sync with base branch
+
+Before making any edits, sync the branch to avoid conflicts:
+
+```bash
+git fetch origin
+git rebase origin/main || {
+  echo "MERGE CONFLICT — cannot rebase automatically"
+  exit 1
+}
+```
+
+If the rebase fails, STOP and escalate immediately — do not attempt manual conflict resolution.
 
 ### 2. Diagnose
 

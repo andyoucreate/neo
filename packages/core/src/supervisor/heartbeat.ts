@@ -141,6 +141,8 @@ interface ProcessDecisionsResult {
   pendingDecisions: Decision[];
   answeredDecisions: Decision[];
   hasExpiredDecisions: boolean;
+  /** Always reflects reality — used for idle-check even in non-autoDecide mode */
+  hasPendingDecisions: boolean;
 }
 
 interface EventContext {
@@ -408,7 +410,7 @@ export class HeartbeatLoop {
     const eventCtx = await this.gatherEventContext();
 
     // Process decision answers and expiry
-    const { pendingDecisions, answeredDecisions, hasExpiredDecisions } =
+    const { pendingDecisions, answeredDecisions, hasExpiredDecisions, hasPendingDecisions } =
       await this.processDecisions(eventCtx.rawEvents, state?.lastHeartbeat);
 
     // Check for pending consolidation entries
@@ -442,6 +444,7 @@ export class HeartbeatLoop {
       activeRuns: eventCtx.activeRuns,
       pendingDecisions,
       answeredDecisions,
+      hasPendingDecisions,
       lastHeartbeat: state?.lastHeartbeat,
       lastConsolidationTimestamp: modeResult.lastConsolidationTs,
       memories: eventCtx.memories,
@@ -553,13 +556,16 @@ export class HeartbeatLoop {
     const expiredDecisions = await decisionStore.expire();
     const hasExpiredDecisions = expiredDecisions.length > 0;
 
-    // Get pending and recently answered decisions for prompt context (only in autoDecide mode)
-    const pendingDecisions = this.config.supervisor.autoDecide ? await decisionStore.pending() : [];
+    // Always fetch pending count for idle-check (determines whether to dispatch scout).
+    // Only pass the full list to the prompt in autoDecide mode (supervisor answers them).
+    const allPending = await decisionStore.pending();
+    const hasPendingDecisions = allPending.length > 0;
+    const pendingDecisions = this.config.supervisor.autoDecide ? allPending : [];
     const answeredDecisions = this.config.supervisor.autoDecide
       ? await decisionStore.answered(lastHeartbeat)
       : [];
 
-    return { pendingDecisions, answeredDecisions, hasExpiredDecisions };
+    return { pendingDecisions, answeredDecisions, hasExpiredDecisions, hasPendingDecisions };
   }
 
   /**
@@ -783,6 +789,7 @@ export class HeartbeatLoop {
     activeRuns: string[];
     pendingDecisions: Decision[];
     answeredDecisions: Decision[];
+    hasPendingDecisions: boolean;
     lastHeartbeat: string | undefined;
     lastConsolidationTimestamp: string | undefined;
     memories: MemoryEntry[];
@@ -809,6 +816,7 @@ export class HeartbeatLoop {
       recentActions: opts.recentActions,
       pendingDecisions: opts.pendingDecisions,
       answeredDecisions: opts.answeredDecisions,
+      hasPendingDecisions: opts.hasPendingDecisions,
       autoDecide: this.config.supervisor.autoDecide,
     };
 

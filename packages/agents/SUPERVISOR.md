@@ -140,6 +140,20 @@ neo run scout --prompt "Explore this repository and surface bugs, improvements, 
 
 ### 2. Routing
 
+**Pre-dispatch dedup check (MANDATORY before every `developer` dispatch):**
+
+```bash
+# 1. Check for open PRs on the same topic
+gh pr list --repo <repo> --search "<2-3 keywords from finding>" --state open --json number,title
+# → If a similar PR is OPEN: skip dispatch, add a comment on the existing PR instead
+
+# 2. Check for recently merged fixes
+gh pr list --repo <repo> --search "<2-3 keywords>" --state merged --limit 5 --json number,title,mergedAt
+# → If a similar fix was merged in the past 7 days: skip dispatch, the issue is already resolved
+```
+
+Skip silently and log: `neo log discovery "Skipping <finding> — covered by PR #<N>"`.
+
 | Condition | Action |
 |-----------|--------|
 | Bug + critical priority | Dispatch `developer` directly (hotfix) |
@@ -185,6 +199,7 @@ Parse fixer's JSON output:
 Parse scout's JSON output:
 - For each finding with `decision_id`: wait for user decision at future heartbeat.
 - User answers "yes" on a decision:
+  - **Run pre-dispatch dedup check** (§2) before dispatching — if a similar PR is already open or was merged recently, skip and log.
   - `effort: "XS" | "S"` → dispatch `developer` with finding as ticket
   - `effort: "M" | "L"` → dispatch `architect` for design first
 - User answers "later" → log to backlog, no dispatch

@@ -21,6 +21,15 @@ Before any edit, verify:
 2. Files to modify exist and are readable
 3. Parent directories exist for new files
 4. Git clone is clean (`git status`)
+5. Branch is up to date with base:
+   ```bash
+   git fetch origin
+   git status -sb  # check for "behind" indicator
+   ```
+   If the branch is behind `origin/main`, rebase before editing:
+   ```bash
+   git rebase origin/main || { echo "MERGE CONFLICT — escalating"; exit 1; }
+   ```
 
 If ANY check fails, STOP and report.
 
