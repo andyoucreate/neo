@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { ensureDir } from "@/shared/fs";
+import { parseJsonlStream } from "@/shared/jsonl";
 
 // ─── Schemas ─────────────────────────────────────────────
 
@@ -199,31 +200,16 @@ export class DecisionStore {
   // ─── Private helpers ─────────────────────────────────────
 
   private async readAll(): Promise<Decision[]> {
-    let content: string;
     try {
-      content = await readFile(this.filePath, "utf-8");
+      return await parseJsonlStream(this.filePath, (line) =>
+        decisionSchema.parse(JSON.parse(line)),
+      );
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") {
         return [];
       }
       throw error;
     }
-
-    const decisions: Decision[] = [];
-    for (const line of content.split("\n")) {
-      if (!line.trim()) continue;
-      try {
-        const parsed = decisionSchema.parse(JSON.parse(line));
-        decisions.push(parsed);
-      } catch (error) {
-        // biome-ignore lint/suspicious/noConsole: Intentional warning for parse failures
-        console.warn(
-          `[DecisionStore] Skipping malformed JSONL line: ${error instanceof Error ? error.message : "unknown error"}`,
-        );
-      }
-    }
-
-    return decisions;
   }
 
   private async writeAll(decisions: Decision[]): Promise<void> {

@@ -1,6 +1,7 @@
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
 import { fileForDate, toDateKey } from "@/shared/date";
 import { ensureDir } from "@/shared/fs";
+import { parseJsonlStream } from "@/shared/jsonl";
 import type { CostEntry } from "@/types";
 
 /**
@@ -36,10 +37,8 @@ export class CostJournal {
     let total = 0;
 
     try {
-      const content = await readFile(file, "utf-8");
-      for (const line of content.split("\n")) {
-        if (!line.trim()) continue;
-        const entry = JSON.parse(line) as CostEntry;
+      const entries = await parseJsonlStream(file, (line) => JSON.parse(line) as CostEntry);
+      for (const entry of entries) {
         if (toDateKey(new Date(entry.timestamp)) === dayKey) {
           total += entry.costUsd;
         }
