@@ -37,7 +37,13 @@ export async function createSessionClone(options: {
     timeout: GIT_TIMEOUT,
   })
     .then(({ stdout }) => stdout.trim())
-    .catch(() => "");
+    .catch((err) => {
+      // No remote configured — will fall back to local clone
+      console.debug(
+        `[neo] No remote.origin.url for ${repoPath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return "";
+    });
 
   // Clone from the real remote (GitHub) instead of the local path.
   // This ensures zero coupling: no hardlinks, no local-path origin,
@@ -56,7 +62,13 @@ export async function createSessionClone(options: {
       { cwd: sessionDir, timeout: GIT_TIMEOUT },
     )
       .then(({ stdout }) => stdout.trim().length > 0)
-      .catch(() => false);
+      .catch((err) => {
+        // Branch doesn't exist remotely or network error — will create new branch
+        console.debug(
+          `[neo] ls-remote failed for branch ${options.branch}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return false;
+      });
 
     if (branchExists) {
       // Fetch and checkout the existing branch
@@ -129,16 +141,22 @@ export async function listSessionClones(sessionsBaseDir: string): Promise<Sessio
         );
         const url = originUrl.trim();
         if (url) repoPath = resolve(clonePath, url);
-      } catch {
+      } catch (err) {
         // No origin or not a clone — keep clonePath as fallback
+        console.debug(
+          `[neo] Failed to get origin URL for ${clonePath}: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
       clones.push({
         path: clonePath,
         branch: branchOut.trim(),
         repoPath,
       });
-    } catch {
+    } catch (err) {
       // Not a git repo — skip
+      console.debug(
+        `[neo] Skipping ${clonePath}, not a valid git repo: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

@@ -41,8 +41,11 @@ export async function loadAgentFile(filePath: string): Promise<AgentConfig> {
     const promptPath = path.resolve(path.dirname(filePath), config.prompt);
     try {
       config.prompt = await readFile(promptPath, "utf-8");
-    } catch {
-      throw new Error(`Prompt file not found: ${promptPath} (referenced in ${filePath})`);
+    } catch (err) {
+      // Expected error: prompt file not found
+      throw new Error(
+        `Prompt file not found: ${promptPath} (referenced in ${filePath}). Error: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

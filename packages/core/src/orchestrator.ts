@@ -437,8 +437,11 @@ export class Orchestrator extends NeoEventEmitter {
           outcome: "failure",
           runId,
         });
-      } catch {
+      } catch (err) {
         // Best-effort — don't fail the run if memory write fails
+        console.debug(
+          `[orchestrator] Failed to write failure episode to memory: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
 
       return failResult;
@@ -579,8 +582,11 @@ export class Orchestrator extends NeoEventEmitter {
         outcome: isSuccess ? "success" : "failure",
         runId,
       });
-    } catch {
+    } catch (err) {
       // Best-effort — don't fail the run if memory write fails
+      console.debug(
+        `[orchestrator] Failed to write completion episode to memory: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     return result;
@@ -662,7 +668,11 @@ export class Orchestrator extends NeoEventEmitter {
       if (memories.length === 0) return undefined;
       store.markAccessed(memories.map((m) => m.id));
       return formatMemoriesForPrompt(memories);
-    } catch {
+    } catch (err) {
+      // Memory store unavailable — continue without memories
+      console.debug(
+        `[orchestrator] Failed to load memories: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return undefined;
     }
   }
@@ -866,12 +876,18 @@ export class Orchestrator extends NeoEventEmitter {
             secret: this.config.supervisor.secret,
             timeoutMs: 5000,
           });
-        } catch {
+        } catch (err) {
           // State file missing or corrupt — skip
+          console.debug(
+            `[orchestrator] Failed to load supervisor webhook config: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
-    } catch {
+    } catch (err) {
       // Supervisors dir unreadable — skip
+      console.debug(
+        `[orchestrator] Failed to read supervisors directory: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     return webhooks;

@@ -116,8 +116,11 @@ async function sendWithRetry(
       });
       if (res.ok) return;
       // Non-2xx: treat as failure, retry
-    } catch {
+    } catch (err) {
       // Network error or timeout: retry
+      console.debug(
+        `[webhook] Network error on attempt ${attempt}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     if (attempt < RETRY_MAX_ATTEMPTS) {

@@ -27,7 +27,11 @@ async function readJsonl(filename: string): Promise<unknown[]> {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-  } catch {
+  } catch (err) {
+    // Test helper: file not found or parse error
+    console.debug(
+      `[log.test] Failed to read buffer: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }

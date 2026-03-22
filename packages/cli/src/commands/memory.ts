@@ -36,7 +36,11 @@ function truncate(text: string, max: number): string {
 function createEmbedder(): Embedder | null {
   try {
     return new LocalEmbedder();
-  } catch {
+  } catch (err) {
+    // Embedder initialization failed — semantic search will be unavailable
+    console.debug(
+      `[memory] Failed to create embedder: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
