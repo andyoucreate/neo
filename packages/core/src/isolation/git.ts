@@ -7,6 +7,63 @@ const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
 
 /**
+ * Regex for valid git ref names (branches, tags, remotes).
+ * Must start with alphanumeric, then allow alphanumeric, slashes, hyphens, underscores, dots, and plus signs.
+ * This follows git-check-ref-format rules to reject invalid characters.
+ */
+const GIT_REF_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9/_.\-+]*$/;
+
+/**
+ * Validate a git ref name (branch, tag, or remote) to prevent directory traversal
+ * and enforce git-check-ref-format rules.
+ *
+ * See: https://git-scm.com/docs/git-check-ref-format
+ */
+export function validateGitRef(ref: string, refType = "ref"): void {
+  if (!ref || ref.trim() === "") {
+    throw new Error(`Git ${refType} name cannot be empty`);
+  }
+
+  // Directory traversal check
+  if (ref.includes("..")) {
+    throw new Error(
+      `Git ${refType} name cannot contain '..' (directory traversal attempt): ${ref}`,
+    );
+  }
+
+  // git-check-ref-format: cannot contain @{
+  if (ref.includes("@{")) {
+    throw new Error(`Git ${refType} name cannot contain '@{' sequence: ${ref}`);
+  }
+
+  // git-check-ref-format: cannot contain consecutive slashes
+  if (ref.includes("//")) {
+    throw new Error(`Git ${refType} name cannot contain consecutive slashes '//': ${ref}`);
+  }
+
+  // git-check-ref-format: cannot start with dot or end with .lock
+  if (ref.startsWith(".")) {
+    throw new Error(`Git ${refType} name cannot start with a dot: ${ref}`);
+  }
+
+  if (ref.endsWith(".lock")) {
+    throw new Error(`Git ${refType} name cannot end with '.lock': ${ref}`);
+  }
+
+  // git-check-ref-format: cannot end with /
+  if (ref.endsWith("/")) {
+    throw new Error(`Git ${refType} name cannot end with '/': ${ref}`);
+  }
+
+  // Basic character validation (rejects ~, ^, :, ?, *, [, \, etc.)
+  if (!GIT_REF_PATTERN.test(ref)) {
+    throw new Error(
+      `Invalid git ${refType} name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed: ${ref}`,
+    );
+  }
+}
+
+/**
  * Run a git command with execFile (no shell — prevents injection).
  */
 async function git(repoPath: string, args: string[]): Promise<string> {
@@ -22,18 +79,24 @@ export async function createBranch(
   branch: string,
   baseBranch: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(baseBranch, "branch");
   await git(repoPath, ["branch", branch, baseBranch]);
 }
 
 export async function pushBranch(repoPath: string, branch: string, remote: string): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(repoPath, ["push", remote, branch]);
 }
 
 export async function fetchRemote(repoPath: string, remote: string): Promise<void> {
+  validateGitRef(remote, "remote");
   await git(repoPath, ["fetch", remote]);
 }
 
 export async function deleteBranch(repoPath: string, branch: string): Promise<void> {
+  validateGitRef(branch, "branch");
   await git(repoPath, ["branch", "-D", branch]);
 }
 
@@ -47,7 +110,10 @@ export async function getCurrentBranch(repoPath: string): Promise<string> {
  * Otherwise, generate a deterministic name from the repo's branchPrefix and runId.
  */
 export function getBranchName(config: RepoConfig, runId: string, branch?: string): string {
-  if (branch) return branch;
+  if (branch) {
+    validateGitRef(branch, "branch");
+    return branch;
+  }
   const prefix = config.branchPrefix ?? "feat";
   const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
   return `${prefix}/run-${sanitized}`;
@@ -88,5 +154,7 @@ export async function pushSessionBranch(
   branch: string,
   remote: string,
 ): Promise<void> {
+  validateGitRef(branch, "branch");
+  validateGitRef(remote, "remote");
   await git(sessionPath, ["push", "-u", remote, branch]);
 }

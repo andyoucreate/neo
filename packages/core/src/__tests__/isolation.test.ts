@@ -6,7 +6,16 @@ import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { RepoConfig } from "@/config";
 import { createSessionClone, listSessionClones, removeSessionClone } from "@/isolation/clone";
-import { createBranch, getBranchName, getCurrentBranch } from "@/isolation/git";
+import {
+  createBranch,
+  deleteBranch,
+  fetchRemote,
+  getBranchName,
+  getCurrentBranch,
+  pushBranch,
+  pushSessionBranch,
+  validateGitRef,
+} from "@/isolation/git";
 import { buildSandboxConfig } from "@/isolation/sandbox";
 import type { ResolvedAgent } from "@/types";
 
@@ -167,6 +176,201 @@ describe("git operations", () => {
     };
 
     expect(getBranchName(config, "abc123", undefined)).toBe("feat/run-abc123");
+  });
+
+  // REGRESSION TEST: Fix for Issue #1 - getBranchName must validate explicit branches
+  it("getBranchName validates explicit branch parameter", () => {
+    const config: RepoConfig = {
+      path: "/some/repo",
+      defaultBranch: "main",
+      branchPrefix: "feat",
+      pushRemote: "origin",
+      gitStrategy: "branch",
+    };
+
+    // Should throw for directory traversal
+    expect(() => getBranchName(config, "run123", "../../../etc/passwd")).toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+
+    // Should throw for invalid characters
+    expect(() => getBranchName(config, "run123", "feat@master")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Should throw for @{ sequence
+    expect(() => getBranchName(config, "run123", "feat@{upstream}")).toThrow(
+      "Git branch name cannot contain '@{' sequence",
+    );
+  });
+});
+
+// ─── Git Ref Validation ─────────────────────────────────
+
+describe("validateGitRef", () => {
+  it("accepts valid branch names", () => {
+    expect(() => validateGitRef("main", "branch")).not.toThrow();
+    expect(() => validateGitRef("feat/new-feature", "branch")).not.toThrow();
+    expect(() => validateGitRef("fix/bug-123", "branch")).not.toThrow();
+    expect(() => validateGitRef("v1.0.0", "tag")).not.toThrow();
+    expect(() => validateGitRef("release/2.0.0+build.123", "tag")).not.toThrow();
+    expect(() => validateGitRef("origin", "remote")).not.toThrow();
+  });
+
+  it("rejects empty ref names", () => {
+    expect(() => validateGitRef("", "branch")).toThrow("Git branch name cannot be empty");
+    expect(() => validateGitRef("   ", "branch")).toThrow("Git branch name cannot be empty");
+  });
+
+  it("rejects directory traversal attempts", () => {
+    expect(() => validateGitRef("../../../etc/passwd", "branch")).toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+    expect(() => validateGitRef("feat/../main", "branch")).toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+    expect(() => validateGitRef("..", "remote")).toThrow(
+      "Git remote name cannot contain '..' (directory traversal attempt)",
+    );
+  });
+
+  it("rejects invalid characters", () => {
+    expect(() => validateGitRef("feat@master", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+    expect(() => validateGitRef("feat branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+    expect(() => validateGitRef("feat;malicious", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+    expect(() => validateGitRef("feat\nbranch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+  });
+
+  it("validates semver tags with plus signs", () => {
+    expect(() => validateGitRef("v1.0.0+build.123", "tag")).not.toThrow();
+    expect(() => validateGitRef("2.0.0+metadata", "tag")).not.toThrow();
+  });
+
+  // REGRESSION TEST: Fix for Issue #2 - git-check-ref-format compliance
+  it("rejects git-check-ref-format forbidden characters", () => {
+    // Reject @{ sequence
+    expect(() => validateGitRef("feat@{upstream}", "branch")).toThrow(
+      "Git branch name cannot contain '@{' sequence",
+    );
+
+    // Reject ~ character
+    expect(() => validateGitRef("feat~1", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject ^ character
+    expect(() => validateGitRef("feat^parent", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject : character
+    expect(() => validateGitRef("feat:branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject ? character
+    expect(() => validateGitRef("feat?branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject * character
+    expect(() => validateGitRef("feat*branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject [ character
+    expect(() => validateGitRef("feat[branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+
+    // Reject \ character
+    expect(() => validateGitRef("feat\\branch", "branch")).toThrow(
+      "Invalid git branch name. Only alphanumeric characters, slashes, hyphens, underscores, dots, and plus signs are allowed",
+    );
+  });
+
+  it("rejects git-check-ref-format forbidden patterns", () => {
+    // Cannot start with dot
+    expect(() => validateGitRef(".hidden/branch", "branch")).toThrow(
+      "Git branch name cannot start with a dot",
+    );
+
+    // Cannot end with .lock
+    expect(() => validateGitRef("refs/heads/main.lock", "branch")).toThrow(
+      "Git branch name cannot end with '.lock'",
+    );
+
+    // Cannot contain consecutive slashes
+    expect(() => validateGitRef("feat//branch", "branch")).toThrow(
+      "Git branch name cannot contain consecutive slashes '//'",
+    );
+
+    // Cannot end with /
+    expect(() => validateGitRef("feat/branch/", "branch")).toThrow(
+      "Git branch name cannot end with '/'",
+    );
+  });
+});
+
+describe("git operations with validation", () => {
+  it("createBranch rejects invalid branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(createBranch(repoDir, "../../../etc/passwd", "main")).rejects.toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+
+    await expect(createBranch(repoDir, "feat/test", "../../../main")).rejects.toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+  });
+
+  it("deleteBranch rejects invalid branch names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(deleteBranch(repoDir, "../../../etc/passwd")).rejects.toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+  });
+
+  it("pushBranch rejects invalid branch and remote names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushBranch(repoDir, "../../../etc/passwd", "origin")).rejects.toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+
+    await expect(pushBranch(repoDir, "main", "../../../etc/passwd")).rejects.toThrow(
+      "Git remote name cannot contain '..' (directory traversal attempt)",
+    );
+  });
+
+  it("fetchRemote rejects invalid remote names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(fetchRemote(repoDir, "../../../etc/passwd")).rejects.toThrow(
+      "Git remote name cannot contain '..' (directory traversal attempt)",
+    );
+  });
+
+  it("pushSessionBranch rejects invalid branch and remote names", async () => {
+    const repoDir = await initBareRepo(TMP_DIR);
+
+    await expect(pushSessionBranch(repoDir, "../../../etc/passwd", "origin")).rejects.toThrow(
+      "Git branch name cannot contain '..' (directory traversal attempt)",
+    );
+
+    await expect(pushSessionBranch(repoDir, "main", "../../../etc/passwd")).rejects.toThrow(
+      "Git remote name cannot contain '..' (directory traversal attempt)",
+    );
   });
 });
 
