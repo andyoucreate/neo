@@ -21,6 +21,8 @@ interface ParsedArgs {
   id: string | undefined;
   answer: string | undefined;
   json: boolean;
+  wait: boolean;
+  timeout: string;
 }
 
 function truncate(text: string, max: number): string {
@@ -100,6 +102,26 @@ function openStore(name: string): DecisionStore {
   return new DecisionStore(filePath);
 }
 
+async function pollForAnswer(store: DecisionStore, id: string, timeout: string): Promise<void> {
+  const timeoutMs = parseDurationMs(timeout) ?? 30 * 60 * 1000;
+  const startTime = Date.now();
+  const pollIntervalMs = 10_000;
+
+  process.stdout.write(`Waiting for answer (timeout: ${timeout})...\n`);
+
+  while (Date.now() - startTime < timeoutMs) {
+    const decision = await store.get(id);
+    if (decision?.answer !== undefined) {
+      console.log(`Answer: ${decision.answer}`);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+  }
+
+  printError(`Decision ${id} timed out after ${timeout}`);
+  process.exitCode = 1;
+}
+
 async function handleCreate(args: ParsedArgs): Promise<void> {
   if (!args.question) {
     printError(
@@ -147,6 +169,10 @@ async function handleCreate(args: ParsedArgs): Promise<void> {
     });
     printSuccess(`Decision created: ${id}`);
     console.log(id); // Output just the ID for easy parsing in scripts
+
+    if (args.wait) {
+      await pollForAnswer(store, id, args.timeout);
+    }
   } catch (error) {
     printError(
       `Failed to create decision: ${error instanceof Error ? error.message : String(error)}`,
@@ -366,6 +392,17 @@ export default defineCommand({
       description: "Output as JSON",
       default: false,
     },
+    wait: {
+      type: "boolean",
+      alias: "w",
+      description: "Block until the decision is answered (poll every 10s)",
+      default: false,
+    },
+    timeout: {
+      type: "string",
+      description: "Max wait time when using --wait (e.g. 30m, 1h). Default: 30m",
+      default: "30m",
+    },
   },
   async run({ args }) {
     const action = args.action as string;
@@ -382,6 +419,8 @@ export default defineCommand({
       id: args.value as string | undefined, // For get/answer actions
       answer: undefined,
       json: args.json as boolean,
+      wait: args.wait as boolean,
+      timeout: args.timeout as string,
     };
 
     switch (action) {

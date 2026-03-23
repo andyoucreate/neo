@@ -83,7 +83,6 @@ vi.mock("@/paths", async () => {
 const DEVELOPER_PROMPT = "You are a developer agent. Implement the task.";
 const REVIEWER_PROMPT = "You are a code reviewer. Review the changes.";
 const ARCHITECT_PROMPT = "You are an architect. Plan the implementation.";
-const FIXER_PROMPT = "You are a fixer. Fix the issues found by reviewers.";
 
 async function writeAgentFixtures(): Promise<void> {
   await mkdir(AGENTS_DIR, { recursive: true });
@@ -93,7 +92,6 @@ async function writeAgentFixtures(): Promise<void> {
   await writeFile(path.join(PROMPTS_DIR, "developer.md"), DEVELOPER_PROMPT);
   await writeFile(path.join(PROMPTS_DIR, "reviewer.md"), REVIEWER_PROMPT);
   await writeFile(path.join(PROMPTS_DIR, "architect.md"), ARCHITECT_PROMPT);
-  await writeFile(path.join(PROMPTS_DIR, "fixer.md"), FIXER_PROMPT);
 
   // Write agent YAMLs
   await writeFile(
@@ -139,21 +137,6 @@ tools:
   - Grep
 sandbox: readonly
 prompt: ../prompts/architect.md
-`,
-  );
-
-  await writeFile(
-    path.join(AGENTS_DIR, "fixer.yml"),
-    `name: fixer
-description: "Auto-correction agent"
-model: sonnet
-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-sandbox: writable
-prompt: ../prompts/fixer.md
 `,
   );
 }
@@ -259,11 +242,10 @@ describe("e2e: agent registry", () => {
     const registry = new AgentRegistry(AGENTS_DIR);
     await registry.load();
 
-    expect(registry.list()).toHaveLength(4);
+    expect(registry.list()).toHaveLength(3);
     expect(registry.has("developer")).toBe(true);
     expect(registry.has("reviewer")).toBe(true);
     expect(registry.has("architect")).toBe(true);
-    expect(registry.has("fixer")).toBe(true);
 
     const dev = registry.get("developer");
     expect(dev?.definition.prompt).toBe(DEVELOPER_PROMPT);

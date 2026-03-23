@@ -578,12 +578,10 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
     const registry = new AgentRegistry(realBuiltInDir);
     await registry.load();
 
-    expect(registry.list().length).toBe(6);
+    expect(registry.list().length).toBe(4);
     expect(registry.has("architect")).toBe(true);
     expect(registry.has("developer")).toBe(true);
-    expect(registry.has("refiner")).toBe(true);
     expect(registry.has("reviewer")).toBe(true);
-    expect(registry.has("fixer")).toBe(true);
     expect(registry.has("scout")).toBe(true);
 
     // Verify a resolved agent has all required fields

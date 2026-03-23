@@ -2,7 +2,7 @@
 
 Built-in agent definitions for `@neotx/core`.
 
-This package contains YAML configuration files and Markdown prompts that define the 5 built-in agents used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
+This package contains YAML configuration files and Markdown prompts that define the 4 built-in agents used by the Neo orchestrator. It's a data package — no TypeScript, no runtime code.
 
 ## Contents
 
@@ -11,14 +11,10 @@ packages/agents/
 ├── agents/           # Agent YAML definitions
 │   ├── architect.yml
 │   ├── developer.yml
-│   ├── fixer.yml
-│   ├── refiner.yml
 │   └── reviewer.yml
 └── prompts/          # Markdown system prompts
     ├── architect.md
     ├── developer.md
-    ├── fixer.md
-    ├── refiner.md
     └── reviewer.md
 ```
 
@@ -26,11 +22,9 @@ packages/agents/
 
 | Agent | Model | Sandbox | Tools | Role |
 |-------|-------|---------|-------|------|
-| **architect** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Strategic planner. Analyzes features, designs architecture, decomposes work into atomic tasks. Never writes code. |
-| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Implementation worker. Executes atomic tasks from specs in isolated clones. |
-| **fixer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep | Auto-correction agent. Fixes issues found by reviewers. Targets root causes, not symptoms. |
-| **refiner** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch | Ticket quality evaluator. Assesses clarity and splits vague tickets into precise sub-tickets. |
-| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Single-pass unified reviewer. Covers quality, security, performance, and test coverage in one sweep. Challenges by default — blocks on critical issues. |
+| **architect** | opus | readonly | Read, Glob, Grep, WebSearch, WebFetch, Agent | Strategic planner. Triages requests, designs architecture, decomposes work into atomic tasks, and spawns subagents when needed. Never writes code. |
+| **developer** | opus | writable | Read, Write, Edit, Bash, Glob, Grep, Agent | Implementation worker. Executes atomic tasks from specs in isolated clones. Performs self-review and spawns subagents for complex steps. |
+| **reviewer** | sonnet | readonly | Read, Glob, Grep, Bash | Two-pass unified reviewer. Covers quality, security, performance, and test coverage. Challenges by default — blocks on critical issues. |
 
 ### Sandbox Modes
 
