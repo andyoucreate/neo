@@ -310,6 +310,7 @@ export interface MiddlewareEvent {
 export interface MiddlewareContextMap {
   costToday: number;
   budgetCapUsd: number;
+  estimatedCost?: number;
   [key: string]: unknown;
 }
 
