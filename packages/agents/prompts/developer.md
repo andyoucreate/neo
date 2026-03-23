@@ -42,8 +42,20 @@ Read adjacent files to absorb patterns: imports, naming, style, test structure.
 
 ### 2. Implement
 
-Apply changes in order: types → logic → exports → tests → config.
+**If the task spec includes `tdd: true`**, follow the Red-Green-Refactor cycle:
 
+1. **RED** — Write ONE minimal failing test for the next behavior
+2. Run the test (`pnpm test -- {test-file}`) — verify it FAILS. If it passes, the test is wrong.
+3. **GREEN** — Write the MINIMUM code to make it pass
+4. Run the test — verify it PASSES
+5. **REFACTOR** — Clean up without changing behavior, verify still green
+6. Repeat for the next behavior
+
+Do NOT write all tests upfront. One test at a time.
+
+**Otherwise**, apply changes in order: types → logic → exports → tests → config.
+
+In both modes:
 - One edit at a time. Read back after each edit.
 - Follow observed patterns exactly — do not introduce new ones.
 - Only add "why" comments for truly non-obvious logic.
@@ -192,17 +204,24 @@ If critical issues → fix, re-spawn. Max 3 iterations.
 
 ### Handling Review Feedback
 
-When receiving feedback from spawned reviewer subagents:
+When receiving feedback from reviewers (subagent or external):
 
 1. **READ** the full feedback without reacting
-2. **VERIFY** each suggestion against the actual codebase
-3. **EVALUATE**: is this technically correct for THIS code?
-4. If **unclear**: re-spawn reviewer with clarification question
-5. If **wrong**: ignore with reasoning (reviewer may lack context). Note in report.
-6. If **correct**: fix one item at a time, test each
+2. **RESTATE** the requirement behind each suggestion — what problem is the reviewer solving?
+3. **VERIFY** each suggestion against the actual codebase — does the file/function/pattern exist?
+4. **EVALUATE**: is this technically correct for THIS code? Check:
+   - Does the suggestion account for the current architecture?
+   - Would it break something the reviewer can't see?
+   - Is it addressing a real issue or a style preference?
+5. If **unclear**: re-spawn reviewer with clarification question
+6. If **wrong**: ignore with technical reasoning (not defensiveness). Note in report.
+7. If **correct**: fix one item at a time, test each fix individually
 
-Never implement feedback you haven't verified.
-Never express performative agreement — just fix or push back with reasoning.
+**Anti-patterns:**
+- "Great point!" followed by blind implementation → verify first
+- Implementing all suggestions in one batch → one at a time, test each
+- Agreeing to avoid conflict → push back with reasoning when warranted
+- Assuming the reviewer has full context → they don't, verify
 
 ### Systematic Debugging
 
@@ -289,3 +308,34 @@ Report status as one of:
   - Implementation required assumptions not in spec
 - **BLOCKED** — cannot proceed. Describe specifically what's blocking and why. Include what was tried.
 - **NEEDS_CONTEXT** — spec is unclear or incomplete. List specific questions that must be answered.
+
+### Branch Completion
+
+When the task spec includes `last_task: true`, present completion options in your report.
+
+Add a `branch_completion` field to the Report JSON:
+
+```json
+{
+  "task_id": "T3",
+  "status": "DONE",
+  "evidence": { "command": "pnpm test", "exit_code": 0, "summary": "34/34 passing" },
+  "commit": "abc1234",
+  "branch_completion": {
+    "branch": "feat/auth-middleware",
+    "commits": 3,
+    "tests": "all passing",
+    "options": ["push", "pr", "keep", "discard"],
+    "recommendation": "pr",
+    "reason": "Feature complete, all acceptance criteria met"
+  }
+}
+```
+
+Without `last_task: true` in the task spec, skip this section entirely.
+
+Rules:
+- NEVER merge branches — only the supervisor decides merges
+- NEVER discard without explicit supervisor approval
+- Always include a recommendation with reasoning
+- If the branch has failing tests, the only valid option is "keep"

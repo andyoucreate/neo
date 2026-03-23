@@ -70,7 +70,32 @@ Spawn a spec-document-reviewer subagent (Agent tool):
 
 If issues → fix and re-spawn. Max 3 iterations.
 
-### 6. Decompose
+### 6. Design Approval Gate
+
+After the spec review loop passes, submit the design for supervisor approval:
+
+```bash
+neo decision create "Design approval for {ticket-id}" \
+  --type approval \
+  --context "Summary: {1-3 sentences}
+Approach: {chosen approach with reasoning}
+Alternatives rejected: {list with why}
+Components: {list}
+Risks: {list}
+Files affected: {count new + count modified}
+Estimated tasks: {count}
+Spec: .neo/specs/{ticket-id}-design.md" \
+  --wait --timeout 30m
+```
+
+Handle response:
+- **Approved** → proceed to decomposition
+- **Approved with changes** → update spec, re-run spec review loop (counter resets), then decompose
+- **Rejected** → revise approach from step 3 (Design)
+
+Max 2 gate cycles. After 2 rejections, escalate with full context of what was tried.
+
+### 7. Decompose
 
 Break into ordered milestones, each independently testable.
 Each milestone contains atomic tasks for a single developer session.
@@ -82,6 +107,7 @@ Per task, specify:
 - **depends_on**: task IDs that must complete first
 - **acceptance_criteria**: testable conditions
 - **size**: XS / S / M (L or bigger → split further)
+- **flags** (optional): `tdd: true` for complex logic tasks, `last_task: true` for the final task in a milestone
 
 Shared files (barrel exports, routes, config) go in a final "wiring" task
 that depends on all implementation tasks.
@@ -94,12 +120,25 @@ Each task MUST:
 - Have clear, testable acceptance criteria
 - Include context from sibling tasks when order matters
 
-### 7. Execution Strategy
+### 8. Execution Strategy
 
 Recommend an execution strategy:
 - Which tasks can run in parallel (no file overlap, no dependencies)
 - Which tasks must be sequential (depends_on chains)
 - Suggested model per task: `haiku` (mechanical, 1-2 files), `sonnet` (integration, multi-file), `opus` (architecture, broad codebase)
+
+**Parallel safety checklist** — before placing tasks in the same group, verify:
+- [ ] Zero shared files (not even read-only — avoids merge conflicts on adjacent lines)
+- [ ] Zero shared exports (barrel files, index.ts, route registrations)
+- [ ] No implicit ordering (task B won't fail if task A hasn't run yet)
+- [ ] Independent test files (no shared test fixtures or setup)
+
+If ANY check fails, move tasks to sequential groups.
+
+**Integration task** — when parallel tasks produce artifacts that must connect:
+- Add a final "wiring" task that depends on ALL parallel tasks
+- Wiring task handles: barrel exports, route registration, config updates, shared types
+- Size this task explicitly (it often grows — if M or larger, split it)
 
 Tasks in the same parallel group MUST have zero file overlap and zero depends_on between them.
 Sequential groups execute in order (group 2 waits for group 1 to complete).
@@ -127,7 +166,8 @@ Sequential groups execute in order (group 2 waits for group 1 to complete).
           "files": ["src/path.ts"],
           "depends_on": [],
           "acceptance_criteria": ["criterion"],
-          "size": "S"
+          "size": "S",
+          "flags": {}
         }
       ]
     }
