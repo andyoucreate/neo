@@ -38,11 +38,11 @@ This gives the fluidity of superpowers (one session handles implement → review
 ### 1.1 Triage (replaces refiner)
 
 Score the ticket (1–5) before designing:
-- **5**: Crystal clear → proceed to design
-- **4**: Clear enough → proceed, enrich with codebase context
-- **3**: Ambiguous → `neo decision create --wait` for clarifications
-- **2**: Vague → `neo decision create --wait` with decomposition proposal
-- **1**: Incoherent → escalate immediately, STOP
+- **5**: Crystal clear → proceed to design. Example: "Add JWT validation middleware to /api/auth route, return 401 on invalid token, use existing jwt.verify from src/utils/auth.ts"
+- **4**: Clear enough → proceed, enrich with codebase context. Example: "Add auth middleware to the API" (clear intent, missing specifics that codebase exploration can fill)
+- **3**: Ambiguous → `neo decision create --wait` for clarifications. Example: "Improve the auth system" (multiple valid interpretations — add OAuth? Fix session bugs? Add RBAC?)
+- **2**: Vague → `neo decision create --wait` with decomposition proposal. Example: "Security improvements" (no scope, no criteria, needs full scoping conversation)
+- **1**: Incoherent → escalate immediately, STOP. Example: contradictory requirements or empty ticket
 
 ### 1.2 Design-first exploration
 
@@ -102,12 +102,15 @@ Rules:
 
 ### 1.7 Decision polling
 
-Available throughout the architect session:
+Available throughout the architect session. Uses the existing CLI interface with a new `--wait` flag:
 
 ```bash
-neo decision create --wait --category question \
-  --title "Short description" \
-  --body "Full context: what needs answering, what was explored"
+neo decision create "What auth strategy should we use: JWT stateless or session-based?" \
+  --type approval \
+  --options "jwt:JWT stateless,session:Session-based" \
+  --context "Existing codebase uses express-session but no auth middleware yet" \
+  --wait \
+  --timeout 30m
 ```
 
 Blocks until the supervisor (or a developer, or the human) responds.
@@ -199,9 +202,10 @@ When tests fail or behavior is unexpected:
 **Phase 4.5 — If 3+ fixes failed:**
 STOP. This is likely an architectural problem, not a bug.
 ```bash
-neo decision create --wait --category question \
-  --title "Architectural issue after 3+ failed fixes" \
-  --body "What was tried: {list}. What failed: {list}. Pattern: each fix reveals new problem elsewhere."
+neo decision create "Architectural issue after 3+ failed fixes" \
+  --type approval \
+  --context "What was tried: {list}. What failed: {list}. Pattern: each fix reveals new problem elsewhere." \
+  --wait --timeout 30m
 ```
 
 ### 2.5 Verification before completion
@@ -233,9 +237,10 @@ Red flags in your own output — if you catch yourself writing these, STOP and r
 
 DO NOT guess. DO NOT proceed with assumptions.
 ```bash
-neo decision create --wait --category question \
-  --title "Short description" \
-  --body "Full context: what you need, what you tried, what's unclear"
+neo decision create "What I need answered" \
+  --type approval \
+  --context "Full context: what you need, what you tried, what's unclear" \
+  --wait --timeout 30m
 ```
 This blocks until the supervisor responds. Resume work based on the response.
 
@@ -304,20 +309,31 @@ Verdict logic: spec compliance FAIL → CHANGES_REQUESTED (always, regardless of
 
 ### 4.1 CLI behavior
 
+Uses the existing `neo decision create` interface with two new flags (`--wait`, `--timeout`):
+
 ```bash
-neo decision create --wait \
-  --category question \
-  --title "Short description" \
-  --body "Full context" \
+neo decision create "Question for supervisor or human" \
+  --type approval \
+  --options "yes:Approve,no:Reject" \
+  --context "Detailed context for the decision maker" \
+  [--default yes] \
+  [--expires-in 1h] \
+  --wait \
   [--timeout 30m]
 ```
 
-1. Creates the decision (same as current `neo decision create`)
-2. Polls `neo decision get <id>` every 10 seconds
-3. When `status === "answered"` → prints the answer and returns (exit 0)
-4. On timeout (default 30min, configurable) → prints timeout message (exit 1). Agent decides whether to escalate or continue with fallback.
+The existing positional argument (`question`), `--type`, `--options`, `--context`, `--default`, and `--expires-in` flags are unchanged. Two new flags:
 
-Implementation: `setInterval` poll loop in the CLI command. No SDK changes needed.
+- `--wait` — after creating the decision, poll until answered (instead of returning immediately)
+- `--timeout <duration>` — max wait time (default 30min). On timeout: exit 1 with message.
+
+Poll mechanism:
+1. Creates the decision (same as current)
+2. Polls decision status every 10 seconds via the store
+3. When `status === "answered"` → prints the answer text and returns (exit 0)
+4. On timeout → prints timeout message (exit 1). Agent decides to escalate or continue.
+
+Implementation: `setInterval` poll loop in the CLI command handler. No SDK changes needed.
 
 ### 4.2 Prerequisite: `neo decision get <id>`
 
@@ -332,7 +348,7 @@ When a pending decision arrives from an agent:
    → neo decision answer <id> <answer>
 
 2. Needs codebase investigation? (technical question about existing code)
-   → Dispatch a developer in readonly mode to investigate
+   → Dispatch a scout to investigate (already readonly with Read, Glob, Grep, Bash)
    → Read the run output
    → neo decision answer <id> with findings
 
@@ -368,11 +384,20 @@ tools: [Read, Glob, Grep, WebSearch, WebFetch, Agent]
 tools: [Read, Write, Edit, Bash, Glob, Grep, Agent]
 ```
 
-Developer subagents inherit the developer's `cwd` (its isolated git clone) and see code as modified by the developer.
+Developer subagents spawned via the `Agent` tool inherit the parent's `cwd` by default (SDK behavior — the subagent runs in the same working directory). This means subagents see the developer's isolated git clone with all modifications in progress.
+
+Subagent prompt templates (spec-compliance-reviewer, code-quality-reviewer, spec-document-reviewer) are **inline in the parent agent's `.md` prompt file** — not separate YAML agents. The developer/architect prompt contains the exact text to pass to the `Agent` tool. This keeps the templates co-located with the discipline that uses them.
 
 ### 5.3 Session runner change
 
-`buildQueryOptions` in `session.ts` passes `agent.maxTurns` to `sdk.query()` options. The SDK already supports `maxTurns` — this just connects the agent config to the SDK call.
+Uncomment `maxTurns` pass-through in `buildQueryOptions` (session.ts, line ~60). The line already exists but is commented out:
+```typescript
+// maxTurns: agent.maxTurns,  →  maxTurns: agent.maxTurns,
+```
+
+This was disabled during early development when agents had no per-role maxTurns defaults. Now safe to enable since agent YAML configs will set appropriate limits (75–100 for long sessions, 20–50 for short ones). The SDK accepts `maxTurns` in query options natively.
+
+**When maxTurns is reached:** The SDK terminates the session with a `result` message of subtype `error_max_turns`. The agent's last output is preserved. The session runner already handles this as a non-retryable error. For developer sessions, this means partial work may be committed but the final status report may be missing — the supervisor should treat `error_max_turns` as `BLOCKED` and re-dispatch if needed.
 
 ---
 
@@ -483,9 +508,16 @@ These are always active regardless of repo config:
 
 | File | Change |
 |------|--------|
-| `runner/session.ts` | Pass `agent.maxTurns` to `sdk.query()` options |
-| `agents/resolver.ts` | Remove fixer and refiner from built-in resolution |
-| `agents/loader.ts` | Remove fixer and refiner loading |
+| `runner/session.ts` | Uncomment `maxTurns` pass-through to `sdk.query()` (line ~60, already present but commented out). This was disabled during early development — now safe to enable since agent YAML configs will set appropriate per-role limits. |
+
+Note: `agents/loader.ts` and `agents/resolver.ts` are generic (scan directory dynamically) — no code changes needed. Removing fixer/refiner is purely a file deletion.
+
+### Tests (packages/core/src/__tests__/)
+
+| File | Change |
+|------|--------|
+| `agents.test.ts` | Update built-in agent list assertions (remove fixer, refiner) |
+| `e2e.test.ts` | Remove or update fixer/refiner test scenarios |
 
 ### CLI
 
@@ -508,7 +540,8 @@ These are always active regardless of repo config:
 - Repos with custom `.neo/agents/fixer.yml` or `.neo/agents/refiner.yml` extensions: these will no longer match a built-in. They become standalone custom agents (still functional, just not part of the default pipeline).
 - Repos with `.neo/INSTRUCTIONS.md` referencing fixer/refiner by name: update documentation.
 - The `neo decision create --wait` command is new CLI surface — no breaking change.
-- `maxTurns` in agent YAML already exists in the schema — just unused until now.
+- `maxTurns` in agent YAML already exists in the schema and resolver — the session runner line is commented out (session.ts:~60), just needs uncommenting.
+- `model_hints` in execution strategy: the supervisor passes the model to `neo run --model` (or equivalent). This requires the `neo run` command to accept a `--model` override — verify this exists or add it.
 
 ## 10. Out of scope
 
