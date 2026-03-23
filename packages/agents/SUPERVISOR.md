@@ -257,7 +257,8 @@ When the supervisor has **no events, no active runs, and no pending tasks**, it 
    - A `developer` run completed with a `PR_URL` but no `reviewer` was dispatched → dispatch `reviewer`.
    - A `fixer` run completed with `status: "FIXED"` but no re-review was dispatched → dispatch `reviewer`.
    - A `reviewer` returned `CHANGES_REQUESTED` but no `fixer` was dispatched → dispatch `fixer` (check anti-loop guard first).
-   - A `refiner` returned `pass_through` or `decompose` but no `developer` was dispatched → dispatch accordingly.
+   - A `refiner` returned `pass_through` but no `developer` was dispatched → dispatch `developer` with `enriched_context`.
+   - A `refiner` returned `decompose` but no `sub-tickets` were created (and/or no `developer` was dispatched) → create sub-tickets from `sub_tickets[]`, then dispatch one `developer` per sub-ticket.
    - A `architect` returned `milestones[].tasks[]` but sub-tickets were never created → create them and dispatch.
 3. **Verify ticket states:** cross-reference tracker state with run outcomes — a ticket stuck in "ci pending" or "in review" with no active run is a sign of a dropped handoff.
 4. **If everything checks out:** do nothing. Wait for the next heartbeat or user input.
