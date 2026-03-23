@@ -526,12 +526,32 @@ Note: `agents/loader.ts` and `agents/resolver.ts` are generic (scan directory dy
 | `neo decision create` | Add `--wait` flag (poll loop, 10s interval) + `--timeout` flag (default 30min) |
 | `neo decision get <id>` | Verify exists, implement if missing |
 
-### Supervisor (packages/core/src/supervisor/prompt-builder.ts)
+### Supervisor prompt (packages/core/src/supervisor/prompt-builder.ts)
 
 | Section | Change |
 |---------|--------|
 | `OPERATING_PRINCIPLES` | Add decision routing rules, parallel dispatch guardrails |
 | `HEARTBEAT_RULES` | Add DECISIONS step between EVENTS and DISPATCH |
+
+### Supervisor domain knowledge (packages/agents/SUPERVISOR.md)
+
+This file is the supervisor's reference for agent contracts, dispatch patterns, and pipeline state machine. Major rewrite needed:
+
+| Section | Change |
+|---------|--------|
+| **Available Agents** table | Remove `fixer` and `refiner` rows. Update `architect` description to include triage. Update `developer` description to include self-review + subagent spawning. |
+| **Agent Output Contracts** | Remove `fixer →` and `refiner →` sections. Update `developer →` to use new status protocol (DONE / DONE_WITH_CONCERNS / BLOCKED / NEEDS_CONTEXT). Update `architect →` to include `strategy` field (parallel_groups, model_hints). Update `reviewer →` to include `spec_compliance` field. |
+| **Routing table** (§2) | Remove "Dispatch refiner" row. Change "Unclear criteria or vague scope" → "Dispatch architect (handles triage)". Remove fixer from all dispatch flows. |
+| **On Refiner Completion** (§3) | Delete entire section |
+| **On Developer/Fixer Completion** (§4, §5) | Rename to "On Developer Completion". Remove fixer references. Add handling for DONE_WITH_CONCERNS and NEEDS_CONTEXT statuses. |
+| **On Review Completion** (§6) | Change "dispatch fixer" → "re-dispatch developer with review feedback as context" |
+| **On Fixer Completion** (§7) | Delete entire section |
+| **Pipeline State Machine** | Simplify: remove "fixing" state. Changes requested → re-dispatch developer on same branch. |
+| **Dispatch examples** | Remove fixer example. Update routing to show architect handling vague tickets. Add example with `--model` override for model_hints. |
+| **Anti-Loop Guard** | Change "fixer→review cycles" → "developer re-dispatch cycles" |
+| **Idle Behavior** | Remove all fixer/refiner references from missed dispatch checks. Add: check for pending decisions not yet answered. |
+| **NEW: Execution Strategy** | Add section: how supervisor interprets architect's `parallel_groups` and `model_hints`, dispatches developer groups, verifies file overlap. |
+| **NEW: Decision Routing** | Add section: how supervisor handles pending decisions (direct answer, scout investigation, human escalation). |
 
 ---
 
