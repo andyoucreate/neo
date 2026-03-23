@@ -7,7 +7,7 @@ First public release.
 ### Features
 
 - **Orchestrator** - dispatch agents with concurrency control, budget guards, and typed event streaming
-- **5 built-in agents** - architect, developer, fixer, refiner, and a unified single-pass reviewer
+- **4 built-in agents** - architect, developer, reviewer, and scout with clone isolation and specialized capabilities
 - **Git clone isolation** - each run gets its own branch and clone, working directory is never touched
 - **3-level recovery** - normal retry, session resume, fresh session with exponential backoff
 - **Cost tracking** - daily budget caps, JSONL journals with monthly rotation, real-time budget alerts
