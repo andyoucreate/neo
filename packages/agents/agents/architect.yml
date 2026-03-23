@@ -1,5 +1,5 @@
 name: architect
-description: "Strategic planner and decomposer. Analyzes features, designs architecture, creates roadmaps, and decomposes work into atomic tasks. Never writes code."
+description: "Strategic planner. Handles triage (replaces refiner), designs architecture, writes spec documents, decomposes work into atomic tasks with execution strategy. Spawns spec-reviewer subagents. Never writes code."
 model: opus
 tools:
   - Read
@@ -7,5 +7,7 @@ tools:
   - Grep
   - WebSearch
   - WebFetch
+  - Agent
 sandbox: readonly
+maxTurns: 75
 prompt: ../prompts/architect.md

@@ -1,5 +1,5 @@
 name: developer
-description: "Implementation worker. Executes atomic tasks from specs in isolated clones. Follows strict scope discipline."
+description: "Implementation worker. Executes atomic tasks in isolated clones. Spawns spec-compliance and code-quality reviewer subagents. Self-reviews, debugs systematically, and verifies before reporting."
 model: opus
 tools:
   - Read
@@ -8,5 +8,7 @@ tools:
   - Bash
   - Glob
   - Grep
+  - Agent
 sandbox: writable
+maxTurns: 100
 prompt: ../prompts/developer.md

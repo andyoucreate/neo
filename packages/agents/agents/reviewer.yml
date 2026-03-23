@@ -1,5 +1,5 @@
 name: reviewer
-description: "Thorough single-pass code reviewer. Covers quality, standards, security, performance, and test coverage. Challenges code by default — approves only when standards are met."
+description: "Two-pass reviewer: spec compliance first, then code quality. Covers quality, standards, security, performance, and test coverage. Challenges by default — approves only when standards are met."
 model: sonnet
 tools:
   - Read
@@ -7,4 +7,5 @@ tools:
   - Grep
   - Bash
 sandbox: readonly
+maxTurns: 30
 prompt: ../prompts/reviewer.md
