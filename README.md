@@ -4,7 +4,7 @@
 
 We built a framework that orchestrates autonomous Claude agents. It spawns isolated git clones, manages concurrency, handles 3-level recovery, and tracks every dollar spent. Then we let it build itself - 342 runs, $256, 3 days across 6 repositories. Zero infrastructure.
 
-Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Claude Code loop, a custom script) acts as the CEO - it decides what needs to happen. neo is the CTO that takes those decisions and organizes an entire engineering team: dispatching developers, architects, reviewers, and fixers in parallel, monitoring their work, handling failures, and reporting back.
+Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Claude Code loop, a custom script) acts as the CEO - it decides what needs to happen. neo is the CTO that takes those decisions and organizes an entire engineering team: dispatching developers, architects, reviewers, and scouts in parallel, monitoring their work, handling failures, and reporting back.
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -22,10 +22,10 @@ Think of neo as a **CTO for your codebase**. An external agent (OpenClaw, a Clau
 └──────────────────────┬──────────────────────────────┘
                        │ spawns in isolated git clones
                        v
-          ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
-          │ dev  │ │ arch │ │ fix  │ │review│ │refine│
-          │agent │ │agent │ │agent │ │agent │ │agent │
-          └──────┘ └──────┘ └──────┘ └──────┘ └──────┘
+             ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
+             │ dev  │ │ arch │ │review│ │scout │
+             │agent │ │agent │ │agent │ │agent │
+             └──────┘ └──────┘ └──────┘ └──────┘
                     the engineering team
 ```
 
@@ -64,15 +64,14 @@ neo cost                 # Today's spend by agent
 
 ## Built-in Agents
 
-neo comes with 5 built-in agents ready to use out of the box:
+neo comes with 4 built-in agents ready to use out of the box:
 
 | Agent | Role | Model | Sandbox |
 |-------|------|-------|---------|
 | `architect` | Strategic planner. Designs architecture, decomposes work into atomic tasks. Never writes code. | opus | readonly |
 | `developer` | Implementation worker. Executes tasks in isolated clones with strict scope discipline. | opus | writable |
-| `fixer` | Auto-correction. Fixes issues found by reviewers. Targets root causes, not symptoms. | opus | writable |
-| `refiner` | Ticket evaluator. Assesses clarity and splits vague tickets into precise specs. | opus | readonly |
 | `reviewer` | Single-pass reviewer. Covers quality, security, performance, and test coverage in one sweep. | sonnet | readonly |
+| `scout` | Codebase explorer. Investigates issues, gathers context, and reports findings. Never writes code. | haiku | readonly |
 
 ### Customize per repo
 
@@ -115,7 +114,7 @@ When you run `neo supervise`, neo starts its built-in CTO - a long-lived daemon 
 
 1. **Opens** a live TUI with status, budget sparklines, and the full activity feed
 2. **Runs** a heartbeat loop that checks for pending work, completed runs, and failures
-3. **Dispatches** the right agents based on events (reviewer after dev completes, fixer after review finds issues)
+3. **Dispatches** the right agents based on events (reviewer after dev completes, developer re-dispatch on issues)
 4. **Listens** for webhooks from all running agents (completions, failures, budget alerts)
 5. **Decides** what to do next at each heartbeat (escalate, retry, dispatch follow-up)
 6. **Remembers** via persistent memory - facts, procedures, and episodes that future agents inherit
@@ -130,7 +129,7 @@ neo supervise --message "Implement the auth system from ticket PROJ-42"
 #   1. Dispatches architect to design the system
 #   2. On architect completion, dispatches developer for each task
 #   3. On developer completion, dispatches reviewer
-#   4. On review issues, dispatches fixer
+#   4. On review issues, re-dispatches developer with feedback
 #   5. Re-reviews until approved or escalates
 #   6. Writes results to memory for future runs
 ```
@@ -442,8 +441,7 @@ CEO layer          OpenClaw, Claude Code, custom script, or human
   |-- architect      Plans and decomposes
   |-- developer      Implements in isolated clones
   |-- reviewer       Reviews quality, security, perf, coverage
-  |-- fixer          Fixes issues from reviews
-  +-- refiner        Evaluates and splits vague tickets
+  +-- scout          Explores codebase and gathers context
 ```
 
 ### Design Principles
