@@ -127,6 +127,19 @@ Recommend an execution strategy:
 - Which tasks must be sequential (depends_on chains)
 - Suggested model per task: `haiku` (mechanical, 1-2 files), `sonnet` (integration, multi-file), `opus` (architecture, broad codebase)
 
+**Parallel safety checklist** — before placing tasks in the same group, verify:
+- [ ] Zero shared files (not even read-only — avoids merge conflicts on adjacent lines)
+- [ ] Zero shared exports (barrel files, index.ts, route registrations)
+- [ ] No implicit ordering (task B won't fail if task A hasn't run yet)
+- [ ] Independent test files (no shared test fixtures or setup)
+
+If ANY check fails, move tasks to sequential groups.
+
+**Integration task** — when parallel tasks produce artifacts that must connect:
+- Add a final "wiring" task that depends on ALL parallel tasks
+- Wiring task handles: barrel exports, route registration, config updates, shared types
+- Size this task explicitly (it often grows — if M or larger, split it)
+
 Tasks in the same parallel group MUST have zero file overlap and zero depends_on between them.
 Sequential groups execute in order (group 2 waits for group 1 to complete).
 
