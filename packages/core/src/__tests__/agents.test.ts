@@ -510,6 +510,76 @@ describe("resolveAgent", () => {
     const resolved = resolveAgent(config, builtIns);
     expect(resolved.version).toBe("3.0.0");
   });
+
+  it("resolves maxCost from custom agent config", () => {
+    const config: AgentConfig = {
+      name: "budget-agent",
+      description: "Agent with cost budget",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a budget agent.",
+      sandbox: "writable",
+      maxCost: 5.0,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(5.0);
+  });
+
+  it("allows maxCost to be optional", () => {
+    const config: AgentConfig = {
+      name: "no-budget-agent",
+      description: "Agent without cost budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "You are an agent without budget.",
+      sandbox: "readonly",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBeUndefined();
+  });
+
+  it("inherits maxCost from built-in when extending", () => {
+    builtIns.set("budget-base", {
+      name: "budget-base",
+      description: "Base with budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      maxCost: 10.0,
+    });
+
+    const config: AgentConfig = {
+      name: "extends-budget",
+      extends: "budget-base",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(10.0);
+  });
+
+  it("overrides maxCost from built-in when extending", () => {
+    builtIns.set("budget-base2", {
+      name: "budget-base2",
+      description: "Base with budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      maxCost: 10.0,
+    });
+
+    const config: AgentConfig = {
+      name: "override-budget",
+      extends: "budget-base2",
+      maxCost: 2.5,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(2.5);
+  });
 });
 
 // ─── AgentRegistry ───────────────────────────────────────
