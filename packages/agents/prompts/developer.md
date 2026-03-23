@@ -308,3 +308,34 @@ Report status as one of:
   - Implementation required assumptions not in spec
 - **BLOCKED** — cannot proceed. Describe specifically what's blocking and why. Include what was tried.
 - **NEEDS_CONTEXT** — spec is unclear or incomplete. List specific questions that must be answered.
+
+### Branch Completion
+
+When the task spec includes `last_task: true`, present completion options in your report.
+
+Add a `branch_completion` field to the Report JSON:
+
+```json
+{
+  "task_id": "T3",
+  "status": "DONE",
+  "evidence": { "command": "pnpm test", "exit_code": 0, "summary": "34/34 passing" },
+  "commit": "abc1234",
+  "branch_completion": {
+    "branch": "feat/auth-middleware",
+    "commits": 3,
+    "tests": "all passing",
+    "options": ["push", "pr", "keep", "discard"],
+    "recommendation": "pr",
+    "reason": "Feature complete, all acceptance criteria met"
+  }
+}
+```
+
+Without `last_task: true` in the task spec, skip this section entirely.
+
+Rules:
+- NEVER merge branches — only the supervisor decides merges
+- NEVER discard without explicit supervisor approval
+- Always include a recommendation with reasoning
+- If the branch has failing tests, the only valid option is "keep"
