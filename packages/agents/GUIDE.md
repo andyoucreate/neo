@@ -17,7 +17,7 @@ The supervisor is NOT a chatbot. It's an event-driven heartbeat loop that:
 - Dispatches the right agents in the right order
 - Monitors progress and reacts to completions/failures
 - Persists memory across sessions — it learns your codebase over time
-- Handles the full lifecycle: refine → architect → develop → review → fix → done
+- Handles the full lifecycle: architect (triage + design) → develop (self-review) → review (if needed) → done
 
 ```bash
 # Start the supervisor (background daemon)
@@ -31,7 +31,7 @@ neo supervise --message "Implement user authentication with JWT. Create login/re
 #   2. Dispatches architect if design is needed
 #   3. Dispatches developer for each task
 #   4. Dispatches reviewer to review PRs
-#   5. Dispatches fixer if issues are found
+#   5. Re-dispatches developer if issues are found
 #   6. Reports back via activity log
 
 # Check supervisor status
@@ -103,8 +103,6 @@ neo mcp add notion    # requires NOTION_TOKEN env var
 | `developer` | opus | writable | Implementing code changes, bug fixes, new features |
 | `architect` | opus | readonly | Designing systems, planning features, decomposing work |
 | `reviewer` | sonnet | readonly | Code review — blocks on ≥1 CRITICAL or ≥3 WARNINGs |
-| `fixer` | opus | writable | Fixing issues found by reviewer — targets root causes |
-| `refiner` | opus | readonly | Evaluating ticket quality, splitting vague tickets |
 
 **Custom agents:** Drop a YAML file in `.neo/agents/` to extend built-in agents:
 
@@ -349,7 +347,7 @@ neo decision pending
 # User answers
 neo decision answer dec_x7k9m2 hotfix
 
-# Supervisor receives the answer and dispatches fixer agent with hotfix priority
+# Supervisor receives the answer and re-dispatches developer with hotfix priority
 ```
 
 ### neo webhooks — Event notifications
@@ -553,7 +551,7 @@ neo cost --short
 neo supervise --message "The JWT secret should come from env var JWT_SECRET, not hardcoded"
 ```
 
-The supervisor will autonomously: refine the task if vague → dispatch architect for design → dispatch developer for each sub-task → dispatch reviewer → dispatch fixer if issues → report completion.
+The supervisor will autonomously: dispatch architect (handles triage + design) → dispatch developer for each sub-task (with internal review) → dispatch standalone reviewer if needed → done.
 
 ### Bug fix (supervisor)
 
@@ -584,7 +582,7 @@ neo run developer --prompt "Task 1: Create JWT middleware" --repo . --branch fea
 neo run reviewer --prompt "Review PR on branch feat/auth" --repo . --branch feat/auth
 
 # 5. Fix if needed
-neo run fixer --prompt "Fix issues: missing token expiry check" --repo . --branch feat/auth
+neo run developer --prompt "Fix issues found in review: missing token expiry check" --repo . --branch feat/auth
 ```
 
 ### Bug fix (direct dispatch)
