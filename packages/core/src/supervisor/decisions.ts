@@ -20,12 +20,12 @@ export const decisionSchema = z.object({
   type: z.string().default("generic"),
   source: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
-  createdAt: z.string(),
-  expiresAt: z.string().optional(),
+  createdAt: z.coerce.string(),
+  expiresAt: z.coerce.string().optional(),
   defaultAnswer: z.string().optional(),
-  answeredAt: z.string().optional(),
+  answeredAt: z.coerce.string().optional(),
   answer: z.string().optional(),
-  expiredAt: z.string().optional(),
+  expiredAt: z.coerce.string().optional(),
 });
 
 // ─── Types ───────────────────────────────────────────────
