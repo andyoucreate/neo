@@ -33,6 +33,7 @@ export const agentConfigSchema = z.object({
   name: z.string(),
   extends: z.string().optional(),
   description: z.string().optional(),
+  version: z.string().optional(),
   model: agentModelSchema.optional(),
   tools: z.array(agentToolEntrySchema).optional(),
   prompt: z.string().optional(),

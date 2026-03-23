@@ -440,6 +440,76 @@ describe("resolveAgent", () => {
     const resolved = resolveAgent(config, builtIns);
     expect(resolved.definition.tools).toEqual(["Read"]);
   });
+
+  it("parses version field when present", () => {
+    const config: AgentConfig = {
+      name: "versioned-agent",
+      description: "Agent with version",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a versioned agent.",
+      sandbox: "writable",
+      version: "1.2.3",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.version).toBe("1.2.3");
+  });
+
+  it("allows version field to be optional", () => {
+    const config: AgentConfig = {
+      name: "no-version-agent",
+      description: "Agent without version",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "You are an agent without version.",
+      sandbox: "readonly",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.version).toBeUndefined();
+  });
+
+  it("inherits version from built-in when extending", () => {
+    builtIns.set("versioned-base", {
+      name: "versioned-base",
+      description: "Base with version",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      version: "2.0.0",
+    });
+
+    const config: AgentConfig = {
+      name: "extends-versioned",
+      extends: "versioned-base",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.version).toBe("2.0.0");
+  });
+
+  it("overrides version from built-in when extending", () => {
+    builtIns.set("versioned-base2", {
+      name: "versioned-base2",
+      description: "Base with version",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      version: "1.0.0",
+    });
+
+    const config: AgentConfig = {
+      name: "override-version",
+      extends: "versioned-base2",
+      version: "3.0.0",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.version).toBe("3.0.0");
+  });
 });
 
 // ─── AgentRegistry ───────────────────────────────────────

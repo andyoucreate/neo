@@ -60,6 +60,11 @@ function resolveExtendedAgent(
       : base.maxTurns !== undefined
         ? { maxTurns: base.maxTurns }
         : {}),
+    ...(config.version !== undefined
+      ? { version: config.version }
+      : base.version !== undefined
+        ? { version: base.version }
+        : {}),
     source: config.name === extendsName && !config.extends ? "built-in" : "extended",
   };
 }
@@ -114,6 +119,7 @@ function resolveCustomAgent(config: AgentConfig): ResolvedAgent {
     definition,
     sandbox: config.sandbox,
     ...(config.maxTurns !== undefined ? { maxTurns: config.maxTurns } : {}),
+    ...(config.version !== undefined ? { version: config.version } : {}),
     source: "custom",
   };
 }
