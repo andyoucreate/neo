@@ -13,6 +13,7 @@ import { pushSessionBranch } from "@/isolation/git";
 import { auditLog } from "@/middleware/audit-log";
 import { budgetGuard } from "@/middleware/budget-guard";
 import { loopDetection } from "@/middleware/loop-detection";
+import { prepareSessionMiddleware } from "@/middleware/prepare-session";
 import { RunStore } from "@/orchestrator/run-store";
 import { getJournalsDir, getSupervisorsDir } from "@/paths";
 import { SessionExecutor } from "@/runner/session-executor";
@@ -534,6 +535,9 @@ export class Orchestrator extends NeoEventEmitter {
     const mcpServers = this.resolveMcpServers(agent);
     const memoryContext = this.loadMemoryContext(input.repo);
 
+    // Prepare middleware with automatic agent budget guard if configured
+    const sessionMiddleware = prepareSessionMiddleware(this.userMiddleware, agent, input.overrides);
+
     const result = await executor.execute(
       {
         runId,
@@ -549,7 +553,7 @@ export class Orchestrator extends NeoEventEmitter {
         startedAt: activeSession.startedAt,
       },
       {
-        middleware: this.userMiddleware,
+        middleware: sessionMiddleware,
         mcpServers,
         memoryContext,
         onAttempt: (attempt, strategy) => {
