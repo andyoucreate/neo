@@ -41,6 +41,8 @@ export const agentConfigSchema = z.object({
   sandbox: agentSandboxSchema.optional(),
   maxTurns: z.number().optional(),
   mcpServers: z.array(z.string()).optional(),
+  /** Maximum cost budget for the agent session in USD. When estimated cost exceeds this limit, the session will be blocked. */
+  maxCost: z.number().positive().optional(),
 });
 
 // ─── Derived types ───────────────────────────────────────
