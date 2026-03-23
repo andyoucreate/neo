@@ -5,7 +5,7 @@ description: Orchestrate autonomous developer agents with neo. Use when the user
 
 # Neo — AI Agent Orchestration
 
-neo orchestrates autonomous developer agents (architect, developer, reviewer, fixer, refiner) across git repositories with clone isolation, budget guards, and 3-level recovery.
+neo orchestrates autonomous developer agents (architect, developer, reviewer, scout) across git repositories with clone isolation, budget guards, and 3-level recovery.
 
 ## First time? Install and read the full guide
 
@@ -37,7 +37,7 @@ neo runs --short
 neo cost --short
 ```
 
-The supervisor autonomously orchestrates the full lifecycle: refine → architect → develop → review → fix → done. It persists memory across sessions so it learns your codebase over time.
+The supervisor autonomously orchestrates the full lifecycle: architect → develop → review → done (re-dispatches developer on review issues). It persists memory across sessions so it learns your codebase over time.
 
 ## Direct dispatch (advanced)
 
