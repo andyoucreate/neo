@@ -84,6 +84,7 @@ export interface DispatchInput {
     | {
         agents?: Record<string, string> | undefined;
         maxTurns?: number | undefined;
+        maxCost?: number | undefined;
         sandbox?: "writable" | "readonly" | undefined;
       }
     | undefined;
