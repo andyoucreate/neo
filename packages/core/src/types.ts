@@ -26,6 +26,7 @@ export interface ResolvedAgent {
   definition: AgentDefinition;
   sandbox: "writable" | "readonly";
   maxTurns?: number | undefined;
+  maxCost?: number | undefined;
   version?: string | undefined;
   source: "built-in" | "custom" | "extended";
 }
