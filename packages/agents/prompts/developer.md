@@ -42,8 +42,20 @@ Read adjacent files to absorb patterns: imports, naming, style, test structure.
 
 ### 2. Implement
 
-Apply changes in order: types → logic → exports → tests → config.
+**If the task spec includes `tdd: true`**, follow the Red-Green-Refactor cycle:
 
+1. **RED** — Write ONE minimal failing test for the next behavior
+2. Run the test (`pnpm test -- {test-file}`) — verify it FAILS. If it passes, the test is wrong.
+3. **GREEN** — Write the MINIMUM code to make it pass
+4. Run the test — verify it PASSES
+5. **REFACTOR** — Clean up without changing behavior, verify still green
+6. Repeat for the next behavior
+
+Do NOT write all tests upfront. One test at a time.
+
+**Otherwise**, apply changes in order: types → logic → exports → tests → config.
+
+In both modes:
 - One edit at a time. Read back after each edit.
 - Follow observed patterns exactly — do not introduce new ones.
 - Only add "why" comments for truly non-obvious logic.
