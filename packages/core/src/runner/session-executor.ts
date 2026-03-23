@@ -177,6 +177,7 @@ export class SessionExecutor {
       ...(sessionPath ? { sessionPath } : {}),
       ...(mcpServers ? { mcpServers } : {}),
       ...(onAttempt ? { onAttempt } : {}),
+      ...(agent.maxTurns ? { maxTurns: agent.maxTurns } : {}),
     });
 
     // Parse output

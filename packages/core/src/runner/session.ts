@@ -16,6 +16,7 @@ export interface SessionOptions {
   env?: Record<string, string>;
   initTimeoutMs: number;
   maxDurationMs: number;
+  maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
 }
@@ -57,7 +58,7 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
     // Always pass cwd: session clone for writable agents, repo root for readonly.
     // Without this, readonly agents default to process.cwd() and may write to main tree.
     cwd: sessionPath ?? options.repoPath,
-    // maxTurns: agent.maxTurns,
+    ...(options.maxTurns ? { maxTurns: options.maxTurns } : {}),
     allowedTools: sandboxConfig.allowedTools,
     // Workers run detached without a TTY — bypass interactive permission prompts.
     // Required pair: permissionMode alone is not enough, SDK also needs the flag.
