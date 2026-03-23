@@ -65,8 +65,10 @@ export {
 } from "@/isolation/git";
 export type { SandboxConfig } from "@/isolation/sandbox";
 export { buildSandboxConfig } from "@/isolation/sandbox";
-export type { AuditLogMiddleware } from "@/middleware/audit-log";
+export type { AgentBudgetGuardOptions } from "@/middleware/agent-budget-guard";
 // ─── Middleware ─────────────────────────────────────────
+export { agentBudgetGuard } from "@/middleware/agent-budget-guard";
+export type { AuditLogMiddleware } from "@/middleware/audit-log";
 export { auditLog } from "@/middleware/audit-log";
 export { budgetGuard } from "@/middleware/budget-guard";
 export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
