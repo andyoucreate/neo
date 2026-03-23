@@ -70,7 +70,32 @@ Spawn a spec-document-reviewer subagent (Agent tool):
 
 If issues → fix and re-spawn. Max 3 iterations.
 
-### 6. Decompose
+### 6. Design Approval Gate
+
+After the spec review loop passes, submit the design for supervisor approval:
+
+```bash
+neo decision create "Design approval for {ticket-id}" \
+  --type approval \
+  --context "Summary: {1-3 sentences}
+Approach: {chosen approach with reasoning}
+Alternatives rejected: {list with why}
+Components: {list}
+Risks: {list}
+Files affected: {count new + count modified}
+Estimated tasks: {count}
+Spec: .neo/specs/{ticket-id}-design.md" \
+  --wait --timeout 30m
+```
+
+Handle response:
+- **Approved** → proceed to decomposition
+- **Approved with changes** → update spec, re-run spec review loop (counter resets), then decompose
+- **Rejected** → revise approach from step 3 (Design)
+
+Max 2 gate cycles. After 2 rejections, escalate with full context of what was tried.
+
+### 7. Decompose
 
 Break into ordered milestones, each independently testable.
 Each milestone contains atomic tasks for a single developer session.
@@ -94,7 +119,7 @@ Each task MUST:
 - Have clear, testable acceptance criteria
 - Include context from sibling tasks when order matters
 
-### 7. Execution Strategy
+### 8. Execution Strategy
 
 Recommend an execution strategy:
 - Which tasks can run in parallel (no file overlap, no dependencies)
