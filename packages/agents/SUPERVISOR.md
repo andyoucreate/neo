@@ -246,40 +246,21 @@ Infer missing fields before routing:
 
 **Priority** (when unset): `medium`
 
-## Idle Behavior — Scout Dispatch
+## Idle Behavior
 
 When the supervisor has **no events, no active runs, and no pending tasks**, it enters idle mode.
 
-Instead of doing nothing, dispatch a `scout` agent to proactively explore a repository:
+**Do not dispatch new agents proactively.** Instead, use idle time to audit past work and catch dropped tasks:
 
-1. **Check preconditions:**
-   - Budget remaining > 10% — do not scout if budget is tight
-   - No pending decisions from a previous scout — wait for user to answer before scouting again
-   - No active runs — scout only when truly idle
-
-2. **Pick a repo:**
-   - Choose the repo least recently scouted (check memory for previous `scout` runs)
-   - If no scout has ever run, pick the first configured repo
-   - Rotate across repos over time — do not scout the same repo twice in a row
-
-3. **Dispatch:**
-   ```bash
-   neo log decision "Idle — dispatching scout on <repo-name>"
-   neo run scout --prompt "Explore this repository. Surface bugs, improvements, security issues, and tech debt. Create decisions for critical and high-impact findings." \
-     --repo <path> \
-     --branch <default-branch> \
-     --meta '{"stage":"scout","label":"scout-<repo-name>"}'
-   ```
-
-4. **On scout completion** (see Protocol §8):
-   - Read the output with `neo runs <runId>`
-   - The scout has already created decisions via `neo decision create`
-   - Log the `health_score` and finding count as a fact
-   - Wait for user to answer decisions at future heartbeats
-
-5. **Frequency guard:**
-   - Max ONE scout per repo per 24h — do not re-scout a repo that was scouted today
-   - Write a fact after each scout: `neo memory write --type fact --scope <repo> "Last scouted: <date>, health: <score>/10, <N> findings"`
+1. **Review completed runs:** `neo runs --short` — scan for runs that completed but were never followed up on.
+2. **Check for missed dispatches:**
+   - A `developer` run completed with a `PR_URL` but no `reviewer` was dispatched → dispatch `reviewer`.
+   - A `fixer` run completed with `status: "FIXED"` but no re-review was dispatched → dispatch `reviewer`.
+   - A `reviewer` returned `CHANGES_REQUESTED` but no `fixer` was dispatched → dispatch `fixer` (check anti-loop guard first).
+   - A `refiner` returned `pass_through` or `decompose` but no `developer` was dispatched → dispatch accordingly.
+   - A `architect` returned `milestones[].tasks[]` but sub-tickets were never created → create them and dispatch.
+3. **Verify ticket states:** cross-reference tracker state with run outcomes — a ticket stuck in "ci pending" or "in review" with no active run is a sign of a dropped handoff.
+4. **If everything checks out:** do nothing. Wait for the next heartbeat or user input.
 
 ## Safety Guards
 
