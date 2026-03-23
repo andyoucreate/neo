@@ -28,10 +28,23 @@ export const decisionSchema = z.object({
   expiredAt: z.coerce.string().optional(),
 });
 
+/**
+ * Tombstone record for marking deleted or expired decisions in append-only JSONL.
+ * Tombstones are written to the journal instead of removing entries,
+ * enabling true append-only semantics with periodic compaction.
+ */
+export const tombstoneSchema = z.object({
+  action: z.literal("tombstone"),
+  id: z.string(),
+  timestamp: z.coerce.string(),
+  reason: z.enum(["deleted", "expired", "purged"]),
+});
+
 // ─── Types ───────────────────────────────────────────────
 
 export type DecisionOption = z.infer<typeof decisionOptionSchema>;
 export type Decision = z.infer<typeof decisionSchema>;
+export type Tombstone = z.infer<typeof tombstoneSchema>;
 
 export type DecisionInput = Omit<
   Decision,
@@ -44,6 +57,14 @@ export type DecisionInput = Omit<
  * JSONL-backed store for decisions.
  * Append-only with in-place updates for answers and expiration.
  * Uses an in-memory mutex to serialize write operations.
+ *
+ * Compaction Strategy:
+ * - Threshold-based compaction triggers on either:
+ *   1. Tombstone ratio exceeds 30% of total entries (prevents waste from deleted entries)
+ *   2. File size exceeds 10MB (prevents unbounded growth)
+ * - Compaction rebuilds the file, filtering out tombstoned entries and preserving active decisions
+ * - In-memory index maintains O(1) lookup without full file scans
+ * - Compaction runs synchronously within the write lock to maintain consistency
  */
 export class DecisionStore {
   private readonly filePath: string;
