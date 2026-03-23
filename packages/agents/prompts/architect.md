@@ -107,6 +107,7 @@ Per task, specify:
 - **depends_on**: task IDs that must complete first
 - **acceptance_criteria**: testable conditions
 - **size**: XS / S / M (L or bigger → split further)
+- **flags** (optional): `tdd: true` for complex logic tasks, `last_task: true` for the final task in a milestone
 
 Shared files (barrel exports, routes, config) go in a final "wiring" task
 that depends on all implementation tasks.
@@ -152,7 +153,8 @@ Sequential groups execute in order (group 2 waits for group 1 to complete).
           "files": ["src/path.ts"],
           "depends_on": [],
           "acceptance_criteria": ["criterion"],
-          "size": "S"
+          "size": "S",
+          "flags": {}
         }
       ]
     }
