@@ -1,7 +1,7 @@
 import { readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { type DecisionInput, DecisionStore } from "@/supervisor/decisions";
+import { type DecisionInput, DecisionStore, tombstoneSchema } from "@/supervisor/decisions";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_decisions_test__");
 const TEST_FILE = path.join(TMP_DIR, "decisions.jsonl");
@@ -522,6 +522,195 @@ describe("DecisionStore", () => {
       expect(new Set(ids).size).toBe(10); // All unique IDs
       const pending = await store.pending();
       expect(pending).toHaveLength(10);
+    });
+  });
+
+  describe("file size validation", () => {
+    it("throws DecisionFileSizeError when file exceeds maximum size", async () => {
+      const store = new DecisionStore(TEST_FILE);
+
+      // Ensure directory exists first
+      await store.create(makeDecision());
+
+      // Create a large file exceeding 10MB
+      const largeContent = "x".repeat(11 * 1024 * 1024); // 11MB
+      await writeFile(TEST_FILE, largeContent, "utf-8");
+
+      await expect(store.pending()).rejects.toThrow("Decision file exceeds maximum size");
+    });
+
+    it("handles normal-sized files successfully", async () => {
+      const store = new DecisionStore(TEST_FILE);
+      await store.create(makeDecision());
+
+      const pending = await store.pending();
+
+      expect(pending).toHaveLength(1);
+    });
+  });
+});
+
+describe("tombstoneSchema", () => {
+  describe("valid tombstones", () => {
+    it("validates tombstone with all required fields", () => {
+      const tombstone = {
+        action: "tombstone",
+        id: "dec_abc123",
+        createdAt: "2026-03-23T12:00:00.000Z",
+        reason: "deleted",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.action).toBe("tombstone");
+        expect(result.data.id).toBe("dec_abc123");
+        expect(result.data.createdAt).toBe("2026-03-23T12:00:00.000Z");
+        expect(result.data.reason).toBe("deleted");
+      }
+    });
+
+    it("validates all valid reason enum values", () => {
+      const reasons = ["deleted", "expired", "purged"] as const;
+
+      for (const reason of reasons) {
+        const tombstone = {
+          action: "tombstone",
+          id: "dec_test",
+          createdAt: "2026-03-23T12:00:00.000Z",
+          reason,
+        };
+
+        const result = tombstoneSchema.safeParse(tombstone);
+
+        expect(result.success).toBe(true);
+        if (result.success) {
+          expect(result.data.reason).toBe(reason);
+        }
+      }
+    });
+
+    it("coerces timestamp to string when provided as Date", () => {
+      const date = new Date("2026-03-23T12:00:00.000Z");
+      const tombstone = {
+        action: "tombstone",
+        id: "dec_test",
+        createdAt: date,
+        reason: "expired",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(typeof result.data.createdAt).toBe("string");
+        // z.coerce.string() converts Date to .toString(), not .toISOString()
+        expect(result.data.createdAt).toBe(date.toString());
+      }
+    });
+
+    it("coerces timestamp to string when provided as number", () => {
+      const timestamp = new Date("2026-03-23T12:00:00.000Z").getTime();
+      const tombstone = {
+        action: "tombstone",
+        id: "dec_test",
+        createdAt: timestamp,
+        reason: "purged",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(typeof result.data.createdAt).toBe("string");
+        expect(result.data.createdAt).toBe(timestamp.toString());
+      }
+    });
+  });
+
+  describe("invalid tombstones", () => {
+    it("rejects when action is not 'tombstone'", () => {
+      const tombstone = {
+        action: "delete",
+        id: "dec_test",
+        createdAt: "2026-03-23T12:00:00.000Z",
+        reason: "deleted",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects when id is missing", () => {
+      const tombstone = {
+        action: "tombstone",
+        createdAt: "2026-03-23T12:00:00.000Z",
+        reason: "deleted",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(false);
+    });
+
+    it("accepts null and coerces to string", () => {
+      const tombstone = {
+        action: "tombstone",
+        id: "dec_test",
+        createdAt: null,
+        reason: "deleted",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(true);
+      if (result.success) {
+        expect(result.data.createdAt).toBe("null");
+      }
+    });
+
+    it("rejects when reason is missing", () => {
+      const tombstone = {
+        action: "tombstone",
+        id: "dec_test",
+        createdAt: "2026-03-23T12:00:00.000Z",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(false);
+    });
+
+    it("rejects invalid reason values", () => {
+      const invalidReasons = ["removed", "archived", "canceled", ""];
+
+      for (const reason of invalidReasons) {
+        const tombstone = {
+          action: "tombstone",
+          id: "dec_test",
+          createdAt: "2026-03-23T12:00:00.000Z",
+          reason,
+        };
+
+        const result = tombstoneSchema.safeParse(tombstone);
+
+        expect(result.success).toBe(false);
+      }
+    });
+
+    it("rejects when id is not a string", () => {
+      const tombstone = {
+        action: "tombstone",
+        id: 123,
+        createdAt: "2026-03-23T12:00:00.000Z",
+        reason: "deleted",
+      };
+
+      const result = tombstoneSchema.safeParse(tombstone);
+
+      expect(result.success).toBe(false);
     });
   });
 });
