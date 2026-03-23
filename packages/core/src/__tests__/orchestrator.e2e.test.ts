@@ -553,8 +553,14 @@ describe("orchestrator E2E: concurrent run handling", () => {
 
     const completedRuns: string[] = [];
 
-    orchestrator.on("session:complete", (e) => {
-      completedRuns.push((e as SessionCompleteEvent).runId);
+    // Create a promise that resolves when we've received 2 session:complete events
+    const allCompletedPromise = new Promise<void>((resolve) => {
+      orchestrator.on("session:complete", (e) => {
+        completedRuns.push((e as SessionCompleteEvent).runId);
+        if (completedRuns.length === 2) {
+          resolve();
+        }
+      });
     });
 
     await orchestrator.start();
@@ -575,6 +581,9 @@ describe("orchestrator E2E: concurrent run handling", () => {
       }),
     ]);
 
+    // Wait for all session:complete events to be processed
+    await allCompletedPromise;
+
     // Both complete successfully
     expect(result1.status).toBe("success");
     expect(result2.status).toBe("success");
@@ -592,13 +601,21 @@ describe("orchestrator E2E: concurrent run handling", () => {
     orchestrator.registerAgent(makeAgent());
 
     const allEvents: Array<{ type: string; runId: string }> = [];
+    let completeCount = 0;
 
-    orchestrator.on("session:start", (e) => {
-      allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
-    });
+    // Create a promise that resolves when we've received 2 session:complete events
+    const allCompletedPromise = new Promise<void>((resolve) => {
+      orchestrator.on("session:start", (e) => {
+        allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
+      });
 
-    orchestrator.on("session:complete", (e) => {
-      allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
+      orchestrator.on("session:complete", (e) => {
+        allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
+        completeCount++;
+        if (completeCount === 2) {
+          resolve();
+        }
+      });
     });
 
     await orchestrator.start();
@@ -618,6 +635,9 @@ describe("orchestrator E2E: concurrent run handling", () => {
         branch: "feat/order-2",
       }),
     ]);
+
+    // Wait for all session:complete events to be processed
+    await allCompletedPromise;
 
     // Should have 4 events (2 starts + 2 completes)
     expect(allEvents).toHaveLength(4);
