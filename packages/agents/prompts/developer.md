@@ -204,17 +204,24 @@ If critical issues → fix, re-spawn. Max 3 iterations.
 
 ### Handling Review Feedback
 
-When receiving feedback from spawned reviewer subagents:
+When receiving feedback from reviewers (subagent or external):
 
 1. **READ** the full feedback without reacting
-2. **VERIFY** each suggestion against the actual codebase
-3. **EVALUATE**: is this technically correct for THIS code?
-4. If **unclear**: re-spawn reviewer with clarification question
-5. If **wrong**: ignore with reasoning (reviewer may lack context). Note in report.
-6. If **correct**: fix one item at a time, test each
+2. **RESTATE** the requirement behind each suggestion — what problem is the reviewer solving?
+3. **VERIFY** each suggestion against the actual codebase — does the file/function/pattern exist?
+4. **EVALUATE**: is this technically correct for THIS code? Check:
+   - Does the suggestion account for the current architecture?
+   - Would it break something the reviewer can't see?
+   - Is it addressing a real issue or a style preference?
+5. If **unclear**: re-spawn reviewer with clarification question
+6. If **wrong**: ignore with technical reasoning (not defensiveness). Note in report.
+7. If **correct**: fix one item at a time, test each fix individually
 
-Never implement feedback you haven't verified.
-Never express performative agreement — just fix or push back with reasoning.
+**Anti-patterns:**
+- "Great point!" followed by blind implementation → verify first
+- Implementing all suggestions in one batch → one at a time, test each
+- Agreeing to avoid conflict → push back with reasoning when warranted
+- Assuming the reviewer has full context → they don't, verify
 
 ### Systematic Debugging
 
