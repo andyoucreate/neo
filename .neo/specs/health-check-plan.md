@@ -37,31 +37,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const execFileAsync = promisify(execFile);
 
 describe("health command", () => {
-  describe("HealthCheckResult type", () => {
-    it("has correct structure for passing check", () => {
-      const result = {
-        name: "config",
-        ok: true,
-        message: "Valid",
-      };
-
-      expect(result.ok).toBe(true);
-      expect(result.name).toBe("config");
+  describe("command export", () => {
+    it("exports a valid citty command definition", async () => {
+      const { default: healthCmd } = await import("../commands/health.js");
+      expect(healthCmd.meta.name).toBe("health");
+      expect(typeof healthCmd.run).toBe("function");
     });
 
-    it("has correct structure for failing check", () => {
-      const result = {
-        name: "git",
-        ok: false,
-        error: "not found",
-      };
-
-      expect(result.ok).toBe(false);
-      expect(result.error).toBe("not found");
+    it("has correct description", async () => {
+      const { default: healthCmd } = await import("../commands/health.js");
+      expect(healthCmd.meta.description).toContain("health check");
     });
   });
 
-  describe("HealthSummary type", () => {
+  describe("HealthSummary structure", () => {
     it("aggregates all checks with overall status", () => {
       const summary = {
         ok: false,
@@ -77,7 +66,7 @@ describe("health command", () => {
       expect(summary.checks.claude.ok).toBe(false);
     });
 
-    it("is ok when all checks pass", () => {
+    it("is ok only when all checks pass", () => {
       const checks = {
         config: { ok: true },
         git: { ok: true },
@@ -87,44 +76,20 @@ describe("health command", () => {
 
       expect(allOk).toBe(true);
     });
-  });
 
-  describe("checkConfig", () => {
-    const TMP_DIR = path.join(import.meta.dirname, "__tmp_health_config__");
+    it("is not ok when any check fails", () => {
+      const checks = {
+        config: { ok: true },
+        git: { ok: false, error: "not found" },
+        claude: { ok: true },
+      };
+      const allOk = Object.values(checks).every((c) => c.ok);
 
-    beforeEach(async () => {
-      await mkdir(TMP_DIR, { recursive: true });
-    });
-
-    afterEach(async () => {
-      await rm(TMP_DIR, { recursive: true, force: true });
-      vi.restoreAllMocks();
-    });
-
-    it("returns ok:true for valid YAML config", async () => {
-      const configPath = path.join(TMP_DIR, "config.yml");
-      await writeFile(
-        configPath,
-        `repos: []\nconcurrency:\n  maxSessions: 5\n  maxPerRepo: 4\n  queueMax: 50\nbudget:\n  dailyCapUsd: 500\n  alertThresholdPct: 80\n`,
-        "utf-8",
-      );
-
-      // The actual check will use loadGlobalConfig, but we test the pattern
-      const isValidYaml = true; // simulated
-      expect(isValidYaml).toBe(true);
-    });
-
-    it("returns ok:false for invalid config", async () => {
-      const configPath = path.join(TMP_DIR, "config.yml");
-      await writeFile(configPath, "invalid: yaml: syntax:", "utf-8");
-
-      // simulated validation failure
-      const isValidYaml = false;
-      expect(isValidYaml).toBe(false);
+      expect(allOk).toBe(false);
     });
   });
 
-  describe("checkGit", () => {
+  describe("checkGit behavior", () => {
     it("returns ok:true with version when git is available", async () => {
       // This test runs against real system git
       try {
@@ -138,28 +103,14 @@ describe("health command", () => {
     });
   });
 
-  describe("checkClaude", () => {
-    it("returns ok:true when claude responds", async () => {
-      // We test the pattern - actual implementation will call claude --version
-      const mockResponse = { ok: true, version: "1.0.0" };
-      expect(mockResponse.ok).toBe(true);
-    });
-
-    it("returns ok:false with error on timeout", async () => {
-      const mockResponse = { ok: false, error: "timeout after 5s" };
-      expect(mockResponse.ok).toBe(false);
-      expect(mockResponse.error).toContain("timeout");
-    });
-  });
-
-  describe("exit codes", () => {
-    it("exits 0 when all checks pass", () => {
+  describe("exit code logic", () => {
+    it("returns 0 when all checks pass", () => {
       const summary = { ok: true, checks: {} };
       const exitCode = summary.ok ? 0 : 1;
       expect(exitCode).toBe(0);
     });
 
-    it("exits 1 when any check fails", () => {
+    it("returns 1 when any check fails", () => {
       const summary = { ok: false, checks: {} };
       const exitCode = summary.ok ? 0 : 1;
       expect(exitCode).toBe(1);
@@ -171,7 +122,7 @@ describe("health command", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm test -- packages/cli/src/__tests__/health.test.ts`
-Expected: PASS (these are unit tests for types/patterns, command import will be tested in task 2)
+Expected: FAIL with "Cannot find module '../commands/health.js'" (command doesn't exist yet)
 
 - [ ] **Step 3: Write the health command implementation**
 
@@ -268,6 +219,7 @@ export default defineCommand({
 
     console.log(JSON.stringify(summary, null, 2));
 
+    // Use process.exitCode (not process.exit) to allow proper cleanup
     if (!summary.ok) {
       process.exitCode = 1;
     }
@@ -307,44 +259,25 @@ EOF
 **Files:**
 - Modify: `packages/cli/src/index.ts`
 
-- [ ] **Step 1: Write the failing test (manual verification)**
+- [ ] **Step 1: Verify command is not yet registered**
 
-Run: `pnpm build && neo health`
-Expected: Error "Unknown command: health"
+Run: `grep -c "health" packages/cli/src/index.ts`
+Expected: 0 (no matches)
 
 - [ ] **Step 2: Add health to subCommands**
 
-```typescript
-// packages/cli/src/index.ts
-// Add this line in the subCommands object (alphabetical order, after 'guide'):
+Add the following line after the `guide` entry in the subCommands object:
 
+```typescript
 health: () => import("./commands/health.js").then((m) => m.default),
 ```
 
-The full subCommands section should look like:
+The modified section of `packages/cli/src/index.ts` should read:
 
 ```typescript
-subCommands: {
-  init: () => import("./commands/init.js").then((m) => m.default),
-  run: () => import("./commands/run.js").then((m) => m.default),
-  decision: () => import("./commands/decision.js").then((m) => m.default),
-  runs: () => import("./commands/runs.js").then((m) => m.default),
-  log: () => import("./commands/log.js").then((m) => m.default),
-  logs: () => import("./commands/logs.js").then((m) => m.default),
-  cost: () => import("./commands/cost.js").then((m) => m.default),
-  config: () => import("./commands/config.js").then((m) => m.default),
-  repos: () => import("./commands/repos.js").then((m) => m.default),
-  agents: () => import("./commands/agents.js").then((m) => m.default),
-  supervise: () => import("./commands/supervise.js").then((m) => m.default),
-  supervisor: () => import("./commands/supervisor/index.js").then((m) => m.default),
-  memory: () => import("./commands/memory.js").then((m) => m.default),
-  mcp: () => import("./commands/mcp.js").then((m) => m.default),
-  guide: () => import("./commands/guide.js").then((m) => m.default),
-  health: () => import("./commands/health.js").then((m) => m.default),
-  doctor: () => import("./commands/doctor.js").then((m) => m.default),
-  version: () => import("./commands/version.js").then((m) => m.default),
-  webhooks: () => import("./commands/webhooks.js").then((m) => m.default),
-},
+guide: () => import("./commands/guide.js").then((m) => m.default),
+health: () => import("./commands/health.js").then((m) => m.default),
+doctor: () => import("./commands/doctor.js").then((m) => m.default),
 ```
 
 - [ ] **Step 3: Build and verify**
@@ -354,7 +287,7 @@ Expected: PASS (no type errors)
 
 - [ ] **Step 4: Manual integration test**
 
-Run: `neo health`
+Run: `node packages/cli/dist/index.js health`
 Expected: JSON output like:
 ```json
 {
@@ -392,12 +325,12 @@ Expected: All tests pass
 
 - [ ] **Step 2: Verify health command works end-to-end**
 
-Run: `neo health`
+Run: `node packages/cli/dist/index.js health`
 Expected: JSON output with status for all 3 checks
 
 - [ ] **Step 3: Verify exit code on failure (optional)**
 
-Run: `neo health; echo "Exit code: $?"`
+Run: `node packages/cli/dist/index.js health; echo "Exit code: $?"`
 Expected: Exit code 0 if all pass, 1 if any fail
 
 ---
