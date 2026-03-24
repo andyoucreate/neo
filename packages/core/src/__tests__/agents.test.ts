@@ -224,6 +224,67 @@ extends: developer
     expect(config.name).toBe("minimal-agent");
     expect(config.extends).toBe("developer");
   });
+
+  // ─── maxCost schema validation tests ─────────────────────
+
+  it("loads agent with maxCost field", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "budget-agent",
+      `
+name: budget-agent
+description: "Agent with budget"
+model: opus
+tools: [Read, Write]
+sandbox: writable
+prompt: "You are a budget-limited agent."
+maxCost: 5.0
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "budget-agent.yml"));
+    expect(config.name).toBe("budget-agent");
+    expect(config.maxCost).toBe(5.0);
+  });
+
+  it("accepts maxCost of zero", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "zero-budget",
+      `
+name: zero-budget
+description: "Agent with zero budget"
+model: opus
+tools: [Read]
+sandbox: readonly
+prompt: "You are a zero-budget agent."
+maxCost: 0
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "zero-budget.yml"));
+    expect(config.maxCost).toBe(0);
+  });
+
+  it("rejects negative maxCost", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "negative-budget",
+      `
+name: negative-budget
+description: "Agent with negative budget"
+model: opus
+tools: [Read]
+sandbox: readonly
+prompt: "You are an invalid agent."
+maxCost: -1.0
+`,
+    );
+
+    await expect(loadAgentFile(path.join(BUILT_IN_DIR, "negative-budget.yml"))).rejects.toThrow(
+      "Invalid agent config",
+    );
+  });
 });
 
 // ─── resolveAgent ────────────────────────────────────────
@@ -645,6 +706,89 @@ describe("resolveAgent", () => {
 
     const resolved = resolveAgent(config, builtIns);
     expect(resolved.version).toBe("3.0.0");
+  });
+
+  // ─── maxCost inheritance tests ───────────────────────────
+
+  it("parses maxCost field when present in custom agent", () => {
+    const config: AgentConfig = {
+      name: "budget-agent",
+      description: "Agent with budget",
+      model: "opus",
+      tools: ["Read", "Write"],
+      prompt: "You are a budget-limited agent.",
+      sandbox: "writable",
+      maxCost: 5.0,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(5.0);
+  });
+
+  it("allows maxCost field to be optional", () => {
+    const config: AgentConfig = {
+      name: "no-budget-agent",
+      description: "Agent without budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "You are an agent without budget limit.",
+      sandbox: "readonly",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBeUndefined();
+  });
+
+  it("inherits maxCost from built-in when extending", () => {
+    builtIns.set("budget-base", {
+      name: "budget-base",
+      description: "Base with budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      maxCost: 10.0,
+    });
+
+    const config: AgentConfig = {
+      name: "extends-budget",
+      extends: "budget-base",
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(10.0);
+  });
+
+  it("overrides maxCost from built-in when extending", () => {
+    builtIns.set("budget-base2", {
+      name: "budget-base2",
+      description: "Base with budget",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Base prompt.",
+      sandbox: "readonly",
+      maxCost: 10.0,
+    });
+
+    const config: AgentConfig = {
+      name: "override-budget",
+      extends: "budget-base2",
+      maxCost: 2.5,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(2.5);
+  });
+
+  it("allows child to set maxCost even if parent has none", () => {
+    const config: AgentConfig = {
+      name: "child-with-budget",
+      extends: "developer",
+      maxCost: 15.0,
+    };
+
+    const resolved = resolveAgent(config, builtIns);
+    expect(resolved.maxCost).toBe(15.0);
   });
 });
 

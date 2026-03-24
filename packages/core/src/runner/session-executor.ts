@@ -9,6 +9,7 @@ import {
 } from "@/orchestrator/prompt-builder";
 import { type ParsedOutput, parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
+import { SessionError } from "@/runner/session";
 import type { Middleware, MiddlewareContext, ResolvedAgent, StepResult } from "@/types";
 
 // ─── Types ─────────────────────────────────────────────
@@ -180,6 +181,15 @@ export class SessionExecutor {
       ...(onAttempt ? { onAttempt } : {}),
       ...(agent.maxTurns ? { maxTurns: agent.maxTurns } : {}),
     });
+
+    // Post-session budget check (SDK provides cost only after session ends)
+    if (agent.maxCost !== undefined && sessionResult.costUsd >= agent.maxCost) {
+      throw new SessionError(
+        `Agent session exceeded budget: $${sessionResult.costUsd.toFixed(4)} >= $${agent.maxCost.toFixed(4)} limit`,
+        "budget_exceeded",
+        sessionResult.sessionId,
+      );
+    }
 
     // Parse output
     const parsed = parseOutput(sessionResult.output);
