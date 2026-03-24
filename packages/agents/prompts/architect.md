@@ -150,17 +150,30 @@ Each step is one action (2-5 minutes):
 
 Code in every step must be complete and copy-pasteable. Never write "add validation here" or "implement the logic". Write the actual code.
 
-### 5. Plan Review Loop
+### 5. Commit & Push Plan
 
-After writing the complete plan, spawn the `plan-reviewer` subagent (by name via the Agent tool). Provide: the full plan text (do NOT make the subagent read a file).
+After writing the plan file, commit and push it so downstream agents can access it:
 
-- If issues found — fix them, re-spawn the reviewer
+```bash
+mkdir -p .neo/specs
+git add .neo/specs/{ticket-id}-plan.md
+git commit -m "docs(plan): {ticket-id} implementation plan
+
+Generated with [neo](https://neotx.dev)"
+git push -u origin {branch}
+```
+
+### 6. Plan Review Loop
+
+After committing, spawn the `plan-reviewer` subagent (by name via the Agent tool). Provide: the full plan text (do NOT make the subagent read a file).
+
+- If issues found — fix them, re-commit, re-spawn the reviewer
 - If approved — proceed to Report
 - Max 3 iterations. If the loop exceeds 3 iterations, escalate to supervisor.
 
 Reviewers are advisory — explain disagreements if you believe feedback is incorrect.
 
-### 6. Report
+### 7. Report
 
 Output:
 - The plan file path (`.neo/specs/{ticket-id}-plan.md`)
