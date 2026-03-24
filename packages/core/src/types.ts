@@ -9,6 +9,15 @@ export type {
 } from "@/agents/schema";
 export type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 
+// ─── Subagent Definition (SDK-compatible) ────────────────
+
+export interface SubagentDefinition {
+  description: string;
+  prompt: string;
+  tools?: string[] | undefined;
+  model?: string | undefined;
+}
+
 // ─── Agent Definition (SDK-compatible) ───────────────────
 
 export interface AgentDefinition {
@@ -17,6 +26,7 @@ export interface AgentDefinition {
   tools: string[];
   model: string;
   mcpServers?: string[] | undefined;
+  agents?: Record<string, SubagentDefinition> | undefined;
 }
 
 // ─── Resolved agent (runtime, after merging) ─────────────
