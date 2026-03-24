@@ -18,6 +18,7 @@ export interface SessionOptions {
   maxDurationMs: number;
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
+  agents?: Record<string, unknown> | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
 }
 
@@ -76,6 +77,10 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
 
   if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
     queryOptions.mcpServers = options.mcpServers;
+  }
+
+  if (options.agents && Object.keys(options.agents).length > 0) {
+    queryOptions.agents = options.agents;
   }
 
   if (options.env && Object.keys(options.env).length > 0) {

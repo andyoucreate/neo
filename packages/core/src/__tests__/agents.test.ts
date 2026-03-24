@@ -114,6 +114,61 @@ prompt: nonexistent.md
     );
   });
 
+  it("loads agent with inline subagent definitions", async () => {
+    await writeYaml(
+      BUILT_IN_DIR,
+      "with-agents",
+      `
+name: with-agents
+description: "Agent with subagents"
+model: opus
+tools: [Read, Agent]
+sandbox: writable
+prompt: "You are an agent."
+agents:
+  reviewer:
+    description: "Code reviewer"
+    prompt: "You review code."
+    tools: [Read, Grep, Glob]
+    model: sonnet
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "with-agents.yml"));
+    expect(config.agents).toBeDefined();
+    const reviewer = config.agents?.reviewer;
+    expect(reviewer).toBeDefined();
+    expect(reviewer?.description).toBe("Code reviewer");
+    expect(reviewer?.prompt).toBe("You review code.");
+    expect(reviewer?.tools).toEqual(["Read", "Grep", "Glob"]);
+    expect(reviewer?.model).toBe("sonnet");
+  });
+
+  it("resolves subagent .md prompt paths", async () => {
+    await writeFile(path.join(PROMPTS_DIR, "review.md"), "You are a reviewer agent.", "utf-8");
+
+    await writeYaml(
+      BUILT_IN_DIR,
+      "with-md-agents",
+      `
+name: with-md-agents
+description: "Agent with md subagent"
+model: opus
+tools: [Read, Agent]
+sandbox: writable
+prompt: "You are an agent."
+agents:
+  reviewer:
+    description: "Code reviewer"
+    prompt: ../prompts/review.md
+    tools: [Read]
+`,
+    );
+
+    const config = await loadAgentFile(path.join(BUILT_IN_DIR, "with-md-agents.yml"));
+    expect(config.agents?.reviewer?.prompt).toBe("You are a reviewer agent.");
+  });
+
   it("throws for invalid schema", async () => {
     await writeYaml(
       BUILT_IN_DIR,
@@ -427,6 +482,87 @@ describe("resolveAgent", () => {
     expect(resolved.definition.mcpServers).toBeUndefined();
   });
 
+  it("merges agents from base and override", () => {
+    const base: AgentConfig = {
+      name: "developer",
+      description: "Dev",
+      model: "opus",
+      tools: ["Read"],
+      sandbox: "writable",
+      prompt: "You are a developer.",
+      agents: {
+        reviewer: {
+          description: "Base reviewer",
+          prompt: "Review code.",
+          tools: ["Read"],
+        },
+      },
+    };
+    const localBuiltIns = new Map([["developer", base]]);
+
+    const config: AgentConfig = {
+      name: "dev-custom",
+      extends: "developer",
+      agents: {
+        "quality-reviewer": {
+          description: "Quality reviewer",
+          prompt: "Review quality.",
+          tools: ["Read", "Grep"],
+          model: "sonnet",
+        },
+      },
+    };
+
+    const resolved = resolveAgent(config, localBuiltIns);
+    expect(resolved.definition.agents).toEqual({
+      reviewer: {
+        description: "Base reviewer",
+        prompt: "Review code.",
+        tools: ["Read"],
+      },
+      "quality-reviewer": {
+        description: "Quality reviewer",
+        prompt: "Review quality.",
+        tools: ["Read", "Grep"],
+        model: "sonnet",
+      },
+    });
+  });
+
+  it("override agents win on name collision", () => {
+    const base: AgentConfig = {
+      name: "developer",
+      description: "Dev",
+      model: "opus",
+      tools: ["Read"],
+      sandbox: "writable",
+      prompt: "You are a developer.",
+      agents: {
+        reviewer: {
+          description: "Base reviewer",
+          prompt: "Review code.",
+        },
+      },
+    };
+    const localBuiltIns = new Map([["developer", base]]);
+
+    const config: AgentConfig = {
+      name: "dev-override",
+      extends: "developer",
+      agents: {
+        reviewer: {
+          description: "Override reviewer",
+          prompt: "Review differently.",
+          model: "opus",
+        },
+      },
+    };
+
+    const resolved = resolveAgent(config, localBuiltIns);
+    expect(resolved.definition.agents?.reviewer?.description).toBe("Override reviewer");
+    expect(resolved.definition.agents?.reviewer?.model).toBe("opus");
+  });
+
   it("filters $inherited from tools when no extends", () => {
     const config: AgentConfig = {
       name: "standalone",
@@ -661,6 +797,6 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
     expect(arch?.definition.prompt).toBeTruthy();
     expect(arch?.definition.tools.length).toBeGreaterThan(0);
     expect(arch?.definition.model).toBe("opus");
-    expect(arch?.sandbox).toBe("readonly");
+    expect(arch?.sandbox).toBe("writable");
   });
 });

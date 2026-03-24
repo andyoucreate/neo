@@ -1,5 +1,5 @@
 name: developer
-description: "Implementation worker. Executes atomic tasks in isolated clones. Spawns spec-compliance and code-quality reviewer subagents. Self-reviews, debugs systematically, and verifies before reporting."
+description: "Executes implementation plans step by step or direct tasks in an isolated git clone. Spawns spec-reviewer and code-quality-reviewer subagents."
 model: opus
 tools:
   - Read
@@ -10,5 +10,22 @@ tools:
   - Grep
   - Agent
 sandbox: writable
-maxTurns: 100
+maxTurns: 200
 prompt: ../prompts/developer.md
+agents:
+  spec-reviewer:
+    description: "Verify implementation matches task specification exactly. Use after completing each task to ensure nothing is missing or extra."
+    prompt: ../prompts/subagents/spec-reviewer.md
+    tools:
+      - Read
+      - Grep
+      - Glob
+    model: sonnet
+  code-quality-reviewer:
+    description: "Review code quality, patterns, and test coverage. Use ONLY after spec-reviewer approves."
+    prompt: ../prompts/subagents/code-quality-reviewer.md
+    tools:
+      - Read
+      - Grep
+      - Glob
+    model: sonnet

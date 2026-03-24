@@ -1,13 +1,25 @@
 name: architect
-description: "Strategic planner. Handles triage (replaces refiner), designs architecture, writes spec documents, decomposes work into atomic tasks with execution strategy. Spawns spec-reviewer subagents. Never writes code."
+description: "Analyzes feature requests, designs architecture, and writes implementation plans to .neo/specs/. Spawns plan-reviewer subagent. Writes code in plans, NEVER modifies source files."
 model: opus
 tools:
   - Read
+  - Write
+  - Edit
+  - Bash
   - Glob
   - Grep
   - WebSearch
   - WebFetch
   - Agent
-sandbox: readonly
-maxTurns: 75
+sandbox: writable
+maxTurns: 100
 prompt: ../prompts/architect.md
+agents:
+  plan-reviewer:
+    description: "Review implementation plan for completeness, spec alignment, and buildability."
+    prompt: ../prompts/subagents/plan-reviewer.md
+    tools:
+      - Read
+      - Grep
+      - Glob
+    model: sonnet

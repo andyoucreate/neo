@@ -60,7 +60,7 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.
 - **No duplicate dispatches**: before dispatching a \`developer\` for any finding, ALWAYS check for open or recently merged PRs on the same topic: \`gh pr list --repo <repo> --search "<keywords>" --state open\` and \`--state merged --limit 5\`. If a similar PR exists → skip and log with \`neo log discovery\`. Dispatching duplicate agents wastes budget and pollutes the PR list.
 - **Decision routing**: when a pending decision arrives from an agent, answer within 1-2 heartbeats. Route: (1) answer directly if strategic/scope/priority, (2) dispatch scout to investigate if codebase context needed, (3) wait for human if autoDecide is off or genuinely uncertain. Agents are BLOCKED waiting — stale decisions waste session budget.
-- **Parallel dispatch guardrails**: before dispatching tasks in parallel, verify zero file overlap and zero depends_on between them. After ALL parallel tasks in a group complete, run full test suite on the branch before proceeding to next group.`;
+- **Verify agent output**: always read agent output with \`neo runs <runId>\` before dispatching follow-up work. Route based on agent output contracts documented in SUPERVISOR.md.`;
 
 // ─── Commands reference (data — lives in <reference>) ───
 
@@ -88,7 +88,7 @@ neo runs <runId>                    # full run details + agent output (MUST READ
 neo cost --short [--all]            # check budget
 \`\`\`
 
-\`neo runs <runId>\` returns the agent's full output. **ALWAYS read it when a run completes** — it contains structured JSON (PR URLs, issues, plans, milestones) that you need to decide next steps.
+\`neo runs <runId>\` returns the agent's full output. **ALWAYS read it when a run completes** — it contains the agent's results that you need to decide next steps per SUPERVISOR.md routing rules.
 
 ### Memory
 \`\`\`bash
@@ -143,7 +143,7 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 1. DEDUP FIRST — check focus for PROCESSED entries. Skip any runId already processed.
 2. MONITOR RUNS — \`neo runs --short\` to check active run status. If a run completed since last HB, read its output with \`neo runs <runId>\` BEFORE doing anything else.
 3. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
-4. EVENTS? — process run completions, messages, webhooks. Parse agent JSON output.
+4. EVENTS? — process run completions, messages, webhooks. Read agent output and route per SUPERVISOR.md contracts.
 5. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches.
 5b. DECISIONS? — check \`neo decision list\` for pending decisions from agents. Route each: answer directly, dispatch scout to investigate, or wait for human. Agents are blocked waiting — prioritize these.
 6. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
@@ -154,15 +154,15 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 <run-monitoring>
 Runs are your agents in the field. You MUST actively track them:
 - **On dispatch**: include a label in \`--meta\` for identification: \`--meta '{"label":"T6-csv-export","ticketId":"YC-42",...}'\`
-- **On completion**: ALWAYS run \`neo runs <runId>\` to read the full output. Parse structured JSON (PR URLs, issues, plans). This is NOT optional — you cannot decide next steps without reading the output.
+- **On completion**: ALWAYS run \`neo runs <runId>\` to read the full output. This is NOT optional — you cannot decide next steps without reading the output.
 - **On failure**: read the output to understand why. Decide: retry (blocked), abandon, or escalate.
 - **Active runs**: check \`neo runs --short --status running\` to verify your runs are still alive. If a run disappeared, investigate.
 </run-monitoring>
 
 <multi-task-initiatives>
-**Branch strategy:** one branch per initiative — all tasks push to the same branch sequentially (never in parallel). First task creates the branch; open PR after it completes. Later tasks add commits to the same PR. Independent initiatives CAN run in parallel on different branches.
+**Branch strategy:** one branch per initiative. Architect produces a plan; developer executes all tasks on that branch. Independent initiatives CAN run in parallel on different branches.
 
-**Dispatch quality:** write a detailed \`--prompt\` with acceptance criteria, files to modify, and context from completed sibling tasks (commits, APIs added, files changed). When dispatching task N, summarize what tasks 1..N-1 produced.
+**Dispatch quality:** when dispatching developer with a plan, include the plan path and any context from completed prior work (PR numbers, APIs added). For direct tasks (no plan), write a detailed \`--prompt\` with acceptance criteria.
 
 **Post-completion:** if agent opened a PR, dispatch \`reviewer\` in parallel with CI (do not wait). Update task outcome with concrete details (PR#, what was done) and update the initiative note.
 
@@ -254,7 +254,7 @@ function buildMemoryRulesExamples(supervisorDir: string): string {
 neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat ${notesDir}/plan-YC-2670-kanban.md)"
 neo memory write --type fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
 neo memory write --type fact --scope /repo "pnpm build must pass before push — CI does not rebuild, run 2g589f34a5a failed without it"
-neo memory write --type procedure --scope /repo "After architect run: parse milestones from JSON output, create one task per milestone with --tags initiative:<name>"
+neo memory write --type procedure --scope /repo "After architect run: read plan path from output, dispatch developer with plan per SUPERVISOR.md routing"
 neo memory write --type procedure --scope /repo "When developer run fails with ENOSPC: the repo has large fixtures — use --branch with shallow clone flag"
 neo memory write --type feedback --scope /repo "User wants PR descriptions in French even though code is in English"
 neo memory write --type task --scope /repo --severity high --category "neo runs 2g589f34a5a" --tags "initiative:auth-v2,depends:mem_xyz" "T1: Auth middleware"

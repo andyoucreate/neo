@@ -1,5 +1,5 @@
 import type { AgentConfig, AgentTool } from "@/agents/schema";
-import type { AgentDefinition, ResolvedAgent } from "@/types";
+import type { AgentDefinition, ResolvedAgent, SubagentDefinition } from "@/types";
 
 /**
  * Resolve an agent config into a fully-merged ResolvedAgent.
@@ -42,6 +42,10 @@ function resolveExtendedAgent(
   const tools = mergeTools(config.tools, base.tools);
   const prompt = mergePrompt(config.prompt, config.promptAppend, base.prompt);
   const mcpServers = mergeMcpServerNames(base.mcpServers, config.mcpServers);
+  const agents = mergeAgents(
+    base.agents as Record<string, SubagentDefinition> | undefined,
+    config.agents as Record<string, SubagentDefinition> | undefined,
+  );
 
   const definition: AgentDefinition = {
     description: config.description ?? base.description ?? "",
@@ -49,6 +53,7 @@ function resolveExtendedAgent(
     tools,
     model: config.model ?? base.model ?? "sonnet",
     ...(mcpServers.length > 0 ? { mcpServers } : {}),
+    ...(agents ? { agents } : {}),
   };
 
   return {
@@ -112,6 +117,7 @@ function resolveCustomAgent(config: AgentConfig): ResolvedAgent {
     tools,
     model: config.model,
     ...(config.mcpServers?.length ? { mcpServers: config.mcpServers } : {}),
+    ...(config.agents ? { agents: config.agents as Record<string, SubagentDefinition> } : {}),
   };
 
   return {
@@ -150,4 +156,14 @@ function mergePrompt(
 function mergeMcpServerNames(base: string[] | undefined, override: string[] | undefined): string[] {
   if (!base?.length && !override?.length) return [];
   return [...new Set([...(base ?? []), ...(override ?? [])])];
+}
+
+function mergeAgents(
+  base: Record<string, SubagentDefinition> | undefined,
+  override: Record<string, SubagentDefinition> | undefined,
+): Record<string, SubagentDefinition> | undefined {
+  if (!base && !override) return undefined;
+  if (!base) return override;
+  if (!override) return base;
+  return { ...base, ...override };
 }
