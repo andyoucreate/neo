@@ -136,10 +136,12 @@ agents:
 
     const config = await loadAgentFile(path.join(BUILT_IN_DIR, "with-agents.yml"));
     expect(config.agents).toBeDefined();
-    expect(config.agents?.reviewer.description).toBe("Code reviewer");
-    expect(config.agents?.reviewer.prompt).toBe("You review code.");
-    expect(config.agents?.reviewer.tools).toEqual(["Read", "Grep", "Glob"]);
-    expect(config.agents?.reviewer.model).toBe("sonnet");
+    const reviewer = config.agents?.reviewer;
+    expect(reviewer).toBeDefined();
+    expect(reviewer?.description).toBe("Code reviewer");
+    expect(reviewer?.prompt).toBe("You review code.");
+    expect(reviewer?.tools).toEqual(["Read", "Grep", "Glob"]);
+    expect(reviewer?.model).toBe("sonnet");
   });
 
   it("resolves subagent .md prompt paths", async () => {
@@ -164,7 +166,7 @@ agents:
     );
 
     const config = await loadAgentFile(path.join(BUILT_IN_DIR, "with-md-agents.yml"));
-    expect(config.agents?.reviewer.prompt).toBe("You are a reviewer agent.");
+    expect(config.agents?.reviewer?.prompt).toBe("You are a reviewer agent.");
   });
 
   it("throws for invalid schema", async () => {
@@ -557,8 +559,8 @@ describe("resolveAgent", () => {
     };
 
     const resolved = resolveAgent(config, localBuiltIns);
-    expect(resolved.definition.agents?.reviewer.description).toBe("Override reviewer");
-    expect(resolved.definition.agents?.reviewer.model).toBe("opus");
+    expect(resolved.definition.agents?.reviewer?.description).toBe("Override reviewer");
+    expect(resolved.definition.agents?.reviewer?.model).toBe("opus");
   });
 
   it("filters $inherited from tools when no extends", () => {
