@@ -49,6 +49,13 @@ export const agentConfigSchema = z.object({
   promptAppend: z.string().optional(),
   sandbox: agentSandboxSchema.optional(),
   maxTurns: z.number().optional(),
+  /**
+   * Maximum cost in USD for this agent session.
+   * Checked post-session (SDK provides cost only after session ends).
+   * If session cost >= maxCost, a budget_exceeded error is thrown.
+   * Child agents can override the parent's maxCost.
+   */
+  maxCost: z.number().min(0).optional(),
   mcpServers: z.array(z.string()).optional(),
   agents: z.record(z.string(), subagentDefinitionSchema).optional(),
 });
