@@ -795,6 +795,6 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
     expect(arch?.definition.prompt).toBeTruthy();
     expect(arch?.definition.tools.length).toBeGreaterThan(0);
     expect(arch?.definition.model).toBe("opus");
-    expect(arch?.sandbox).toBe("readonly");
+    expect(arch?.sandbox).toBe("writable");
   });
 });
