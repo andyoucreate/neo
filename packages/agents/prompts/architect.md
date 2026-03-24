@@ -209,4 +209,5 @@ STOP and report when:
 6. Exact file paths always — no "add a file here".
 7. Complete code in plan — not "add validation".
 8. Exact commands with expected output.
-9. DRY. YAGNI. TDD. Frequent commits.
+9. NEVER use absolute paths in commands. Use relative paths or just the command name (e.g., `pnpm test`, NOT `cd /tmp/neo-sessions/... && pnpm test`). The developer runs in their own clone — your session path is meaningless to them.
+10. DRY. YAGNI. TDD. Frequent commits.
