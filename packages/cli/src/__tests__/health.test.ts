@@ -8,13 +8,15 @@ describe("health command", () => {
   describe("command export", () => {
     it("exports a valid citty command definition", async () => {
       const { default: healthCmd } = await import("../commands/health.js");
-      expect(healthCmd.meta.name).toBe("health");
+      const meta = healthCmd.meta as { name?: string };
+      expect(meta.name).toBe("health");
       expect(typeof healthCmd.run).toBe("function");
     });
 
     it("has correct description", async () => {
       const { default: healthCmd } = await import("../commands/health.js");
-      expect(healthCmd.meta.description).toContain("health check");
+      const meta = healthCmd.meta as { description?: string };
+      expect(meta.description).toContain("health check");
     });
   });
 

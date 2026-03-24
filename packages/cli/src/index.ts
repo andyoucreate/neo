@@ -23,6 +23,7 @@ const main = defineCommand({
     memory: () => import("./commands/memory.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     guide: () => import("./commands/guide.js").then((m) => m.default),
+    health: () => import("./commands/health.js").then((m) => m.default),
     doctor: () => import("./commands/doctor.js").then((m) => m.default),
     version: () => import("./commands/version.js").then((m) => m.default),
     webhooks: () => import("./commands/webhooks.js").then((m) => m.default),
