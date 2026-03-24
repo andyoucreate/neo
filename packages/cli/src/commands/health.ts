@@ -37,7 +37,8 @@ async function checkConfig(): Promise<CheckResult> {
 async function checkGit(): Promise<CheckResult> {
   try {
     const { stdout } = await execFileAsync("git", ["--version"]);
-    const match = stdout.match(/git version (\d+\.\d+\.\d+)/);
+    // Handle both "2.25.1" and "2.25" version formats
+    const match = stdout.match(/git version (\d+\.\d+(?:\.\d+)?)/);
     return { ok: true, version: match?.[1] ?? "unknown" };
   } catch (err) {
     return {
@@ -48,14 +49,13 @@ async function checkGit(): Promise<CheckResult> {
 }
 
 async function checkClaude(): Promise<CheckResult> {
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), CLAUDE_TIMEOUT_MS);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), CLAUDE_TIMEOUT_MS);
 
+  try {
     const { stdout } = await execFileAsync("claude", ["--version"], {
       signal: controller.signal,
     });
-    clearTimeout(timeout);
 
     const version = stdout.trim();
     return { ok: true, version };
@@ -67,6 +67,8 @@ async function checkClaude(): Promise<CheckResult> {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 

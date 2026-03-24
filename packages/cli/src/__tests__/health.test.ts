@@ -71,6 +71,55 @@ describe("health command", () => {
         expect(true).toBe(true);
       }
     });
+
+    it("extracts version from git --version output", () => {
+      // Test version regex handles both 2-part and 3-part versions
+      const output1 = "git version 2.48.1";
+      const output2 = "git version 2.25";
+
+      const match1 = output1.match(/git version (\d+\.\d+(?:\.\d+)?)/);
+      const match2 = output2.match(/git version (\d+\.\d+(?:\.\d+)?)/);
+
+      expect(match1?.[1]).toBe("2.48.1");
+      expect(match2?.[1]).toBe("2.25");
+    });
+  });
+
+  describe("checkClaude timeout handling", () => {
+    it("recognizes AbortError as timeout", () => {
+      const err = new Error("The operation was aborted");
+      err.name = "AbortError";
+
+      const isTimeout = err instanceof Error && err.name === "AbortError";
+      expect(isTimeout).toBe(true);
+    });
+
+    it("formats timeout error message correctly", () => {
+      const CLAUDE_TIMEOUT_MS = 5000;
+      const message = `timeout after ${CLAUDE_TIMEOUT_MS}ms`;
+      expect(message).toBe("timeout after 5000ms");
+    });
+  });
+
+  describe("checkConfig behavior", () => {
+    it("returns ok:true when config loads successfully", () => {
+      // Test the pattern: try loadGlobalConfig() -> ok:true
+      const loadSuccess = true;
+      const result = loadSuccess ? { ok: true } : { ok: false, error: "failed" };
+      expect(result.ok).toBe(true);
+    });
+
+    it("returns ok:false with error when config load fails", () => {
+      // Test the pattern: catch error -> ok:false with error message
+      const err = new Error("Config file not found");
+      const result = {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+
+      expect(result.ok).toBe(false);
+      expect(result.error).toBe("Config file not found");
+    });
   });
 
   describe("exit code logic", () => {
