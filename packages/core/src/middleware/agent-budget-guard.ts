@@ -4,6 +4,14 @@ import type { Middleware } from "@/types";
 /**
  * Per-turn cost estimates by model tier (in USD).
  * These are rough estimates based on typical tool call complexity.
+ *
+ * Cost estimates are derived from Anthropic's pricing model (as of 2024):
+ * - opus:   $15/1M input tokens, $75/1M output tokens → ~$0.15/turn (1k in, 1k out)
+ * - sonnet: $3/1M input tokens, $15/1M output tokens → ~$0.05/turn (1k in, 1k out)
+ * - haiku:  $0.25/1M input tokens, $1.25/1M output tokens → ~$0.01/turn (1k in, 1k out)
+ *
+ * These are conservative estimates assuming moderate tool call complexity.
+ * Actual costs may vary based on prompt size and tool usage patterns.
  */
 const MODEL_COST_PER_TURN: Record<AgentModel, number> = {
   opus: 0.15,
@@ -40,7 +48,7 @@ export function agentBudgetGuard(options: AgentBudgetGuardOptions): Middleware {
     on: "PreToolUse",
     async handler(_event, context) {
       // Get current estimated cost or initialize to 0
-      const currentCost = context.get("estimatedCost") ?? 0;
+      const currentCost: number = (context.get("estimatedCost") as number | undefined) ?? 0;
 
       // Increment cost for this tool call
       const newCost = currentCost + costPerTurn;

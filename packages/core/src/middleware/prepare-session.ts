@@ -18,6 +18,11 @@ export function prepareSessionMiddleware(
   // Determine effective maxCost: overrides take precedence over agent config
   const maxCost = overrides?.maxCost ?? agent.maxCost;
 
+  /**
+   * Defensive check: maxCost > 0 filters out negative or zero budgets.
+   * While agent.maxCost is schema-validated as z.number().positive(), overrides
+   * may come from external sources and require runtime validation.
+   */
   if (maxCost !== undefined && maxCost > 0) {
     const model = agent.definition.model;
     // Map SDK model strings to our tier type

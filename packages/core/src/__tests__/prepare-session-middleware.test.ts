@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { prepareSessionMiddleware } from "@/middleware/prepare-session";
-import type { Middleware, ResolvedAgent } from "@/types";
+import type { Middleware, MiddlewareContext, MiddlewareEvent, ResolvedAgent } from "@/types";
 
 function makeAgent(overrides?: Partial<ResolvedAgent>): ResolvedAgent {
   return {
@@ -24,6 +24,29 @@ function makeDummyMiddleware(name: string): Middleware {
     async handler() {
       return { decision: "pass" };
     },
+  };
+}
+
+function makeContext(overrides?: Partial<MiddlewareContext>): MiddlewareContext {
+  const store = new Map<string, unknown>();
+  return {
+    runId: "run-1",
+    step: "step-1",
+    agent: "test-agent",
+    repo: "/tmp/repo",
+    get: (key: string) => store.get(key),
+    set: (key: string, value: unknown) => store.set(key, value),
+    ...overrides,
+  };
+}
+
+function makeEvent(overrides?: Partial<MiddlewareEvent>): MiddlewareEvent {
+  return {
+    hookEvent: "PreToolUse",
+    sessionId: "session-1",
+    toolName: "Bash",
+    input: { command: "ls" },
+    ...overrides,
   };
 }
 
@@ -60,19 +83,55 @@ describe("prepareSessionMiddleware", () => {
     expect(result[0]?.name).toBe("agent-budget-guard");
   });
 
-  it("overrides.maxCost takes precedence over agent.maxCost", () => {
+  it("overrides.maxCost takes precedence over agent.maxCost", async () => {
     const base: Middleware[] = [];
     const agent = makeAgent({ maxCost: 10.0 });
 
-    // With override
+    // With override (3.0) - should block after 3.0 / 0.05 = 60 calls
     const resultWithOverride = prepareSessionMiddleware(base, agent, { maxCost: 3.0 });
     expect(resultWithOverride).toHaveLength(1);
     expect(resultWithOverride[0]?.name).toBe("agent-budget-guard");
 
-    // Without override - uses agent maxCost
+    // Verify the effective maxCost is 3.0 by testing blocking behavior
+    const ctx = makeContext();
+    const event = makeEvent();
+    const mwWithOverride = resultWithOverride[0];
+    if (!mwWithOverride) throw new Error("Middleware not found");
+
+    // Execute 60 times (60 * 0.05 = 3.0) - should pass
+    for (let i = 0; i < 60; i++) {
+      const result = await mwWithOverride.handler(event, ctx);
+      expect(result).toEqual({ decision: "pass" });
+    }
+
+    // 61st call should exceed 3.0 budget
+    const result61 = await mwWithOverride.handler(event, ctx);
+    expect(result61).toHaveProperty("decision", "block");
+    if (result61.decision !== "block") throw new Error("Expected block decision");
+    expect(result61.reason).toContain("$3.05");
+    expect(result61.reason).toContain("$3.00");
+
+    // Without override - uses agent maxCost (10.0), should block after 200 calls
     const resultWithoutOverride = prepareSessionMiddleware(base, agent);
     expect(resultWithoutOverride).toHaveLength(1);
     expect(resultWithoutOverride[0]?.name).toBe("agent-budget-guard");
+
+    const ctx2 = makeContext();
+    const mwWithoutOverride = resultWithoutOverride[0];
+    if (!mwWithoutOverride) throw new Error("Middleware not found");
+
+    // Execute 190 times (190 * 0.05 = 9.50) - should pass
+    for (let i = 0; i < 190; i++) {
+      const result = await mwWithoutOverride.handler(event, ctx2);
+      expect(result).toEqual({ decision: "pass" });
+    }
+
+    // 191st call: 191 * 0.05 = 9.55, should pass
+    const result191 = await mwWithoutOverride.handler(event, ctx2);
+    expect(result191).toEqual({ decision: "pass" });
+
+    // Cost should be significantly under 10.0
+    expect(Number(ctx2.get("estimatedCost"))).toBeLessThan(10.0);
   });
 
   it("does not add agentBudgetGuard when maxCost is 0", () => {
