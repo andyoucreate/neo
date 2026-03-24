@@ -29,12 +29,28 @@ interface MockMessage {
   num_turns?: number;
 }
 
-let mockMessages: MockMessage[] = [];
+let mockCallCounter = 0;
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (_args: unknown) => {
-    // Capture a snapshot of mockMessages at call time to isolate concurrent runs
-    const messages = [...mockMessages];
+    // Generate unique session ID per query call to ensure isolation between concurrent runs
+    const callId = ++mockCallCounter;
+    const uniqueSessionId = `e2e-session-${callId}-${Date.now()}`;
+
+    // Create messages with unique session ID for this specific call
+    const messages: MockMessage[] = [
+      { type: "system", subtype: "init", session_id: uniqueSessionId },
+      {
+        type: "result",
+        subtype: "success",
+        session_id: uniqueSessionId,
+        result: "E2E task completed successfully",
+        total_cost_usd: 0.02,
+        duration_ms: 500,
+        num_turns: 2,
+      },
+    ];
+
     return {
       async *[Symbol.asyncIterator]() {
         for (const msg of messages) {
@@ -47,14 +63,14 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 // ─── Git/Clone Mocks ─────────────────────────────────────
 
-let mockSessionPath = "/tmp/mock-session";
-
 vi.mock("@/isolation/clone", () => ({
-  createSessionClone: () =>
+  createSessionClone: (options: { sessionDir: string; branch: string }) =>
     Promise.resolve({
-      path: mockSessionPath,
-      branch: "feat/e2e-test",
-      repoPath: mockSessionPath,
+      // Use the unique sessionDir passed by orchestrator to avoid race conditions
+      // when concurrent dispatches share the same mock path
+      path: options.sessionDir,
+      branch: options.branch,
+      repoPath: options.sessionDir,
     }),
   removeSessionClone: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
@@ -145,25 +161,10 @@ function makeAgent(): ResolvedAgent {
   };
 }
 
-function successMessages(sessionId = "e2e-session-123"): MockMessage[] {
-  return [
-    { type: "system", subtype: "init", session_id: sessionId },
-    {
-      type: "result",
-      subtype: "success",
-      session_id: sessionId,
-      result: "E2E task completed successfully",
-      total_cost_usd: 0.02,
-      duration_ms: 500,
-      num_turns: 2,
-    },
-  ];
-}
-
 // ─── Setup / Teardown ────────────────────────────────────
 
 beforeEach(async () => {
-  mockMessages = successMessages();
+  mockCallCounter = 0; // Reset counter for consistent test isolation
 
   // Create all required directories
   await mkdir(TMP_BASE, { recursive: true });
@@ -175,9 +176,6 @@ beforeEach(async () => {
   // Create a real git repository for E2E testing
   await createTestRepo(TEST_REPO_DIR);
   await createTestFile(TEST_REPO_DIR, "README.md", "# E2E Test Repository\n");
-
-  // Point mock session path to the test repo
-  mockSessionPath = TEST_REPO_DIR;
 });
 
 afterEach(async () => {
@@ -407,7 +405,6 @@ describe("orchestrator E2E: concurrent run handling", () => {
   beforeEach(() => {
     // Reset mocks for concurrent tests - use real timers
     vi.useRealTimers();
-    mockMessages = successMessages();
   });
 
   it("handles concurrent dispatches with isolated state and accumulated cost", {
@@ -664,7 +661,6 @@ describe("orchestrator E2E: webhook delivery verification", () => {
 
   beforeEach(async () => {
     vi.useRealTimers();
-    mockMessages = successMessages();
 
     webhookServer = new MockWebhookServer();
     await webhookServer.start();
