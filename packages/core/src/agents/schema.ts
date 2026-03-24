@@ -27,6 +27,15 @@ export const agentToolEntrySchema = z.union([agentToolSchema, z.literal("$inheri
 
 export const agentSandboxSchema = z.enum(["writable", "readonly"]);
 
+// ─── Subagent definition (for SDK agents parameter) ───
+
+export const subagentDefinitionSchema = z.object({
+  description: z.string(),
+  prompt: z.string(),
+  tools: z.array(agentToolSchema).optional(),
+  model: agentModelSchema.optional(),
+});
+
 // ─── AgentConfig schema (from YAML) ─────────────────────
 
 export const agentConfigSchema = z.object({
@@ -41,6 +50,7 @@ export const agentConfigSchema = z.object({
   sandbox: agentSandboxSchema.optional(),
   maxTurns: z.number().optional(),
   mcpServers: z.array(z.string()).optional(),
+  agents: z.record(z.string(), subagentDefinitionSchema).optional(),
 });
 
 // ─── Derived types ───────────────────────────────────────
