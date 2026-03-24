@@ -36,6 +36,11 @@ export interface ResolvedAgent {
   definition: AgentDefinition;
   sandbox: "writable" | "readonly";
   maxTurns?: number | undefined;
+  /**
+   * Maximum cost in USD for this agent session.
+   * Checked post-session; if session cost >= maxCost, budget_exceeded error is thrown.
+   */
+  maxCost?: number | undefined;
   version?: string | undefined;
   source: "built-in" | "custom" | "extended";
 }

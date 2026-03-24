@@ -692,3 +692,79 @@ describe("parseOutput", () => {
     expect(result.prNumber).toBe(99);
   });
 });
+
+// ─── budget_exceeded handling ────────────────────────────
+
+describe("budget_exceeded error handling", () => {
+  it("budget_exceeded is non-retryable by default", async () => {
+    vi.useRealTimers();
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "system", subtype: "init", session_id: "session-budget" };
+          yield {
+            type: "result",
+            subtype: "budget_exceeded",
+            session_id: "session-budget",
+            result: "",
+            total_cost_usd: 10.0,
+            duration_ms: 1000,
+            num_turns: 5,
+          };
+        },
+      }),
+    }));
+
+    const { runWithRecovery: freshRunWithRecovery } = await import("@/runner/recovery");
+    const attempts: number[] = [];
+
+    await expect(
+      freshRunWithRecovery({
+        ...makeSessionOptions(),
+        maxRetries: 3,
+        backoffBaseMs: 10,
+        onAttempt: (attempt) => attempts.push(attempt),
+      }),
+    ).rejects.toThrow("budget_exceeded");
+
+    // Should only have attempted once — budget_exceeded is non-retryable
+    expect(attempts).toEqual([1]);
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+
+  it("SessionError with budget_exceeded errorType is thrown", async () => {
+    vi.useRealTimers();
+
+    vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
+      query: () => ({
+        async *[Symbol.asyncIterator]() {
+          yield { type: "system", subtype: "init", session_id: "session-budget-err" };
+          yield {
+            type: "result",
+            subtype: "budget_exceeded",
+            session_id: "session-budget-err",
+            result: "",
+            total_cost_usd: 5.0,
+            duration_ms: 500,
+            num_turns: 2,
+          };
+        },
+      }),
+    }));
+
+    const { runSession: freshRunSession } = await import("@/runner/session");
+
+    try {
+      await freshRunSession(makeSessionOptions());
+      expect.unreachable("Should have thrown");
+    } catch (error) {
+      expect(error).toBeInstanceOf(SessionError);
+      expect((error as SessionError).errorType).toBe("budget_exceeded");
+      expect((error as SessionError).sessionId).toBe("session-budget-err");
+    }
+
+    vi.doUnmock("@anthropic-ai/claude-agent-sdk");
+  });
+});
