@@ -13,26 +13,160 @@
 ### Feature 1: `neo do` command
 - Create: `packages/cli/src/commands/do.ts`
 - Modify: `packages/cli/src/index.ts`
+- Create: `packages/cli/src/daemon-utils.ts` (shared utility)
+- Modify: `packages/cli/src/commands/supervise.ts` (refactor to use shared utility)
 
 ### Feature 2: Completion & failure notifications
 - Create: `packages/core/src/supervisor/notify.ts`
-- Modify: `packages/core/src/supervisor/heartbeat.ts`
 - Modify: `packages/core/src/supervisor/index.ts`
 
 ### Feature 3: Structured failure report
 - Modify: `packages/core/src/supervisor/schemas.ts`
 - Create: `packages/core/src/supervisor/failure-report.ts`
-- Modify: `packages/core/src/supervisor/heartbeat.ts`
 - Modify: `packages/core/src/supervisor/index.ts`
 
-### Feature 4: Memory & log UX improvements
+### Feature 4: Heartbeat integration (consolidated)
+- Modify: `packages/core/src/supervisor/heartbeat.ts` (single task for all heartbeat changes)
+
+### Feature 5: Memory & log UX improvements
+- Modify: `packages/core/src/supervisor/memory/entry.ts` (add SearchResult interface)
+- Modify: `packages/core/src/supervisor/memory/store.ts`
+- Modify: `packages/core/src/supervisor/memory/index.ts`
 - Modify: `packages/cli/src/commands/memory.ts`
 - Modify: `packages/cli/src/commands/log.ts`
-- Modify: `packages/core/src/supervisor/memory/store.ts`
 
 ---
 
 ## Feature 1: `neo do` Command
+
+### Task 1.0: Extract shared daemon utilities
+
+**Files:**
+- Create: `packages/cli/src/daemon-utils.ts`
+- Modify: `packages/cli/src/commands/supervise.ts`
+
+This task extracts daemon-related utilities to avoid code duplication between `supervise.ts` and the new `do.ts` command.
+
+- [ ] **Step 1: Create daemon-utils.ts**
+
+```typescript
+// packages/cli/src/daemon-utils.ts
+import { spawn } from "node:child_process";
+import { closeSync, existsSync, openSync } from "node:fs";
+import { mkdir, readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  getSupervisorDir,
+  getSupervisorStatePath,
+  isProcessAlive,
+  supervisorDaemonStateSchema,
+  type SupervisorDaemonState,
+} from "@neotx/core";
+import { printSuccess } from "./output.js";
+
+/**
+ * Read and parse supervisor daemon state.
+ */
+export async function readDaemonState(name: string): Promise<SupervisorDaemonState | null> {
+  const statePath = getSupervisorStatePath(name);
+  if (!existsSync(statePath)) return null;
+  try {
+    const raw = await readFile(statePath, "utf-8");
+    return supervisorDaemonStateSchema.parse(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Check if daemon is running by verifying state and process liveness.
+ */
+export async function isDaemonRunning(name: string): Promise<SupervisorDaemonState | null> {
+  const state = await readDaemonState(name);
+  if (!state || state.status === "stopped") return null;
+  if (!isProcessAlive(state.pid)) return null;
+  return state;
+}
+
+/**
+ * Start a supervisor daemon in detached mode.
+ * Returns the child process PID.
+ */
+export async function startDaemonDetached(name: string): Promise<number> {
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
+  const packageRoot = path.resolve(__dirname, "..");
+
+  const logDir = getSupervisorDir(name);
+  await mkdir(logDir, { recursive: true });
+  const logFd = openSync(path.join(logDir, "daemon.log"), "a");
+
+  const child = spawn(process.execPath, [workerPath, name], {
+    detached: true,
+    stdio: ["ignore", logFd, logFd],
+    cwd: packageRoot,
+    env: process.env,
+  });
+  child.unref();
+  closeSync(logFd);
+
+  return child.pid ?? 0;
+}
+```
+
+- [ ] **Step 2: Update supervise.ts to use shared utilities**
+
+Replace the local `readState`, `isDaemonRunning`, and `startDaemon` functions with imports from daemon-utils.ts:
+
+```typescript
+// At top of packages/cli/src/commands/supervise.ts, replace imports:
+import {
+  isDaemonRunning,
+  readDaemonState,
+  startDaemonDetached,
+} from "../daemon-utils.js";
+
+// Remove the local readState, isDaemonRunning functions (lines 23-39)
+
+// Update startDaemon function to use the shared utility:
+async function startDaemon(name: string): Promise<void> {
+  const running = await isDaemonRunning(name);
+  if (running) {
+    printError(`Supervisor "${name}" is already running (PID ${running.pid}).`);
+    printError("Use --kill first, or run neo supervise to open TUI.");
+    process.exitCode = 1;
+    return;
+  }
+
+  // Clean up stale lock
+  const lockPath = getSupervisorLockPath(name);
+  if (existsSync(lockPath)) {
+    await rm(lockPath, { force: true });
+  }
+
+  const pid = await startDaemonDetached(name);
+  const config = await loadGlobalConfig();
+
+  printSuccess(`Supervisor "${name}" started (PID ${pid})`);
+  console.log(`  Port:     ${config.supervisor.port}`);
+  console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
+  console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);
+  console.log(`  Logs:     ${getSupervisorDir(name)}/daemon.log`);
+  console.log(`  TUI:      neo supervise`);
+  console.log(`  Status:   neo supervise --status`);
+  console.log(`  Stop:     neo supervise --kill`);
+}
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add packages/cli/src/daemon-utils.ts packages/cli/src/commands/supervise.ts
+git commit -m "refactor(cli): extract daemon utilities for reuse
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+```
 
 ### Task 1.1: Create `neo do` command
 
@@ -65,15 +199,15 @@ vi.mock("@neotx/core", async () => {
   };
 });
 
+// Mock daemon-utils to avoid spawning real processes
+vi.mock("../daemon-utils.js", () => ({
+  isDaemonRunning: vi.fn(),
+  startDaemonDetached: vi.fn().mockResolvedValue(12345),
+}));
+
 beforeEach(async () => {
   await rm(TMP_DIR, { recursive: true, force: true });
   await mkdir(path.join(TMP_DIR, "supervisor"), { recursive: true });
-  // Create mock state file to simulate running supervisor
-  await writeFile(
-    path.join(TMP_DIR, "supervisor", "state.json"),
-    JSON.stringify({ pid: process.pid, status: "running", sessionId: "test-session" }),
-    "utf-8",
-  );
 });
 
 afterEach(async () => {
@@ -82,11 +216,18 @@ afterEach(async () => {
 });
 
 describe("neo do command", () => {
-  it("sends message to supervisor inbox", async () => {
+  it("sends message to supervisor inbox when running", async () => {
+    const { isDaemonRunning } = await import("../daemon-utils.js");
+    (isDaemonRunning as ReturnType<typeof vi.fn>).mockResolvedValue({
+      pid: process.pid,
+      status: "running",
+    });
+
     const { default: doCommand } = await import("../commands/do.js");
 
-    // Simulate running the command
-    await doCommand.run?.({ args: { task: "add rate limiter", name: "supervisor", detach: false } });
+    await doCommand.run?.({
+      args: { task: "add rate limiter", name: "supervisor", detach: false },
+    });
 
     const inboxPath = path.join(TMP_DIR, "supervisor", "inbox.jsonl");
     expect(existsSync(inboxPath)).toBe(true);
@@ -97,16 +238,33 @@ describe("neo do command", () => {
     expect(entry.from).toBe("api");
   });
 
-  it("fails when supervisor is not running", async () => {
-    // Remove state file to simulate no supervisor
-    await rm(path.join(TMP_DIR, "supervisor", "state.json"), { force: true });
+  it("fails when supervisor is not running and --detach not provided", async () => {
+    const { isDaemonRunning } = await import("../daemon-utils.js");
+    (isDaemonRunning as ReturnType<typeof vi.fn>).mockResolvedValue(null);
 
     const { default: doCommand } = await import("../commands/do.js");
 
-    await doCommand.run?.({ args: { task: "test task", name: "supervisor", detach: false } });
+    await doCommand.run?.({
+      args: { task: "test task", name: "supervisor", detach: false },
+    });
 
     expect(process.exitCode).toBe(1);
     process.exitCode = undefined;
+  });
+
+  it("starts daemon when --detach is provided and supervisor not running", async () => {
+    const { isDaemonRunning, startDaemonDetached } = await import("../daemon-utils.js");
+    (isDaemonRunning as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null) // First check: not running
+      .mockResolvedValueOnce({ pid: 12345, status: "running" }); // After start
+
+    const { default: doCommand } = await import("../commands/do.js");
+
+    await doCommand.run?.({
+      args: { task: "test task", name: "supervisor", detach: true },
+    });
+
+    expect(startDaemonDetached).toHaveBeenCalledWith("supervisor");
   });
 });
 ```
@@ -121,33 +279,16 @@ Expected: FAIL with "Cannot find module '../commands/do.js'"
 ```typescript
 // packages/cli/src/commands/do.ts
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { appendFile, readFile } from "node:fs/promises";
+import { appendFile } from "node:fs/promises";
 import {
   getSupervisorActivityPath,
   getSupervisorInboxPath,
-  getSupervisorStatePath,
-  isProcessAlive,
-  supervisorDaemonStateSchema,
 } from "@neotx/core";
 import { defineCommand } from "citty";
+import { isDaemonRunning, startDaemonDetached } from "../daemon-utils.js";
 import { printError, printSuccess } from "../output.js";
 
 const DEFAULT_NAME = "supervisor";
-
-async function isDaemonRunning(name: string): Promise<boolean> {
-  const statePath = getSupervisorStatePath(name);
-  if (!existsSync(statePath)) return false;
-
-  try {
-    const raw = await readFile(statePath, "utf-8");
-    const state = supervisorDaemonStateSchema.parse(JSON.parse(raw));
-    if (state.status === "stopped") return false;
-    return isProcessAlive(state.pid);
-  } catch {
-    return false;
-  }
-}
 
 export default defineCommand({
   meta: {
@@ -176,36 +317,15 @@ export default defineCommand({
     const name = args.name;
     const task = args.task as string;
 
-    const running = await isDaemonRunning(name);
+    let running = await isDaemonRunning(name);
 
     if (!running) {
       if (args.detach) {
-        // Start supervisor in detached mode
-        const { spawn } = await import("node:child_process");
-        const { fileURLToPath } = await import("node:url");
-        const path = await import("node:path");
-        const { mkdir, openSync, closeSync } = await import("node:fs");
-        const { getSupervisorDir } = await import("@neotx/core");
-
-        const __dirname = path.dirname(fileURLToPath(import.meta.url));
-        const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
-        const packageRoot = path.resolve(__dirname, "..");
-
-        const logDir = getSupervisorDir(name);
-        await new Promise<void>((resolve) => mkdir(logDir, { recursive: true }, () => resolve()));
-        const logFd = openSync(path.join(logDir, "daemon.log"), "a");
-        const child = spawn(process.execPath, [workerPath, name], {
-          detached: true,
-          stdio: ["ignore", logFd, logFd],
-          cwd: packageRoot,
-          env: process.env,
-        });
-        child.unref();
-        closeSync(logFd);
-
-        printSuccess(`Supervisor "${name}" started (PID ${child.pid})`);
+        const pid = await startDaemonDetached(name);
+        printSuccess(`Supervisor "${name}" started (PID ${pid})`);
         // Wait briefly for daemon to initialize
         await new Promise((r) => setTimeout(r, 1500));
+        running = await isDaemonRunning(name);
       } else {
         printError(`No supervisor daemon running (name: ${name}).`);
         printError("Use --detach to start one, or run: neo supervise");
@@ -240,8 +360,9 @@ Expected: PASS
 
 - [ ] **Step 5: Register the command in index.ts**
 
+In `packages/cli/src/index.ts`, add to subCommands:
+
 ```typescript
-// In packages/cli/src/index.ts, add to subCommands:
 do: () => import("./commands/do.js").then((m) => m.default),
 ```
 
@@ -269,15 +390,19 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```typescript
 // packages/core/src/__tests__/notify.test.ts
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { notify, shouldNotify } from "@/supervisor/notify";
 
 // Mock child_process.execFile
 vi.mock("node:child_process", () => ({
-  execFile: vi.fn((cmd, args, callback) => {
+  execFile: vi.fn((_cmd, _args, callback) => {
     callback?.(null, "", "");
     return { unref: vi.fn() };
   }),
 }));
+
+// Import after mocking
+const { notify, shouldNotify, notifyRunComplete, notifyRunFailed } = await import(
+  "@/supervisor/notify"
+);
 
 describe("notify", () => {
   afterEach(() => {
@@ -318,6 +443,26 @@ describe("notify", () => {
 
       // Should not throw
       await expect(notify("Title", "Message")).resolves.toBeUndefined();
+    });
+  });
+
+  describe("notifyRunComplete", () => {
+    it("sends success notification", async () => {
+      const { execFile } = await import("node:child_process");
+
+      await notifyRunComplete("run_123", "All tests passed");
+
+      expect(execFile).toHaveBeenCalled();
+    });
+  });
+
+  describe("notifyRunFailed", () => {
+    it("sends failure notification", async () => {
+      const { execFile } = await import("node:child_process");
+
+      await notifyRunFailed("run_123", "Build failed");
+
+      expect(execFile).toHaveBeenCalled();
     });
   });
 });
@@ -402,69 +547,7 @@ function escapeAppleScript(str: string): string {
 Run: `pnpm test -- packages/core/src/__tests__/notify.test.ts`
 Expected: PASS
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add packages/core/src/supervisor/notify.ts packages/core/src/__tests__/notify.test.ts
-git commit -m "feat(core): add macOS notification utility for daemon mode
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 2.2: Integrate notifications into heartbeat
-
-**Files:**
-- Modify: `packages/core/src/supervisor/heartbeat.ts`
-- Modify: `packages/core/src/supervisor/index.ts`
-
-- [ ] **Step 1: Add notification imports and shouldNotify check**
-
-In `packages/core/src/supervisor/heartbeat.ts`, add at the top imports section:
-
-```typescript
-import { notify, notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
-```
-
-- [ ] **Step 2: Add notification logic to emitRunCompleted**
-
-In the `emitRunCompleted` method (around line 1326), add notification after webhook emission:
-
-```typescript
-/** Emit RunCompletedEvent when processing run_complete events */
-private async emitRunCompleted(opts: {
-  runId: string;
-  status: "completed" | "failed" | "cancelled";
-  output?: string;
-  costUsd: number;
-  durationMs: number;
-}): Promise<void> {
-  const event: RunCompletedEvent = {
-    type: "run_completed",
-    supervisorId: this.sessionId,
-    runId: opts.runId,
-    status: opts.status,
-    output: opts.output?.slice(0, 1000),
-    costUsd: opts.costUsd,
-    durationMs: opts.durationMs,
-  };
-  await this.emitWebhookEvent(event);
-
-  // Send macOS notification in daemon mode
-  if (shouldNotify(process.stdout.isTTY ?? false)) {
-    try {
-      if (opts.status === "failed") {
-        await notifyRunFailed(opts.runId, opts.output ?? "Unknown error");
-      } else if (opts.status === "completed") {
-        await notifyRunComplete(opts.runId, opts.output ?? "Completed successfully");
-      }
-    } catch {
-      // Best-effort: notification failure should never crash daemon
-    }
-  }
-}
-```
-
-- [ ] **Step 3: Export from index.ts**
+- [ ] **Step 5: Export from index.ts**
 
 In `packages/core/src/supervisor/index.ts`, add:
 
@@ -473,16 +556,11 @@ In `packages/core/src/supervisor/index.ts`, add:
 export { notify, notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 ```
 
-- [ ] **Step 4: Run existing tests to ensure no regression**
-
-Run: `pnpm test -- packages/core/src/__tests__/heartbeat`
-Expected: PASS (all existing tests)
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add packages/core/src/supervisor/heartbeat.ts packages/core/src/supervisor/index.ts
-git commit -m "feat(core): integrate notifications into heartbeat for run completion
+git add packages/core/src/supervisor/notify.ts packages/core/src/__tests__/notify.test.ts packages/core/src/supervisor/index.ts
+git commit -m "feat(core): add macOS notification utility for daemon mode
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
@@ -498,7 +576,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Add failure report schema to schemas.ts**
 
-Add at the end of the file, before exports:
+Add at the end of the file, before the last export:
 
 ```typescript
 // ─── Failure report (written to inbox.jsonl on run failure) ──
@@ -540,7 +618,12 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 import { mkdir, readFile, rm } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { writeFailureReport, buildSuggestedAction } from "@/supervisor/failure-report";
+import {
+  buildSuggestedAction,
+  classifyError,
+  createFailureReport,
+  writeFailureReport,
+} from "@/supervisor/failure-report";
 import type { FailureReport } from "@/supervisor/schemas";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_failure_report_test__");
@@ -579,10 +662,32 @@ describe("writeFailureReport", () => {
   });
 });
 
+describe("classifyError", () => {
+  it("classifies timeout errors", () => {
+    expect(classifyError("Operation timed out after 30s")).toBe("timeout");
+  });
+
+  it("classifies budget errors", () => {
+    expect(classifyError("Budget exceeded: $5.00 limit")).toBe("budget");
+  });
+
+  it("classifies spawn errors", () => {
+    expect(classifyError("Module not found: lodash")).toBe("spawn_error");
+  });
+
+  it("classifies recovery exhausted", () => {
+    expect(classifyError("Max retries exceeded")).toBe("recovery_exhausted");
+  });
+
+  it("defaults to unknown", () => {
+    expect(classifyError("Something weird happened")).toBe("unknown");
+  });
+});
+
 describe("buildSuggestedAction", () => {
   it("suggests recovery for spawn_error", () => {
     const action = buildSuggestedAction("spawn_error", "Module not found");
-    expect(action).toContain("dependency");
+    expect(action).toContain("dependencies");
   });
 
   it("suggests budget review for budget error", () => {
@@ -598,6 +703,23 @@ describe("buildSuggestedAction", () => {
   it("suggests timeout increase for timeout", () => {
     const action = buildSuggestedAction("timeout", "Operation timed out");
     expect(action).toContain("timeout");
+  });
+});
+
+describe("createFailureReport", () => {
+  it("creates a complete failure report", () => {
+    const report = createFailureReport({
+      runId: "run_xyz",
+      task: "Deploy to prod",
+      reason: "Connection timed out",
+      attemptCount: 2,
+      costUsd: 1.23,
+    });
+
+    expect(report.type).toBe("failure-report");
+    expect(report.runId).toBe("run_xyz");
+    expect(report.lastErrorType).toBe("timeout");
+    expect(report.suggestedAction).toContain("timeout");
   });
 });
 ```
@@ -620,13 +742,10 @@ type ErrorType = FailureReport["lastErrorType"];
 /**
  * Build a suggested action based on the error type and reason.
  */
-export function buildSuggestedAction(errorType: ErrorType, reason: string): string {
+export function buildSuggestedAction(errorType: ErrorType, _reason: string): string {
   switch (errorType) {
     case "spawn_error":
-      if (reason.toLowerCase().includes("module") || reason.toLowerCase().includes("not found")) {
-        return "Check that all dependencies are installed. Run: pnpm install";
-      }
-      return "Review the error message and fix the underlying dependency or configuration issue.";
+      return "Check that all dependencies are installed. Run: pnpm install";
 
     case "timeout":
       return "Consider increasing the timeout limit or breaking the task into smaller steps.";
@@ -745,22 +864,134 @@ git commit -m "feat(core): add structured failure report writer
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
 
-### Task 3.3: Integrate failure reports into heartbeat
+---
+
+## Feature 4: Heartbeat Integration (Consolidated)
+
+This task consolidates all heartbeat.ts modifications into a single atomic change to avoid merge conflicts and ensure consistency.
+
+### Task 4.1: Integrate notifications and failure reports into heartbeat
 
 **Files:**
 - Modify: `packages/core/src/supervisor/heartbeat.ts`
 
-- [ ] **Step 1: Add failure report import**
+- [ ] **Step 1: Add imports at top of file**
 
-In `packages/core/src/supervisor/heartbeat.ts`, add to imports:
+Add these imports after the existing imports:
 
 ```typescript
 import { createFailureReport, writeFailureReport } from "./failure-report.js";
+import { notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 ```
 
-- [ ] **Step 2: Add failure report logic to emitRunCompleted**
+- [ ] **Step 2: Update readPersistedRun return type**
 
-Extend the `emitRunCompleted` method to write failure reports:
+Update the `readPersistedRun` method (around line 1174) to include task and attemptCount:
+
+```typescript
+/**
+ * Read persisted run data to extract actual status, cost, and duration.
+ * Returns null if the run file cannot be found or parsed.
+ */
+private async readPersistedRun(runId: string): Promise<{
+  status: PersistedRun["status"];
+  totalCostUsd: number;
+  durationMs: number;
+  output: string | undefined;
+  task: string | undefined;
+  attemptCount: number;
+} | null> {
+  const runsDir = getRunsDir();
+  if (!existsSync(runsDir)) return null;
+
+  try {
+    const entries = await readdir(runsDir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const subDir = path.join(runsDir, entry.name);
+      const runPath = path.join(subDir, `${runId}.json`);
+
+      if (existsSync(runPath)) {
+        const raw = await readFile(runPath, "utf-8");
+        const run = JSON.parse(raw) as PersistedRun;
+
+        // Calculate total cost from all steps
+        const totalCostUsd = Object.values(run.steps).reduce(
+          (sum, step) => sum + (step.costUsd ?? 0),
+          0,
+        );
+
+        // Calculate duration from createdAt to updatedAt
+        const durationMs = new Date(run.updatedAt).getTime() - new Date(run.createdAt).getTime();
+
+        // Get output from the last completed step
+        const completedSteps = Object.values(run.steps).filter(
+          (s) => s.status === "success" || s.status === "failure",
+        );
+        const lastStep = completedSteps[completedSteps.length - 1];
+        const output =
+          typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
+
+        // Extract task from run prompt or use fallback
+        const task = run.prompt?.slice(0, 200) ?? "Unknown task";
+
+        return {
+          status: run.status,
+          totalCostUsd,
+          durationMs,
+          output,
+          task,
+          attemptCount: Object.keys(run.steps).length,
+        };
+      }
+    }
+  } catch {
+    // Non-critical — return null if we can't read run data
+  }
+
+  return null;
+}
+```
+
+- [ ] **Step 3: Update emitCompletionEvents to pass additional context**
+
+Update the `emitCompletionEvents` method (around line 619) to pass task and attemptCount:
+
+```typescript
+/**
+ * Emit completion webhook events: heartbeat completed and run completed events.
+ */
+private async emitCompletionEvents(input: CompletionEventsInput): Promise<void> {
+  // Emit heartbeat completed webhook event
+  await this.emitHeartbeatCompleted({
+    heartbeatNumber: input.heartbeatCount + 1,
+    runsActive: input.activeRuns.length,
+    todayUsd: input.todayCost + input.costUsd,
+    limitUsd: this.config.supervisor.dailyCapUsd,
+  });
+
+  // Emit run completed events for any run completions processed
+  for (const event of input.rawEvents) {
+    if (event.kind === "run_complete") {
+      const runData = await this.readPersistedRun(event.runId);
+      await this.emitRunCompleted({
+        runId: event.runId,
+        status: runData?.status === "failed" ? "failed" : "completed",
+        costUsd: runData?.totalCostUsd ?? 0,
+        durationMs: runData?.durationMs ?? 0,
+        output: runData?.output,
+        task: runData?.task,
+        attemptCount: runData?.attemptCount ?? 1,
+      });
+    }
+  }
+}
+```
+
+- [ ] **Step 4: Update emitRunCompleted with notifications and failure reports**
+
+Replace the `emitRunCompleted` method (around line 1326) with:
 
 ```typescript
 /** Emit RunCompletedEvent when processing run_complete events */
@@ -809,176 +1040,66 @@ private async emitRunCompleted(opts: {
         await notifyRunComplete(opts.runId, opts.output ?? "Completed successfully");
       }
     } catch {
-      // Best-effort
+      // Best-effort: notification failure should never crash daemon
     }
   }
 }
 ```
 
-- [ ] **Step 3: Update emitCompletionEvents to pass additional context**
-
-In `emitCompletionEvents`, update the `emitRunCompleted` call to include task info from persisted run:
-
-```typescript
-// Emit run completed events for any run completions processed
-for (const event of input.rawEvents) {
-  if (event.kind === "run_complete") {
-    const runData = await this.readPersistedRun(event.runId);
-    const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
-      runId: event.runId,
-      status: runData?.status === "failed" ? "failed" : "completed",
-      costUsd: runData?.totalCostUsd ?? 0,
-      durationMs: runData?.durationMs ?? 0,
-      task: runData?.task,
-      attemptCount: runData?.attemptCount,
-    };
-    if (runData?.output) {
-      emitOpts.output = runData.output;
-    }
-    await this.emitRunCompleted(emitOpts);
-  }
-}
-```
-
-- [ ] **Step 4: Update readPersistedRun return type**
-
-Update the `readPersistedRun` method to include task and attemptCount:
-
-```typescript
-private async readPersistedRun(runId: string): Promise<{
-  status: PersistedRun["status"];
-  totalCostUsd: number;
-  durationMs: number;
-  output: string | undefined;
-  task: string | undefined;
-  attemptCount: number | undefined;
-} | null> {
-  // ... existing implementation ...
-
-  return {
-    status: run.status,
-    totalCostUsd,
-    durationMs,
-    output,
-    task: run.task,
-    attemptCount: Object.keys(run.steps).length,
-  };
-}
-```
-
-- [ ] **Step 5: Run tests to ensure no regression**
+- [ ] **Step 5: Run existing tests to ensure no regression**
 
 Run: `pnpm test -- packages/core/src/__tests__/heartbeat`
-Expected: PASS
+Expected: PASS (all existing tests)
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add packages/core/src/supervisor/heartbeat.ts
-git commit -m "feat(core): integrate structured failure reports into heartbeat
+git commit -m "feat(core): integrate notifications and failure reports into heartbeat
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Feature 4: Memory & Log UX Improvements
+## Feature 5: Memory & Log UX Improvements
 
-### Task 4.1: Add `neo memory list --full` flag
-
-**Files:**
-- Modify: `packages/cli/src/commands/memory.ts`
-
-- [ ] **Step 1: Add --full flag to args**
-
-In the `args` object, add:
-
-```typescript
-full: {
-  type: "boolean",
-  description: "Show full content without truncation",
-  default: false,
-},
-```
-
-- [ ] **Step 2: Update formatResultsTable to support full content**
-
-Replace the `formatResultsTable` function:
-
-```typescript
-function formatResultsTable(results: MemoryEntry[], full = false): void {
-  const maxContent = full ? 500 : 60;
-  printTable(
-    ["ID", "TYPE", "SCOPE", "CONTENT", "ACCESSES"],
-    results.map((m) => [
-      m.id,
-      m.type,
-      m.scope,
-      truncate(m.content, maxContent),
-      String(m.accessCount),
-    ]),
-  );
-}
-```
-
-- [ ] **Step 3: Pass full flag to formatResultsTable calls**
-
-Update `handleList` and `handleSearch` to pass the `full` flag:
-
-```typescript
-function handleList(args: ParsedArgs): void {
-  const store = openStore(args.name);
-  try {
-    const results = store.query({
-      ...(args.scope !== "global" && { scope: args.scope }),
-      ...(args.type && { types: [args.type as MemoryType] }),
-    });
-
-    if (results.length === 0) {
-      console.log("No memories found.");
-      return;
-    }
-
-    formatResultsTable(results, args.full);
-  } finally {
-    store.close();
-  }
-}
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add packages/cli/src/commands/memory.ts
-git commit -m "feat(cli): add --full flag to neo memory list
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 4.2: Add relevance score to `neo memory search`
+### Task 5.1: Add SearchResult interface and update MemoryStore.search
 
 **Files:**
+- Modify: `packages/core/src/supervisor/memory/entry.ts`
 - Modify: `packages/core/src/supervisor/memory/store.ts`
-- Modify: `packages/cli/src/commands/memory.ts`
+- Modify: `packages/core/src/supervisor/memory/index.ts`
+- Test: `packages/core/src/__tests__/memory-store.test.ts`
 
-- [ ] **Step 1: Update MemoryStore.search to return scores**
+- [ ] **Step 1: Add SearchResult interface to entry.ts**
 
-In `packages/core/src/supervisor/memory/store.ts`, update the search method return type and implementation:
+Add at the end of `packages/core/src/supervisor/memory/entry.ts`:
 
 ```typescript
-// Update interface in entry.ts
+// ─── Search result (extends MemoryEntry with score) ─────
+
 export interface SearchResult extends MemoryEntry {
+  /** Relevance score from 0 to 1, where 1 is most relevant */
   score: number;
 }
+```
 
-// In store.ts, update search method:
+- [ ] **Step 2: Update search method in store.ts**
+
+Replace the `search` method (around line 291) with a version that returns `SearchResult[]`:
+
+```typescript
+// ─── Search (async — semantic or FTS) ────────────────
+
 async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
-  // Vector search path
+  // Try vector search first
   if (this.embedder && this.hasVec) {
     try {
       const [queryVec] = await this.embedder.embed([text]);
       const limit = opts.limit ?? 20;
 
+      // Build scope/type filter for post-filtering
       const candidates = this.db
         .prepare(
           `SELECT m.*, v.distance
@@ -992,6 +1113,7 @@ async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
         distance: number;
       })[];
 
+      // Post-filter by scope and type
       const filtered = candidates.filter((row) => {
         if (opts.scope && row.scope !== opts.scope && row.scope !== "global") return false;
         if (
@@ -1006,14 +1128,15 @@ async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
       return filtered.slice(0, limit).map((row) => ({
         ...rowToEntry(row),
         // Convert distance to similarity score (1 - distance for cosine)
-        score: Math.max(0, 1 - row.distance),
+        // Clamp to [0, 1] to handle edge cases
+        score: Math.max(0, Math.min(1, 1 - row.distance)),
       }));
     } catch {
       // Fall through to FTS
     }
   }
 
-  // FTS fallback - use rank as score
+  // Fallback: FTS5 full-text search
   const limit = opts.limit ?? 20;
   const ftsQuery = text
     .split(/\s+/)
@@ -1048,24 +1171,211 @@ async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
       return true;
     });
 
-    // Normalize FTS rank to 0-1 score (rank is negative, lower is better)
-    const minRank = Math.min(...filtered.map((r) => r.rank), -1);
-    const maxRank = Math.max(...filtered.map((r) => r.rank), 0);
-    const range = maxRank - minRank || 1;
+    if (filtered.length === 0) {
+      return [];
+    }
 
-    return filtered.map((row) => ({
-      ...rowToEntry(row),
-      score: 1 - (row.rank - minRank) / range,
-    }));
+    // Normalize FTS rank to 0-1 score
+    // FTS5 rank is negative, lower (more negative) is better match
+    // We invert and normalize: best match gets score close to 1
+    const ranks = filtered.map((r) => r.rank);
+    const minRank = Math.min(...ranks);
+    const maxRank = Math.max(...ranks);
+
+    return filtered.map((row) => {
+      let score: number;
+      if (minRank === maxRank) {
+        // All same rank, give them equal high score
+        score = 0.8;
+      } else {
+        // Normalize: minRank (best) -> 1, maxRank (worst) -> 0
+        score = 1 - (row.rank - minRank) / (maxRank - minRank);
+      }
+      return {
+        ...rowToEntry(row),
+        score: Math.max(0, Math.min(1, score)),
+      };
+    });
   } catch {
+    // FTS query syntax error — fall back to LIKE
     return this.query(opts).map((e) => ({ ...e, score: 0 }));
   }
 }
 ```
 
-- [ ] **Step 2: Update handleSearch to display score**
+- [ ] **Step 3: Add import for SearchResult in store.ts**
 
-In `packages/cli/src/commands/memory.ts`:
+At the top of `packages/core/src/supervisor/memory/store.ts`, update the import:
+
+```typescript
+import type { Embedder } from "./embedder.js";
+import type { MemoryEntry, MemoryQuery, MemoryStats, MemoryWriteInput, SearchResult } from "./entry.js";
+```
+
+- [ ] **Step 4: Add topAccessed method to MemoryStore**
+
+Add this method to the MemoryStore class (after the `stats` method):
+
+```typescript
+/**
+ * Get the top N most-accessed memories.
+ */
+topAccessed(limit = 5): MemoryEntry[] {
+  const rows = this.db
+    .prepare(
+      `SELECT * FROM memories
+       ORDER BY access_count DESC
+       LIMIT ?`,
+    )
+    .all(limit) as RawMemoryRow[];
+
+  return rows.map(rowToEntry);
+}
+```
+
+- [ ] **Step 5: Export SearchResult from index.ts**
+
+In `packages/core/src/supervisor/memory/index.ts`, update exports:
+
+```typescript
+export type {
+  Embedder,
+  MemoryEntry,
+  MemoryQuery,
+  MemoryStats,
+  MemoryType,
+  MemoryWriteInput,
+  SearchResult,
+} from "./entry.js";
+```
+
+- [ ] **Step 6: Add test for SearchResult**
+
+Add to `packages/core/src/__tests__/memory-store.test.ts`:
+
+```typescript
+describe("search with scores", () => {
+  it("returns SearchResult with score field", async () => {
+    const store = createStore();
+    await store.write({
+      type: "fact",
+      scope: "global",
+      content: "TypeScript is a typed language",
+      source: "dev",
+    });
+    await store.write({
+      type: "fact",
+      scope: "global",
+      content: "Python is a dynamic language",
+      source: "dev",
+    });
+
+    const results = await store.search("TypeScript typed");
+
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0]).toHaveProperty("score");
+    expect(typeof results[0]?.score).toBe("number");
+    expect(results[0]?.score).toBeGreaterThanOrEqual(0);
+    expect(results[0]?.score).toBeLessThanOrEqual(1);
+    store.close();
+  });
+});
+
+describe("topAccessed", () => {
+  it("returns memories sorted by access count", async () => {
+    const store = createStore();
+    const id1 = await store.write({ type: "fact", scope: "global", content: "Low access", source: "user" });
+    const id2 = await store.write({ type: "fact", scope: "global", content: "High access", source: "user" });
+
+    // Access id2 multiple times
+    store.markAccessed([id2]);
+    store.markAccessed([id2]);
+    store.markAccessed([id2]);
+
+    const top = store.topAccessed(2);
+    expect(top).toHaveLength(2);
+    expect(top[0]?.id).toBe(id2);
+    expect(top[0]?.accessCount).toBe(3);
+    store.close();
+  });
+});
+```
+
+- [ ] **Step 7: Run tests**
+
+Run: `pnpm test -- packages/core/src/__tests__/memory-store.test.ts`
+Expected: PASS
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add packages/core/src/supervisor/memory/entry.ts packages/core/src/supervisor/memory/store.ts packages/core/src/supervisor/memory/index.ts packages/core/src/__tests__/memory-store.test.ts
+git commit -m "feat(core): add SearchResult with score and topAccessed method
+
+Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
+```
+
+### Task 5.2: Update CLI memory command
+
+**Files:**
+- Modify: `packages/cli/src/commands/memory.ts`
+
+- [ ] **Step 1: Add --full and --limit flags to args**
+
+In the `args` object, add:
+
+```typescript
+full: {
+  type: "boolean",
+  description: "Show full content without truncation",
+  default: false,
+},
+limit: {
+  type: "string",
+  description: "Limit number of results (for recent command)",
+},
+```
+
+- [ ] **Step 2: Update ParsedArgs interface**
+
+```typescript
+interface ParsedArgs {
+  value: string | undefined;
+  type: string | undefined;
+  scope: string;
+  source: string;
+  expires: string | undefined;
+  name: string;
+  outcome: string | undefined;
+  severity: string | undefined;
+  category: string | undefined;
+  tags: string | undefined;
+  full: boolean;
+  limit: string | undefined;
+}
+```
+
+- [ ] **Step 3: Update formatResultsTable to support full content**
+
+Replace the `formatResultsTable` function:
+
+```typescript
+function formatResultsTable(results: MemoryEntry[], full = false): void {
+  const maxContent = full ? 500 : 60;
+  printTable(
+    ["ID", "TYPE", "SCOPE", "CONTENT", "ACCESSES"],
+    results.map((m) => [
+      m.id,
+      m.type,
+      m.scope,
+      truncate(m.content, maxContent),
+      String(m.accessCount),
+    ]),
+  );
+}
+```
+
+- [ ] **Step 4: Update handleSearch to display score**
 
 ```typescript
 async function handleSearch(args: ParsedArgs): Promise<void> {
@@ -1095,7 +1405,7 @@ async function handleSearch(args: ParsedArgs): Promise<void> {
         m.id,
         m.type,
         m.scope,
-        (m.score * 100).toFixed(0) + "%",
+        `${(m.score * 100).toFixed(0)}%`,
         truncate(m.content, maxContent),
         String(m.accessCount),
       ]),
@@ -1106,29 +1416,7 @@ async function handleSearch(args: ParsedArgs): Promise<void> {
 }
 ```
 
-- [ ] **Step 3: Export SearchResult type from index**
-
-In `packages/core/src/supervisor/memory/index.ts`:
-
-```typescript
-export type { SearchResult } from "./entry.js";
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add packages/core/src/supervisor/memory/store.ts packages/core/src/supervisor/memory/entry.ts packages/core/src/supervisor/memory/index.ts packages/cli/src/commands/memory.ts
-git commit -m "feat(cli): show relevance score in neo memory search
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 4.3: Add `neo memory recent` subcommand
-
-**Files:**
-- Modify: `packages/cli/src/commands/memory.ts`
-
-- [ ] **Step 1: Add handleRecent function**
+- [ ] **Step 5: Add handleRecent function**
 
 ```typescript
 function handleRecent(args: ParsedArgs): void {
@@ -1155,67 +1443,7 @@ function handleRecent(args: ParsedArgs): void {
 }
 ```
 
-- [ ] **Step 2: Add limit arg and recent case to switch**
-
-In args:
-```typescript
-limit: {
-  type: "string",
-  description: "Limit number of results (for recent command)",
-},
-```
-
-In switch:
-```typescript
-case "recent":
-  return handleRecent(parsed);
-```
-
-- [ ] **Step 3: Update action description**
-
-```typescript
-action: {
-  type: "positional",
-  description: "Action: write, forget, update, search, list, stats, recent",
-  required: true,
-},
-```
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add packages/cli/src/commands/memory.ts
-git commit -m "feat(cli): add 'neo memory recent' subcommand
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 4.4: Add `neo memory stats` top-accessed memories
-
-**Files:**
-- Modify: `packages/core/src/supervisor/memory/store.ts`
-- Modify: `packages/cli/src/commands/memory.ts`
-
-- [ ] **Step 1: Add topAccessed method to MemoryStore**
-
-```typescript
-/**
- * Get the top N most-accessed memories.
- */
-topAccessed(limit = 5): MemoryEntry[] {
-  const rows = this.db
-    .prepare(
-      `SELECT * FROM memories
-       ORDER BY access_count DESC
-       LIMIT ?`,
-    )
-    .all(limit) as RawMemoryRow[];
-
-  return rows.map(rowToEntry);
-}
-```
-
-- [ ] **Step 2: Update handleStats to show top accessed**
+- [ ] **Step 6: Update handleStats to show top accessed**
 
 ```typescript
 function handleStats(args: ParsedArgs): void {
@@ -1260,22 +1488,81 @@ function handleStats(args: ParsedArgs): void {
 }
 ```
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 7: Update handleList to pass full flag**
+
+```typescript
+function handleList(args: ParsedArgs): void {
+  const store = openStore(args.name);
+  try {
+    const results = store.query({
+      ...(args.scope !== "global" && { scope: args.scope }),
+      ...(args.type && { types: [args.type as MemoryType] }),
+    });
+
+    if (results.length === 0) {
+      console.log("No memories found.");
+      return;
+    }
+
+    formatResultsTable(results, args.full);
+  } finally {
+    store.close();
+  }
+}
+```
+
+- [ ] **Step 8: Update action description and switch**
+
+```typescript
+action: {
+  type: "positional",
+  description: "Action: write, forget, update, search, list, stats, recent",
+  required: true,
+},
+```
+
+Add to switch:
+```typescript
+case "recent":
+  return handleRecent(parsed);
+```
+
+- [ ] **Step 9: Update parsed args in run function**
+
+```typescript
+const parsed: ParsedArgs = {
+  value: args.value as string | undefined,
+  type: args.type as string | undefined,
+  scope: args.scope as string,
+  source: args.source as string,
+  expires: args.expires as string | undefined,
+  name: args.name as string,
+  outcome: args.outcome as string | undefined,
+  severity: args.severity as string | undefined,
+  category: args.category as string | undefined,
+  tags: args.tags as string | undefined,
+  full: args.full as boolean,
+  limit: args.limit as string | undefined,
+};
+```
+
+- [ ] **Step 10: Commit**
 
 ```bash
-git add packages/core/src/supervisor/memory/store.ts packages/cli/src/commands/memory.ts
-git commit -m "feat(cli): show top-accessed memories in neo memory stats
+git add packages/cli/src/commands/memory.ts
+git commit -m "feat(cli): add --full flag, relevance scores, recent subcommand, and top-accessed to memory
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
 
-### Task 4.5: Add `neo log` default behavior (show recent logs)
+### Task 5.3: Update CLI log command
 
 **Files:**
 - Modify: `packages/cli/src/commands/log.ts`
 
-- [ ] **Step 1: Make type argument optional**
+- [ ] **Step 1: Make type argument optional and add new flags**
 
+Update args:
 ```typescript
 args: {
   type: {
@@ -1288,11 +1575,53 @@ args: {
     description: "Message to log (required when type is provided)",
     required: false,
   },
-  // ... rest of args
+  name: {
+    type: "string",
+    description: "Supervisor instance name",
+    default: "supervisor",
+  },
+  memory: {
+    type: "boolean",
+    description: "Override routing: send to memory target",
+    default: false,
+  },
+  knowledge: {
+    type: "boolean",
+    description: "Override routing: send to knowledge target",
+    default: false,
+  },
+  repo: {
+    type: "string",
+    description: "Repository path",
+  },
+  scope: {
+    type: "string",
+    description: "Repository scope for discovery entries (alias for --repo)",
+  },
+  procedure: {
+    type: "boolean",
+    description: "Also write as a procedure memory entry",
+    default: false,
+  },
+  preview: {
+    type: "boolean",
+    description: "Preview the formatted inbox message before writing (for blocker type)",
+    default: false,
+  },
+},
+```
+
+- [ ] **Step 2: Add printTable import and truncate function**
+
+```typescript
+import { printError, printSuccess, printTable } from "../output.js";
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
 }
 ```
 
-- [ ] **Step 2: Add handleListRecent function**
+- [ ] **Step 3: Add handleListRecent function**
 
 ```typescript
 async function handleListRecent(name: string, limit = 20): Promise<void> {
@@ -1317,13 +1646,9 @@ async function handleListRecent(name: string, limit = 20): Promise<void> {
     ]),
   );
 }
-
-function truncate(text: string, max: number): string {
-  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
-}
 ```
 
-- [ ] **Step 3: Update run function to handle no args**
+- [ ] **Step 4: Update run function to handle no args, preview, and scope**
 
 ```typescript
 async run({ args }) {
@@ -1347,106 +1672,91 @@ async run({ args }) {
     return;
   }
 
-  // ... rest of existing logic
-}
-```
+  const dir = getSupervisorDir(args.name);
+  const now = new Date().toISOString();
+  const id = randomUUID();
 
-- [ ] **Step 4: Add printTable import**
+  // Resolve agent/run from env vars or flags
+  const agent = process.env.NEO_AGENT_NAME ?? undefined;
+  const runId = process.env.NEO_RUN_ID ?? undefined;
+  const repo = (args.repo as string | undefined) ??
+               (args.scope as string | undefined) ??
+               process.env.NEO_REPOSITORY ??
+               undefined;
 
-```typescript
-import { printError, printSuccess, printTable } from "../output.js";
+  // Resolve target with flag overrides
+  let target: "memory" | "knowledge" | "digest" = TARGET_MAP[type] ?? "digest";
+  if (args.memory) target = "memory";
+  if (args.knowledge) target = "knowledge";
+
+  // 1. Always: append to activity.jsonl (existing behavior)
+  const activityEntry = {
+    id,
+    type: TYPE_MAP[type] ?? "event",
+    summary: args.message,
+    timestamp: now,
+  };
+  await appendFile(`${dir}/activity.jsonl`, `${JSON.stringify(activityEntry)}\n`, "utf-8");
+
+  // 2. Always: append to log-buffer.jsonl via shared helper
+  await appendLogBuffer(dir, {
+    id,
+    type: type as "progress" | "action" | "decision" | "blocker" | "milestone" | "discovery",
+    message: args.message,
+    agent,
+    runId,
+    repo,
+    target,
+    timestamp: now,
+  });
+
+  // 3. Write to memory store for knowledge/procedure entries
+  if (target === "knowledge" || args.procedure) {
+    try {
+      const store = new MemoryStore(path.join(dir, "memory.sqlite"));
+      await store.write({
+        type: args.procedure ? "procedure" : "fact",
+        scope: repo ?? "global",
+        content: args.message,
+        source: agent ?? "user",
+        runId,
+      });
+      store.close();
+    } catch {
+      // Best-effort — don't crash CLI if store write fails
+    }
+  }
+
+  // 4. If blocker: also append to inbox.jsonl (wake up heartbeat)
+  if (type === "blocker") {
+    const inboxMessage = {
+      id: randomUUID(),
+      from: "agent" as const,
+      text: `[BLOCKER]${agent ? ` (${agent})` : ""} ${args.message}`,
+      timestamp: now,
+    };
+
+    if (args.preview) {
+      console.log("\nPreview of inbox message:");
+      console.log("─".repeat(60));
+      console.log(JSON.stringify(inboxMessage, null, 2));
+      console.log("─".repeat(60));
+      console.log("\nUse without --preview to write to inbox.");
+      return;
+    }
+
+    await appendFile(`${dir}/inbox.jsonl`, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
+  }
+
+  printSuccess(`Logged: [${type}] ${args.message.slice(0, 100)}`);
+},
 ```
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add packages/cli/src/commands/log.ts
-git commit -m "feat(cli): show recent log entries when running 'neo log' with no args
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 4.6: Add `neo log blocker --preview` flag
-
-**Files:**
-- Modify: `packages/cli/src/commands/log.ts`
-
-- [ ] **Step 1: Add preview flag to args**
-
-```typescript
-preview: {
-  type: "boolean",
-  description: "Preview the formatted inbox message before writing (for blocker type)",
-  default: false,
-},
-```
-
-- [ ] **Step 2: Add preview logic in run function**
-
-Before writing the blocker to inbox, add:
-
-```typescript
-// 4. If blocker: also append to inbox.jsonl (wake up heartbeat)
-if (type === "blocker") {
-  const inboxMessage = {
-    id: randomUUID(),
-    from: "agent" as const,
-    text: `[BLOCKER]${agent ? ` (${agent})` : ""} ${args.message}`,
-    timestamp: now,
-  };
-
-  if (args.preview) {
-    console.log("\nPreview of inbox message:");
-    console.log("─".repeat(60));
-    console.log(JSON.stringify(inboxMessage, null, 2));
-    console.log("─".repeat(60));
-    console.log("\nUse without --preview to write to inbox.");
-    return;
-  }
-
-  await appendFile(`${dir}/inbox.jsonl`, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
-}
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add packages/cli/src/commands/log.ts
-git commit -m "feat(cli): add --preview flag to neo log blocker
-
-Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
-```
-
-### Task 4.7: Add `neo log discovery --scope` flag
-
-**Files:**
-- Modify: `packages/cli/src/commands/log.ts`
-
-- [ ] **Step 1: Verify scope handling**
-
-The `--repo` flag already exists and is used for scope. For consistency, add an alias:
-
-```typescript
-scope: {
-  type: "string",
-  description: "Repository scope for discovery entries (alias for --repo)",
-},
-```
-
-- [ ] **Step 2: Update run to use scope as fallback**
-
-```typescript
-const repo = (args.repo as string | undefined) ??
-             (args.scope as string | undefined) ??
-             process.env.NEO_REPOSITORY ??
-             undefined;
-```
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add packages/cli/src/commands/log.ts
-git commit -m "feat(cli): add --scope alias for neo log discovery
+git commit -m "feat(cli): add recent logs view, preview flag, and scope alias to log command
 
 Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 ```
@@ -1455,7 +1765,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 ## Final Validation
 
-### Task 5.1: Run full test suite
+### Task 6.1: Run full test suite
 
 - [ ] **Step 1: Build all packages**
 
@@ -1490,6 +1800,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 - [ ] `--name` flag specifies supervisor name
 - [ ] `--detach` flag starts supervisor if not running
 - [ ] Concise output showing message sent and status commands
+- [ ] Uses shared daemon utilities (no code duplication with supervise.ts)
 
 ### Feature 2: Notifications
 - [ ] macOS notification on run completion (title: "Neo ✓")
@@ -1506,7 +1817,7 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 
 ### Feature 4: Memory & Log UX
 - [ ] `neo memory list --full` shows complete content
-- [ ] `neo memory search` shows relevance score
+- [ ] `neo memory search` shows relevance score (clamped 0-100%)
 - [ ] `neo memory recent` shows last N memories by date
 - [ ] `neo memory stats` shows top 5 most-accessed memories
 - [ ] `neo log` with no args shows recent log buffer entries
@@ -1524,3 +1835,16 @@ Co-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>"
 | Memory store schema changes | No schema changes needed, only new methods |
 | Test isolation with mocked paths | Proper afterEach cleanup |
 | Breaking existing behavior | All new features are additive, no existing APIs changed |
+| SearchResult breaking change | SearchResult extends MemoryEntry, so existing code continues to work |
+| FTS score normalization edge cases | Added clamping to [0, 1] and special case for equal ranks |
+| Code duplication in daemon startup | Extracted to shared daemon-utils.ts |
+| Heartbeat.ts merge conflicts | Consolidated all modifications into single atomic task |
+
+---
+
+## Breaking Changes
+
+None. All changes are additive:
+- `SearchResult` extends `MemoryEntry`, so existing code treating results as `MemoryEntry[]` continues to work
+- New CLI flags and subcommands don't affect existing behavior
+- Notification and failure report features are opt-in based on environment (daemon mode)
