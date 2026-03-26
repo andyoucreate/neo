@@ -1,9 +1,41 @@
 import { randomUUID } from "node:crypto";
 import { appendFile } from "node:fs/promises";
 import path from "node:path";
-import { appendLogBuffer, getSupervisorDir, MemoryStore } from "@neotx/core";
+import {
+  appendLogBuffer,
+  getSupervisorDir,
+  type LogBufferEntry,
+  MemoryStore,
+  readLogBuffer,
+} from "@neotx/core";
 import { defineCommand } from "citty";
-import { printError, printSuccess } from "../output.js";
+import { printError, printSuccess, printTable } from "../output.js";
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}...` : text;
+}
+
+async function handleListRecent(name: string, limit = 20): Promise<void> {
+  const dir = getSupervisorDir(name);
+
+  const entries = await readLogBuffer(dir);
+  const recent = entries.slice(-limit).reverse();
+
+  if (recent.length === 0) {
+    console.log("No log entries found.");
+    return;
+  }
+
+  printTable(
+    ["TIME", "TYPE", "AGENT", "MESSAGE"],
+    recent.map((e: LogBufferEntry) => [
+      new Date(e.timestamp).toLocaleTimeString(),
+      e.type,
+      e.agent ?? "-",
+      truncate(e.message, 60),
+    ]),
+  );
+}
 
 const VALID_TYPES = [
   "progress",
@@ -43,13 +75,14 @@ export default defineCommand({
   args: {
     type: {
       type: "positional",
-      description: "Report type: progress, action, decision, blocker, milestone, discovery",
-      required: true,
+      description:
+        "Report type: progress, action, decision, blocker, milestone, discovery (or omit to list recent)",
+      required: false,
     },
     message: {
       type: "positional",
-      description: "Message to log",
-      required: true,
+      description: "Message to log (required when type is provided)",
+      required: false,
     },
     name: {
       type: "string",
@@ -70,16 +103,38 @@ export default defineCommand({
       type: "string",
       description: "Repository path",
     },
+    scope: {
+      type: "string",
+      description: "Repository scope for discovery entries (alias for --repo)",
+    },
     procedure: {
       type: "boolean",
       description: "Also write as a procedure memory entry",
       default: false,
     },
+    preview: {
+      type: "boolean",
+      description: "Preview the formatted inbox message before writing (for blocker type)",
+      default: false,
+    },
   },
   async run({ args }) {
-    const type = args.type as string;
+    const type = args.type as string | undefined;
+
+    // No type = list recent logs
+    if (!type) {
+      await handleListRecent(args.name);
+      return;
+    }
+
     if (!VALID_TYPES.includes(type as LogType)) {
       printError(`Invalid type "${type}". Must be one of: ${VALID_TYPES.join(", ")}`);
+      process.exitCode = 1;
+      return;
+    }
+
+    if (!args.message) {
+      printError(`Usage: neo log ${type} <message>`);
       process.exitCode = 1;
       return;
     }
@@ -91,7 +146,11 @@ export default defineCommand({
     // Resolve agent/run from env vars or flags
     const agent = process.env.NEO_AGENT_NAME ?? undefined;
     const runId = process.env.NEO_RUN_ID ?? undefined;
-    const repo = (args.repo as string | undefined) ?? process.env.NEO_REPOSITORY ?? undefined;
+    const repo =
+      (args.repo as string | undefined) ??
+      (args.scope as string | undefined) ??
+      process.env.NEO_REPOSITORY ??
+      undefined;
 
     // Resolve target with flag overrides
     let target: "memory" | "knowledge" | "digest" = TARGET_MAP[type] ?? "digest";
@@ -145,6 +204,16 @@ export default defineCommand({
         text: `[BLOCKER]${agent ? ` (${agent})` : ""} ${args.message}`,
         timestamp: now,
       };
+
+      if (args.preview) {
+        console.log("\nPreview of inbox message:");
+        console.log("─".repeat(60));
+        console.log(JSON.stringify(inboxMessage, null, 2));
+        console.log("─".repeat(60));
+        console.log("\nUse without --preview to write to inbox.");
+        return;
+      }
+
       await appendFile(`${dir}/inbox.jsonl`, `${JSON.stringify(inboxMessage)}\n`, "utf-8");
     }
 

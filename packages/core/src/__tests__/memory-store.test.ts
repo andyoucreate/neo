@@ -372,4 +372,60 @@ describe("MemoryStore", () => {
       store.close();
     });
   });
+
+  describe("search with scores", () => {
+    it("returns SearchResult with score field", async () => {
+      const store = createStore();
+      await store.write({
+        type: "fact",
+        scope: "global",
+        content: "TypeScript is a typed language",
+        source: "dev",
+      });
+      await store.write({
+        type: "fact",
+        scope: "global",
+        content: "Python is a dynamic language",
+        source: "dev",
+      });
+
+      const results = await store.search("TypeScript typed");
+
+      expect(results.length).toBeGreaterThanOrEqual(1);
+      expect(results[0]).toHaveProperty("score");
+      expect(typeof results[0]?.score).toBe("number");
+      expect(results[0]?.score).toBeGreaterThanOrEqual(0);
+      expect(results[0]?.score).toBeLessThanOrEqual(1);
+      store.close();
+    });
+  });
+
+  describe("topAccessed", () => {
+    it("returns memories sorted by access count", async () => {
+      const store = createStore();
+      await store.write({
+        type: "fact",
+        scope: "global",
+        content: "Low access",
+        source: "user",
+      });
+      const id2 = await store.write({
+        type: "fact",
+        scope: "global",
+        content: "High access",
+        source: "user",
+      });
+
+      // Access id2 multiple times
+      store.markAccessed([id2]);
+      store.markAccessed([id2]);
+      store.markAccessed([id2]);
+
+      const top = store.topAccessed(2);
+      expect(top).toHaveLength(2);
+      expect(top[0]?.id).toBe(id2);
+      expect(top[0]?.accessCount).toBe(3);
+      store.close();
+    });
+  });
 });

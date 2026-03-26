@@ -19,10 +19,12 @@ import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
+import { createFailureReport, writeFailureReport } from "./failure-report.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
+import { notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
@@ -98,19 +100,20 @@ export const STALE_GRACE_PERIOD_MS = 30_000;
  * - If no PID and past grace period → stale (ghost run)
  *
  * For "paused" status: always considered active (waiting for user action).
+ * For "blocked" status: always considered active (waiting for blocker resolution).
  */
 export function isRunActive(
   run: PersistedRun,
   isAlive: (pid: number) => boolean = isProcessAlive,
   now: number = Date.now(),
 ): boolean {
-  // Skip non-active statuses
-  if (run.status !== "running" && run.status !== "paused") {
+  // Skip terminal statuses
+  if (run.status === "completed" || run.status === "failed") {
     return false;
   }
 
-  // Paused runs are always considered active (waiting for user action)
-  if (run.status === "paused") {
+  // Paused and blocked runs are always considered active (waiting for resolution)
+  if (run.status === "paused" || run.status === "blocked") {
     return true;
   }
 
@@ -250,6 +253,8 @@ export class HeartbeatLoop {
   private readonly memoryDbPath: string | undefined;
   private readonly onWebhookEvent: WebhookEventEmitter | undefined;
   private decisionStore: DecisionStore | null = null;
+  /** Cache of decision IDs already answered in this session to prevent re-answer spam */
+  private readonly answeredDecisionIds = new Set<string>();
 
   /** ConfigWatcher for hot-reload support */
   private configWatcher: ConfigWatcher | null = null;
@@ -653,9 +658,13 @@ export class HeartbeatLoop {
           status: runData?.status === "failed" ? "failed" : "completed",
           costUsd: runData?.totalCostUsd ?? 0,
           durationMs: runData?.durationMs ?? 0,
+          attemptCount: runData?.attemptCount ?? 1,
         };
-        if (runData?.output) {
+        if (runData?.output !== undefined) {
           emitOpts.output = runData.output;
+        }
+        if (runData?.task !== undefined) {
+          emitOpts.task = runData.task;
         }
         await this.emitRunCompleted(emitOpts);
       }
@@ -1156,6 +1165,9 @@ export class HeartbeatLoop {
   /**
    * Process decision:answer events from inbox messages.
    * Expected format: "decision:answer <decisionId> <answer>"
+   *
+   * Uses an in-memory deduplication cache to prevent re-answering decisions
+   * that have already been processed, avoiding the "already answered" error spam.
    */
   private async processDecisionAnswers(
     rawEvents: QueuedEvent[],
@@ -1172,18 +1184,39 @@ export class HeartbeatLoop {
       const answer = match[2];
       if (!decisionId || !answer) continue;
 
+      // Skip if we've already processed this decision ID in this session
+      if (this.answeredDecisionIds.has(decisionId)) {
+        continue;
+      }
+
+      // Check if already answered in the store (without throwing)
+      const alreadyAnswered = await store.isAnswered(decisionId);
+      if (alreadyAnswered) {
+        // Mark as known and skip
+        this.answeredDecisionIds.add(decisionId);
+        continue;
+      }
+
       try {
         await store.answer(decisionId, answer);
+        // Track successful answer to prevent future attempts
+        this.answeredDecisionIds.add(decisionId);
         await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
           decisionId,
           answer,
         });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
-          decisionId,
-          answer,
-        });
+        // Only log if it's NOT an "already answered" error (edge case: race condition)
+        if (!msg.includes("already answered")) {
+          await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
+            decisionId,
+            answer,
+          });
+        } else {
+          // Add to cache to prevent future attempts
+          this.answeredDecisionIds.add(decisionId);
+        }
       }
     }
   }
@@ -1197,6 +1230,8 @@ export class HeartbeatLoop {
     totalCostUsd: number;
     durationMs: number;
     output: string | undefined;
+    task: string | undefined;
+    attemptCount: number;
   } | null> {
     const runsDir = getRunsDir();
     if (!existsSync(runsDir)) return null;
@@ -1230,7 +1265,17 @@ export class HeartbeatLoop {
           const output =
             typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
 
-          return { status: run.status, totalCostUsd, durationMs, output };
+          // Extract task from run prompt or use fallback
+          const task = run.prompt?.slice(0, 200) ?? "Unknown task";
+
+          return {
+            status: run.status,
+            totalCostUsd,
+            durationMs,
+            output,
+            task,
+            attemptCount: Object.keys(run.steps).length,
+          };
         }
       }
     } catch {
@@ -1350,6 +1395,8 @@ export class HeartbeatLoop {
     output?: string;
     costUsd: number;
     durationMs: number;
+    task?: string;
+    attemptCount?: number;
   }): Promise<void> {
     const event: RunCompletedEvent = {
       type: "run_completed",
@@ -1361,5 +1408,34 @@ export class HeartbeatLoop {
       durationMs: opts.durationMs,
     };
     await this.emitWebhookEvent(event);
+
+    // Write structured failure report for failed runs
+    if (opts.status === "failed") {
+      try {
+        const report = createFailureReport({
+          runId: opts.runId,
+          task: opts.task ?? "Unknown task",
+          reason: opts.output ?? "Unknown error",
+          attemptCount: opts.attemptCount ?? 1,
+          costUsd: opts.costUsd,
+        });
+        await writeFailureReport(this.supervisorDir, report);
+      } catch {
+        // Best-effort: failure report errors should never crash daemon
+      }
+    }
+
+    // Send macOS notification in daemon mode
+    if (shouldNotify(process.stdout.isTTY ?? false)) {
+      try {
+        if (opts.status === "failed") {
+          await notifyRunFailed(opts.runId, opts.output ?? "Unknown error");
+        } else if (opts.status === "completed") {
+          await notifyRunComplete(opts.runId, opts.output ?? "Completed successfully");
+        }
+      } catch {
+        // Best-effort: notification failure should never crash daemon
+      }
+    }
   }
 }

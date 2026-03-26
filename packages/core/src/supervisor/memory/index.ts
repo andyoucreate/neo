@@ -7,6 +7,7 @@ export type {
   MemoryStats,
   MemoryType,
   MemoryWriteInput,
+  SearchResult,
 } from "./entry.js";
 export {
   knowledgeSubtypeSchema,

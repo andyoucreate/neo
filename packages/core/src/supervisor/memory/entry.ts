@@ -79,3 +79,10 @@ export interface MemoryStats {
   byType: Record<string, number>;
   byScope: Record<string, number>;
 }
+
+// ─── Search result (extends MemoryEntry with score) ─────
+
+export interface SearchResult extends MemoryEntry {
+  /** Relevance score from 0 to 1, where 1 is most relevant */
+  score: number;
+}
