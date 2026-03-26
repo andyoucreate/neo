@@ -11,6 +11,13 @@ export {
 } from "./decisions.js";
 export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
+// ─── Failure reports ─────────────────────────────────────
+export {
+  buildSuggestedAction,
+  classifyError,
+  createFailureReport,
+  writeFailureReport,
+} from "./failure-report.js";
 export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
 // ─── Log buffer ─────────────────────────────────────────
@@ -64,6 +71,7 @@ export type {
   ActivityEntry,
   ActivityQueryOptions,
   ActivityTypeFilter,
+  FailureReport,
   InboxMessage,
   InternalEventKind,
   LogBufferEntry,
@@ -78,6 +86,7 @@ export {
   activityEntrySchema,
   activityQueryOptionsSchema,
   activityTypeFilterSchema,
+  failureReportSchema,
   inboxMessageSchema,
   internalEventKindSchema,
   logBufferEntrySchema,
