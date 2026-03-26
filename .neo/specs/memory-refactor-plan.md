@@ -2373,6 +2373,194 @@ Task 12 (validation)
 
 ---
 
+## Reviewer Issues — Corrections
+
+### Issue #1: loadMemoryContext must become async
+
+**Problem:** `loadMemoryContext` is currently synchronous but needs to call `store.search()` which returns a `Promise`.
+
+**Solution:** Change `loadMemoryContext` to `async` and update the call site in `runAgentSession`:
+
+```typescript
+// In orchestrator.ts, change signature:
+private async loadMemoryContext(repoPath: string, taskPrompt?: string): Promise<string | undefined>
+
+// Update call site in runAgentSession (line ~535):
+const memoryContext = await this.loadMemoryContext(input.repo, input.prompt);
+```
+
+### Issue #2: Handle knowledge entries without subtype
+
+**Problem:** After migration, some `knowledge` entries may not have a `subtype` set.
+
+**Solution:** In `buildKnowledgeSection`, add a fallback for entries without subtype:
+
+```typescript
+// Add after procedureEntries filter:
+const unknownKnowledge = memories.filter(
+  (m) => m.type === "knowledge" && !m.subtype
+);
+
+// Treat unknown subtype as fact (most common case):
+const allFactEntries = [...factEntries, ...unknownKnowledge];
+```
+
+In migration, ensure all knowledge entries have a subtype:
+```sql
+-- After migration to knowledge type, set default subtype
+UPDATE memories SET subtype = 'fact' WHERE type = 'knowledge' AND subtype IS NULL;
+```
+
+### Issue #3: Verify no residual episode/feedback writes
+
+**Add validation step in Task 12:**
+
+```bash
+# Step 2.5: Verify no residual episode/feedback type writes
+grep -rn "type.*episode\|type.*feedback" packages/core/src packages/cli/src --include="*.ts" | grep -v test | grep -v ".d.ts" | grep -v "// DELETE"
+
+# Expected: No results (or only comments)
+```
+
+### Issue #4: Handle knowledge entries without subtype in display
+
+**Solution in format.ts:** Default to "Fact" for knowledge entries without subtype:
+
+```typescript
+// In formatMemoriesForPrompt, add handling for knowledge without subtype:
+for (const m of memories) {
+  let key = m.type;
+  if (m.type === "knowledge") {
+    // Default to "fact" if subtype is missing
+    key = `knowledge:${m.subtype ?? "fact"}`;
+  }
+  // ...
+}
+```
+
+### Issue #5: List all buildFullPrompt callsites
+
+**Callsites to update (from grep):**
+
+1. `packages/core/src/runner/session-executor.ts` — calls `buildFullPrompt`
+2. Tests in `packages/core/src/__tests__/` that may call it
+
+**Add to Task 7, Step 2:**
+
+```bash
+# Find all callsites:
+grep -rn "buildFullPrompt(" packages/core/src packages/cli/src --include="*.ts"
+```
+
+Update each callsite to pass `agentName` as the new parameter.
+
+### Issue #6: Justify search vs query divergence
+
+**Rationale documented:**
+
+- **Orchestrator (`loadMemoryContext`)**: Uses `search()` when task prompt is available because agent context benefits from semantic similarity to the task. Falls back to `query()` when no prompt.
+
+- **Supervisor (`gatherEventContext`)**: Uses `query()` because the supervisor has no single "task prompt" — it operates across all repos and tasks. Semantic search would require a query string that doesn't exist at supervisor level.
+
+This divergence is intentional and correct.
+
+### Issue #7: Add migration end-to-end test
+
+**Add to Task 11, Step 1.5:**
+
+```typescript
+// packages/core/src/__tests__/memory-migration.test.ts
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { MemoryStore } from "@/supervisor/memory/store";
+
+const TMP_DIR = path.join(import.meta.dirname, "__tmp_migration_test__");
+
+describe("MemoryStore migration", () => {
+  beforeEach(async () => {
+    await rm(TMP_DIR, { recursive: true, force: true });
+    await mkdir(TMP_DIR, { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(TMP_DIR, { recursive: true, force: true });
+  });
+
+  it("migrates fact → knowledge with subtype fact", async () => {
+    // Create a pre-migration database with old schema
+    const dbPath = path.join(TMP_DIR, "memory.sqlite");
+
+    // Use raw SQLite to create old schema
+    const Database = (await import("better-sqlite3")).default;
+    const db = new Database(dbPath);
+
+    db.exec(`
+      CREATE TABLE memories (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        scope TEXT NOT NULL,
+        content TEXT NOT NULL,
+        source TEXT NOT NULL,
+        tags TEXT DEFAULT '[]',
+        created_at TEXT NOT NULL,
+        last_accessed_at TEXT NOT NULL,
+        access_count INTEGER DEFAULT 0,
+        expires_at TEXT,
+        outcome TEXT,
+        run_id TEXT,
+        category TEXT,
+        severity TEXT
+      );
+    `);
+
+    // Insert old-style entries
+    db.prepare(`
+      INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("mem_fact1", "fact", "global", "Test fact", "user", new Date().toISOString(), new Date().toISOString());
+
+    db.prepare(`
+      INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("mem_proc1", "procedure", "global", "Test procedure", "user", new Date().toISOString(), new Date().toISOString());
+
+    db.prepare(`
+      INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("mem_feed1", "feedback", "global", "Test feedback", "reviewer", new Date().toISOString(), new Date().toISOString());
+
+    db.prepare(`
+      INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("mem_ep1", "episode", "global", "Test episode", "user", new Date().toISOString(), new Date().toISOString());
+
+    db.close();
+
+    // Open with MemoryStore (triggers migration)
+    const store = new MemoryStore(dbPath);
+
+    // Verify migration
+    const knowledge = store.query({ types: ["knowledge"] });
+    expect(knowledge).toHaveLength(2);
+    expect(knowledge.find(m => m.id === "mem_fact1")?.subtype).toBe("fact");
+    expect(knowledge.find(m => m.id === "mem_proc1")?.subtype).toBe("procedure");
+
+    const warnings = store.query({ types: ["warning"] });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.id).toBe("mem_feed1");
+
+    // Episodes should be deleted
+    const all = store.query({});
+    expect(all.find(m => m.id === "mem_ep1")).toBeUndefined();
+
+    store.close();
+  });
+});
+```
+
+---
+
 ## Acceptance Criteria Checklist
 
 - [ ] `pnpm build && pnpm typecheck && pnpm test` passes
@@ -2383,3 +2571,6 @@ Task 12 (validation)
 - [ ] Semantic search is used when task prompt is available
 - [ ] TaskStore is separate from MemoryStore
 - [ ] No references to supersedes, episode, feedback types remain
+- [ ] Migration test validates fact/procedure/feedback/episode transformation
+- [ ] All buildFullPrompt callsites updated with agentName parameter
+- [ ] Knowledge entries without subtype default to "fact" in display
