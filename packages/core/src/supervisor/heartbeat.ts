@@ -18,10 +18,12 @@ import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
+import { createFailureReport, writeFailureReport } from "./failure-report.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
+import { notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
@@ -629,16 +631,15 @@ export class HeartbeatLoop {
     for (const event of input.rawEvents) {
       if (event.kind === "run_complete") {
         const runData = await this.readPersistedRun(event.runId);
-        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
+        await this.emitRunCompleted({
           runId: event.runId,
           status: runData?.status === "failed" ? "failed" : "completed",
           costUsd: runData?.totalCostUsd ?? 0,
           durationMs: runData?.durationMs ?? 0,
-        };
-        if (runData?.output) {
-          emitOpts.output = runData.output;
-        }
-        await this.emitRunCompleted(emitOpts);
+          output: runData?.output,
+          task: runData?.task,
+          attemptCount: runData?.attemptCount ?? 1,
+        });
       }
     }
   }
@@ -1176,6 +1177,8 @@ export class HeartbeatLoop {
     totalCostUsd: number;
     durationMs: number;
     output: string | undefined;
+    task: string | undefined;
+    attemptCount: number;
   } | null> {
     const runsDir = getRunsDir();
     if (!existsSync(runsDir)) return null;
@@ -1209,7 +1212,17 @@ export class HeartbeatLoop {
           const output =
             typeof lastStep?.rawOutput === "string" ? lastStep.rawOutput.slice(0, 1000) : undefined;
 
-          return { status: run.status, totalCostUsd, durationMs, output };
+          // Extract task from run prompt or use fallback
+          const task = run.prompt?.slice(0, 200) ?? "Unknown task";
+
+          return {
+            status: run.status,
+            totalCostUsd,
+            durationMs,
+            output,
+            task,
+            attemptCount: Object.keys(run.steps).length,
+          };
         }
       }
     } catch {
@@ -1329,6 +1342,8 @@ export class HeartbeatLoop {
     output?: string;
     costUsd: number;
     durationMs: number;
+    task?: string;
+    attemptCount?: number;
   }): Promise<void> {
     const event: RunCompletedEvent = {
       type: "run_completed",
@@ -1340,5 +1355,34 @@ export class HeartbeatLoop {
       durationMs: opts.durationMs,
     };
     await this.emitWebhookEvent(event);
+
+    // Write structured failure report for failed runs
+    if (opts.status === "failed") {
+      try {
+        const report = createFailureReport({
+          runId: opts.runId,
+          task: opts.task ?? "Unknown task",
+          reason: opts.output ?? "Unknown error",
+          attemptCount: opts.attemptCount ?? 1,
+          costUsd: opts.costUsd,
+        });
+        await writeFailureReport(this.supervisorDir, report);
+      } catch {
+        // Best-effort: failure report errors should never crash daemon
+      }
+    }
+
+    // Send macOS notification in daemon mode
+    if (shouldNotify(process.stdout.isTTY ?? false)) {
+      try {
+        if (opts.status === "failed") {
+          await notifyRunFailed(opts.runId, opts.output ?? "Unknown error");
+        } else if (opts.status === "completed") {
+          await notifyRunComplete(opts.runId, opts.output ?? "Completed successfully");
+        }
+      } catch {
+        // Best-effort: notification failure should never crash daemon
+      }
+    }
   }
 }
