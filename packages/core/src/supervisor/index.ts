@@ -38,6 +38,7 @@ export type {
   MemoryStats,
   MemoryType,
   MemoryWriteInput,
+  SearchResult,
 } from "./memory/index.js";
 // ─── Memory store ──────────────────────────────────────
 export {
