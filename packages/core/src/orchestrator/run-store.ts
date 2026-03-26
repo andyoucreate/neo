@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { getRepoRunsDir, getRunsDir, toRepoSlug } from "@/paths";
+import { getRunsDir, toRepoSlug } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 
@@ -33,7 +33,8 @@ export class RunStore {
   async persistRun(run: PersistedRun): Promise<void> {
     try {
       const slug = toRepoSlug({ path: run.repo });
-      const repoDir = getRepoRunsDir(slug);
+      // Use custom runsDir if provided, otherwise fall back to global path
+      const repoDir = path.join(this.runsDir, slug);
       if (!this.createdDirs.has(repoDir)) {
         await mkdir(repoDir, { recursive: true });
         this.createdDirs.add(repoDir);
@@ -88,6 +89,99 @@ export class RunStore {
     }
 
     return jsonFiles;
+  }
+
+  /**
+   * Get all persisted runs from the runs directory.
+   */
+  async getAllRuns(): Promise<PersistedRun[]> {
+    if (!existsSync(this.runsDir)) return [];
+
+    const runs: PersistedRun[] = [];
+    try {
+      const jsonFiles = await this.collectRunFiles();
+      for (const filePath of jsonFiles) {
+        try {
+          const content = await readFile(filePath, "utf-8");
+          const run = JSON.parse(content) as PersistedRun;
+          runs.push(run);
+        } catch {
+          // Skip corrupted files
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+    return runs;
+  }
+
+  /**
+   * Get a specific run by ID.
+   * Returns null if not found.
+   */
+  async getRunById(runId: string): Promise<PersistedRun | null> {
+    if (!existsSync(this.runsDir)) return null;
+
+    try {
+      const jsonFiles = await this.collectRunFiles();
+      for (const filePath of jsonFiles) {
+        if (path.basename(filePath) === `${runId}.json`) {
+          const content = await readFile(filePath, "utf-8");
+          return JSON.parse(content) as PersistedRun;
+        }
+      }
+    } catch {
+      // Non-critical
+    }
+    return null;
+  }
+
+  /**
+   * Mark a run as blocked after all retries have been exhausted.
+   * Blocked runs are visible to the supervisor but don't halt other work.
+   */
+  async markBlocked(runId: string, reason: string): Promise<void> {
+    const run = await this.getRunById(runId);
+    if (!run) {
+      throw new Error(`Run not found: ${runId}`);
+    }
+
+    run.status = "blocked";
+    run.blockedReason = reason;
+    run.blockedAt = new Date().toISOString();
+    run.updatedAt = new Date().toISOString();
+
+    await this.persistRun(run);
+  }
+
+  /**
+   * Get all blocked runs that need attention.
+   */
+  async getBlockedRuns(): Promise<PersistedRun[]> {
+    const allRuns = await this.getAllRuns();
+    return allRuns.filter((run) => run.status === "blocked");
+  }
+
+  /**
+   * Unblock a run, setting it back to 'running' status.
+   * Call this when the blocker has been resolved.
+   */
+  async unblock(runId: string): Promise<void> {
+    const run = await this.getRunById(runId);
+    if (!run) {
+      throw new Error(`Run not found: ${runId}`);
+    }
+
+    if (run.status !== "blocked") {
+      throw new Error(`Run ${runId} is not blocked (status: ${run.status})`);
+    }
+
+    run.status = "running";
+    run.blockedReason = undefined;
+    run.blockedAt = undefined;
+    run.updatedAt = new Date().toISOString();
+
+    await this.persistRun(run);
   }
 
   /**
