@@ -631,15 +631,20 @@ export class HeartbeatLoop {
     for (const event of input.rawEvents) {
       if (event.kind === "run_complete") {
         const runData = await this.readPersistedRun(event.runId);
-        await this.emitRunCompleted({
+        const emitOpts: Parameters<typeof this.emitRunCompleted>[0] = {
           runId: event.runId,
           status: runData?.status === "failed" ? "failed" : "completed",
           costUsd: runData?.totalCostUsd ?? 0,
           durationMs: runData?.durationMs ?? 0,
-          output: runData?.output,
-          task: runData?.task,
           attemptCount: runData?.attemptCount ?? 1,
-        });
+        };
+        if (runData?.output !== undefined) {
+          emitOpts.output = runData.output;
+        }
+        if (runData?.task !== undefined) {
+          emitOpts.task = runData.task;
+        }
+        await this.emitRunCompleted(emitOpts);
       }
     }
   }

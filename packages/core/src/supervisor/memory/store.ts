@@ -2,8 +2,8 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
+import type { Embedder } from "./embedder.js";
 import type {
-  Embedder,
   MemoryEntry,
   MemoryQuery,
   MemoryStats,
