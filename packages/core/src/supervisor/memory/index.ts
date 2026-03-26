@@ -1,6 +1,7 @@
 export type { Embedder } from "./embedder.js";
 export { cosineSimilarity, LocalEmbedder } from "./embedder.js";
 export type {
+  KnowledgeSubtype,
   MemoryEntry,
   MemoryQuery,
   MemoryStats,
@@ -8,6 +9,7 @@ export type {
   MemoryWriteInput,
 } from "./entry.js";
 export {
+  knowledgeSubtypeSchema,
   memoryEntrySchema,
   memoryTypeSchema,
   memoryWriteInputSchema,

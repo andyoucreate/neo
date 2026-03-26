@@ -5,8 +5,8 @@ import type {
   ActivityEntry,
   Decision,
   InboxMessage,
-  MemoryEntry,
   SupervisorDaemonState,
+  TaskEntry,
 } from "@neotx/core";
 import {
   DecisionStore,
@@ -16,7 +16,7 @@ import {
   getSupervisorInboxPath,
   getSupervisorStatePath,
   loadGlobalConfig,
-  MemoryStore,
+  TaskStore,
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
@@ -361,9 +361,9 @@ const TASK_STATUS_LABELS: Record<string, string> = {
   pending: "·",
 };
 
-function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
-  const active = tasks.filter((t) => t.outcome !== "done" && t.outcome !== "abandoned");
-  const doneCount = tasks.filter((t) => t.outcome === "done").length;
+function TaskPanel({ tasks }: { tasks: TaskEntry[] }) {
+  const active = tasks.filter((t) => t.status !== "done" && t.status !== "abandoned");
+  const doneCount = tasks.filter((t) => t.status === "done").length;
 
   if (tasks.length === 0) return null;
 
@@ -384,10 +384,10 @@ function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
         <Text dimColor>{"─".repeat(30)}</Text>
       </Box>
       {visible.map((t) => {
-        const status = t.outcome ?? "pending";
+        const status = t.status ?? "pending";
         const color = TASK_STATUS_COLORS[status] ?? "#6b7280";
         const label = (TASK_STATUS_LABELS[status] ?? "·").padEnd(6);
-        const prio = t.severity ? `[${t.severity.slice(0, 3)}] ` : "";
+        const prio = t.priority ? `[${t.priority.slice(0, 3)}] ` : "";
         const repo = t.scope !== "global" ? path.basename(t.scope) : "";
         const run = t.runId ? `run:${t.runId.slice(0, 4)}` : "";
         const meta = [repo, run].filter(Boolean).join(" ");
@@ -399,7 +399,7 @@ function TaskPanel({ tasks }: { tasks: MemoryEntry[] }) {
               {label}
             </Text>
             {prio && <Text dimColor>{prio.padEnd(5)}</Text>}
-            <Text wrap="truncate">{t.content}</Text>
+            <Text wrap="truncate">{t.title}</Text>
             {meta && <Text dimColor>({meta})</Text>}
           </Box>
         );
@@ -709,15 +709,15 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
   }
 }
 
-function readTasks(name: string): MemoryEntry[] {
+function readTasks(name: string): TaskEntry[] {
   try {
     const dir = getSupervisorDir(name);
-    const store = new MemoryStore(path.join(dir, "memory.sqlite"));
-    const tasks = store.query({ types: ["task"], limit: 20, sortBy: "createdAt" });
+    const store = new TaskStore(path.join(dir, "tasks.sqlite"));
+    const tasks = store.getTasks();
     store.close();
-    return tasks;
+    return tasks.slice(0, 20); // limit to 20 tasks
   } catch (err) {
-    // Memory store not found or corrupted
+    // Task store not found or corrupted
     console.debug(
       `[tui] Failed to read tasks for ${name}: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -802,7 +802,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
   const [state, setState] = useState<SupervisorDaemonState | null>(null);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
-  const [tasks, setTasks] = useState<MemoryEntry[]>([]);
+  const [tasks, setTasks] = useState<TaskEntry[]>([]);
   const [decisions, setDecisions] = useState<Decision[]>([]);
   const [dailyCap, setDailyCap] = useState(50);
   const [input, setInput] = useState("");
@@ -965,7 +965,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
   // Calculate height adjustments for panels
   const activeTaskCount = tasks.filter(
-    (t) => t.outcome !== "done" && t.outcome !== "abandoned",
+    (t) => t.status !== "done" && t.status !== "abandoned",
   ).length;
   const taskPanelLines = tasks.length > 0 ? Math.min(activeTaskCount, 6) + 2 : 0;
   const decisionPanelLines =

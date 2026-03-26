@@ -14,6 +14,7 @@ import {
   type SDKStreamMessage,
 } from "@/sdk-types";
 import { isProcessAlive } from "@/shared/process";
+import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
 import { type Decision, DecisionStore } from "./decisions.js";
@@ -151,6 +152,7 @@ interface EventContext {
   totalEventCount: number;
   activeRuns: string[];
   memories: MemoryEntry[];
+  tasks: TaskEntry[];
   recentActions: ActivityEntry[];
   mcpServerNames: string[];
 }
@@ -284,6 +286,19 @@ export class HeartbeatLoop {
       }
     }
     return this.memoryStore;
+  }
+
+  private taskStore: TaskStore | null = null;
+
+  private getTaskStore(): TaskStore | null {
+    if (!this.taskStore && this.memoryDbPath) {
+      try {
+        this.taskStore = new TaskStore(this.memoryDbPath);
+      } catch {
+        // Task store unavailable — continue without it
+      }
+    }
+    return this.taskStore;
   }
 
   private getDecisionStore(): DecisionStore {
@@ -448,6 +463,7 @@ export class HeartbeatLoop {
       lastHeartbeat: state?.lastHeartbeat,
       lastConsolidationTimestamp: modeResult.lastConsolidationTs,
       memories: eventCtx.memories,
+      tasks: eventCtx.tasks,
       recentActions: eventCtx.recentActions,
       mcpServerNames: eventCtx.mcpServerNames,
     });
@@ -569,7 +585,7 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Gather event context: drain queue, fetch active runs, memories, and recent actions.
+   * Gather event context: drain queue, fetch active runs, memories, tasks, and recent actions.
    */
   private async gatherEventContext(): Promise<EventContext> {
     const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
@@ -580,6 +596,8 @@ export class HeartbeatLoop {
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
     const store = this.getMemoryStore();
     const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
+    const taskStore = this.getTaskStore();
+    const tasks: TaskEntry[] = taskStore ? taskStore.getTasks() : [];
     const recentActions = await this.activityLog.tail(20);
 
     return {
@@ -588,6 +606,7 @@ export class HeartbeatLoop {
       totalEventCount,
       activeRuns,
       memories,
+      tasks,
       recentActions,
       mcpServerNames,
     };
@@ -793,6 +812,7 @@ export class HeartbeatLoop {
     lastHeartbeat: string | undefined;
     lastConsolidationTimestamp: string | undefined;
     memories: MemoryEntry[];
+    tasks: TaskEntry[];
     recentActions: ActivityEntry[];
     mcpServerNames: string[];
   }): Promise<{ prompt: string; modeLabel: string }> {
@@ -813,6 +833,7 @@ export class HeartbeatLoop {
       customInstructions: this.customInstructions,
       supervisorDir: this.supervisorDir,
       memories: opts.memories,
+      tasks: opts.tasks,
       recentActions: opts.recentActions,
       pendingDecisions: opts.pendingDecisions,
       answeredDecisions: opts.answeredDecisions,

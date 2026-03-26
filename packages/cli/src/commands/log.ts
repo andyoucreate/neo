@@ -119,12 +119,13 @@ export default defineCommand({
       timestamp: now,
     });
 
-    // 3. Write to memory store for knowledge/procedure entries
+    // 3. Write to memory store for knowledge entries (facts or procedures)
     if (target === "knowledge" || args.procedure) {
       try {
         const store = new MemoryStore(path.join(dir, "memory.sqlite"));
         await store.write({
-          type: args.procedure ? "procedure" : "fact",
+          type: "knowledge",
+          subtype: args.procedure ? "procedure" : "fact",
           scope: repo ?? "global",
           content: args.message,
           source: agent ?? "user",

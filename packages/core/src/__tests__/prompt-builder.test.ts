@@ -9,6 +9,7 @@ import {
   buildWorkQueueSection,
   isIdleHeartbeat,
 } from "@/supervisor/prompt-builder";
+import type { TaskEntry } from "@/supervisor/task-store";
 
 function emptyGrouped(): GroupedEvents {
   return { messages: [], webhooks: [], runCompletions: [] };
@@ -17,7 +18,7 @@ function emptyGrouped(): GroupedEvents {
 function makeMemory(overrides?: Partial<MemoryEntry>): MemoryEntry {
   return {
     id: `mem-${Math.random().toString(36).slice(2, 8)}`,
-    type: "fact",
+    type: "knowledge",
     scope: "global",
     content: "test memory",
     source: "user",
@@ -25,6 +26,19 @@ function makeMemory(overrides?: Partial<MemoryEntry>): MemoryEntry {
     createdAt: new Date().toISOString(),
     lastAccessedAt: new Date().toISOString(),
     accessCount: 0,
+    subtype: "fact",
+    ...overrides,
+  };
+}
+
+function makeTask(overrides?: Partial<TaskEntry>): TaskEntry {
+  return {
+    id: `mem_${Math.random().toString(36).slice(2, 12)}`,
+    title: "Test task",
+    scope: "global",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     ...overrides,
   };
 }
@@ -47,6 +61,7 @@ function baseOpts() {
     mcpServerNames: [],
     supervisorDir: "/tmp/test-supervisor",
     memories: [],
+    tasks: [],
     recentActions: [],
   };
 }
@@ -149,8 +164,8 @@ describe("buildStandardPrompt", () => {
     const result = buildStandardPrompt({
       ...baseOpts(),
       memories: [
-        makeMemory({ type: "fact", content: "Uses Prisma", accessCount: 5 }),
-        makeMemory({ type: "fact", content: "New fact", accessCount: 1 }),
+        makeMemory({ type: "knowledge", subtype: "fact", content: "Uses Prisma", accessCount: 5 }),
+        makeMemory({ type: "knowledge", subtype: "fact", content: "New fact", accessCount: 1 }),
       ],
     });
     expect(result).toContain("Uses Prisma");
@@ -158,13 +173,13 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("New fact (unconfirmed)");
   });
 
-  it("shows procedures and feedback", () => {
+  it("shows procedures and warnings", () => {
     const result = buildStandardPrompt({
       ...baseOpts(),
       memories: [
-        makeMemory({ type: "procedure", content: "Run pnpm test:e2e" }),
+        makeMemory({ type: "knowledge", subtype: "procedure", content: "Run pnpm test:e2e" }),
         makeMemory({
-          type: "feedback",
+          type: "warning",
           content: "Missing validation",
           category: "input_validation",
         }),
@@ -187,35 +202,23 @@ describe("buildWorkQueueSection", () => {
     expect(result).toBe("");
   });
 
-  it("returns empty string when no active tasks exist", () => {
-    const memories = [
-      makeMemory({ type: "fact", content: "Some fact" }),
-      makeMemory({ type: "procedure", content: "Some procedure" }),
-    ];
-    const result = buildWorkQueueSection(memories);
-    expect(result).toBe("");
-  });
-
   it("renders mix of pending/active/blocked tasks with correct markers", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "T1: Setup auth",
-        outcome: "pending",
+    const tasks = [
+      makeTask({
+        title: "T1: Setup auth",
+        status: "pending",
       }),
-      makeMemory({
-        type: "task",
-        content: "T2: Implement login",
-        outcome: "in_progress",
+      makeTask({
+        title: "T2: Implement login",
+        status: "in_progress",
       }),
-      makeMemory({
-        type: "task",
-        content: "T3: Add tests",
-        outcome: "blocked",
+      makeTask({
+        title: "T3: Add tests",
+        status: "blocked",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
     // Check header
     expect(result).toContain("Work queue (3 remaining, 0 done) — dispatch the next eligible task:");
@@ -226,29 +229,25 @@ describe("buildWorkQueueSection", () => {
     expect(result).toContain("[BLOCKED] T3: Add tests"); // blocked uses [BLOCKED]
   });
 
-  it("groups tasks by initiative tag", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "T1: Auth middleware",
-        outcome: "pending",
-        tags: ["initiative:auth-v2"],
+  it("groups tasks by initiative", () => {
+    const tasks = [
+      makeTask({
+        title: "T1: Auth middleware",
+        status: "pending",
+        initiative: "auth-v2",
       }),
-      makeMemory({
-        type: "task",
-        content: "T2: JWT validation",
-        outcome: "pending",
-        tags: ["initiative:auth-v2"],
+      makeTask({
+        title: "T2: JWT validation",
+        status: "pending",
+        initiative: "auth-v2",
       }),
-      makeMemory({
-        type: "task",
-        content: "T3: Unrelated task",
-        outcome: "pending",
-        tags: [],
+      makeTask({
+        title: "T3: Unrelated task",
+        status: "pending",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
     // Should have initiative header
     expect(result).toContain("[auth-v2]");
@@ -258,18 +257,17 @@ describe("buildWorkQueueSection", () => {
   });
 
   it("caps at 15 tasks and shows overflow indicator", () => {
-    const memories: MemoryEntry[] = [];
+    const tasks: TaskEntry[] = [];
     for (let i = 1; i <= 20; i++) {
-      memories.push(
-        makeMemory({
-          type: "task",
-          content: `Task ${i}`,
-          outcome: "pending",
+      tasks.push(
+        makeTask({
+          title: `Task ${i}`,
+          status: "pending",
         }),
       );
     }
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
     // Should show 15 tasks max
     expect(result).toContain("Task 1");
@@ -284,25 +282,22 @@ describe("buildWorkQueueSection", () => {
   });
 
   it("excludes done and abandoned tasks from active count", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "T1: Done task",
-        outcome: "done",
+    const tasks = [
+      makeTask({
+        title: "T1: Done task",
+        status: "done",
       }),
-      makeMemory({
-        type: "task",
-        content: "T2: Abandoned task",
-        outcome: "abandoned",
+      makeTask({
+        title: "T2: Abandoned task",
+        status: "abandoned",
       }),
-      makeMemory({
-        type: "task",
-        content: "T3: Pending task",
-        outcome: "pending",
+      makeTask({
+        title: "T3: Pending task",
+        status: "pending",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
     // Header should show 1 remaining (pending), 2 done
     expect(result).toContain("Work queue (1 remaining, 2 done) — dispatch the next eligible task:");
@@ -314,44 +309,41 @@ describe("buildWorkQueueSection", () => {
   });
 
   it("shows scope basename for non-global tasks", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Repo-specific task",
-        outcome: "pending",
+    const tasks = [
+      makeTask({
+        title: "Repo-specific task",
+        status: "pending",
         scope: "/repos/myapp",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("(myapp)");
   });
 
   it("shows run reference when runId is present", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Task with run",
-        outcome: "in_progress",
+    const tasks = [
+      makeTask({
+        title: "Task with run",
+        status: "in_progress",
         runId: "run_abc123456789",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("[run run_abc1]"); // first 8 chars
   });
 
-  it("shows severity when present", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "High priority task",
-        outcome: "pending",
-        severity: "high",
+  it("shows priority when present", () => {
+    const tasks = [
+      makeTask({
+        title: "High priority task",
+        status: "pending",
+        priority: "high",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("[high]");
   });
 });
@@ -367,7 +359,14 @@ describe("buildConsolidationPrompt", () => {
   it("includes memory entries in context", () => {
     const result = buildConsolidationPrompt({
       ...baseOpts(),
-      memories: [makeMemory({ type: "fact", content: "API key is in vault", accessCount: 5 })],
+      memories: [
+        makeMemory({
+          type: "knowledge",
+          subtype: "fact",
+          content: "API key is in vault",
+          accessCount: 5,
+        }),
+      ],
     });
     expect(result).toContain("Known facts:");
     expect(result).toContain("API key is in vault");
@@ -473,11 +472,10 @@ describe("isIdleHeartbeat", () => {
   it("returns false when there are pending tasks", () => {
     const opts = {
       ...baseOpts(),
-      memories: [
-        makeMemory({
-          type: "task",
-          content: "Pending work",
-          outcome: "pending",
+      tasks: [
+        makeTask({
+          title: "Pending work",
+          status: "pending",
         }),
       ],
     };
@@ -490,16 +488,14 @@ describe("isIdleHeartbeat", () => {
     // ("all tasks complete") which isIdleHeartbeat interprets as having work
     const opts = {
       ...baseOpts(),
-      memories: [
-        makeMemory({
-          type: "task",
-          content: "Done task",
-          outcome: "done",
+      tasks: [
+        makeTask({
+          title: "Done task",
+          status: "done",
         }),
-        makeMemory({
-          type: "task",
-          content: "Abandoned task",
-          outcome: "abandoned",
+        makeTask({
+          title: "Abandoned task",
+          status: "abandoned",
         }),
       ],
     };
@@ -634,7 +630,14 @@ describe("buildCompactionPrompt", () => {
   it("includes memory entries in context", () => {
     const result = buildCompactionPrompt({
       ...baseOpts(),
-      memories: [makeMemory({ type: "fact", content: "Old fact to review", accessCount: 5 })],
+      memories: [
+        makeMemory({
+          type: "knowledge",
+          subtype: "fact",
+          content: "Old fact to review",
+          accessCount: 5,
+        }),
+      ],
     });
     expect(result).toContain("Known facts:");
     expect(result).toContain("Old fact to review");
@@ -643,11 +646,10 @@ describe("buildCompactionPrompt", () => {
   it("includes work queue section", () => {
     const result = buildCompactionPrompt({
       ...baseOpts(),
-      memories: [
-        makeMemory({
-          type: "task",
-          content: "Task to prune",
-          outcome: "pending",
+      tasks: [
+        makeTask({
+          title: "Task to prune",
+          status: "pending",
         }),
       ],
     });
@@ -673,34 +675,32 @@ describe("buildCompactionPrompt", () => {
 // ─── buildWorkQueueSection edge cases ───────────────────
 
 describe("buildWorkQueueSection edge cases", () => {
-  it("shows category command when present", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Task with context",
-        outcome: "pending",
-        category: "neo runs abc123",
+  it("shows context command when present", () => {
+    const tasks = [
+      makeTask({
+        title: "Task with context",
+        status: "pending",
+        context: "neo runs abc123",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("→ neo runs abc123");
   });
 
   it("handles task with all metadata fields", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Full metadata task",
-        outcome: "in_progress",
-        severity: "critical",
+    const tasks = [
+      makeTask({
+        title: "Full metadata task",
+        status: "in_progress",
+        priority: "critical",
         scope: "/repos/my-app",
         runId: "run_xyz789",
-        category: "cat notes/plan.md",
+        context: "cat notes/plan.md",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("[ACTIVE]");
     expect(result).toContain("[critical]");
     expect(result).toContain("(my-app)");
@@ -709,194 +709,177 @@ describe("buildWorkQueueSection edge cases", () => {
   });
 
   it("handles multiple initiatives with correct grouping", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Auth task 1",
-        outcome: "pending",
-        tags: ["initiative:auth-v2"],
+    const tasks = [
+      makeTask({
+        title: "Auth task 1",
+        status: "pending",
+        initiative: "auth-v2",
       }),
-      makeMemory({
-        type: "task",
-        content: "Billing task 1",
-        outcome: "pending",
-        tags: ["initiative:billing"],
+      makeTask({
+        title: "Billing task 1",
+        status: "pending",
+        initiative: "billing",
       }),
-      makeMemory({
-        type: "task",
-        content: "Auth task 2",
-        outcome: "pending",
-        tags: ["initiative:auth-v2"],
+      makeTask({
+        title: "Auth task 2",
+        status: "pending",
+        initiative: "auth-v2",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("[auth-v2]");
     expect(result).toContain("[billing]");
   });
 
   it("shows completion message when all tasks are done", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Completed task",
-        outcome: "done",
+    const tasks = [
+      makeTask({
+        title: "Completed task",
+        status: "done",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("0 remaining");
     expect(result).toContain("1 done");
     expect(result).toContain("all tasks complete");
   });
 
-  it("handles all severity levels", () => {
-    const severities = ["critical", "high", "medium", "low"] as const;
-    const memories = severities.map((severity) =>
-      makeMemory({
-        type: "task",
-        content: `${severity} priority task`,
-        outcome: "pending",
-        severity,
+  it("handles all priority levels", () => {
+    const priorities = ["critical", "high", "medium", "low"] as const;
+    const tasks = priorities.map((priority) =>
+      makeTask({
+        title: `${priority} priority task`,
+        status: "pending",
+        priority,
       }),
     );
 
-    const result = buildWorkQueueSection(memories);
-    for (const sev of severities) {
-      expect(result).toContain(`[${sev}]`);
+    const result = buildWorkQueueSection(tasks);
+    for (const prio of priorities) {
+      expect(result).toContain(`[${prio}]`);
     }
   });
 
-  it("handles undefined outcome as pending", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "No outcome task",
-        outcome: undefined,
+  it("handles pending status correctly", () => {
+    const tasks = [
+      makeTask({
+        title: "Pending task",
+        status: "pending",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
-    expect(result).toContain("○ No outcome task");
+    const result = buildWorkQueueSection(tasks);
+    expect(result).toContain("○ Pending task");
   });
 
   it("does not show initiative header when only one group exists", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Single initiative task 1",
-        outcome: "pending",
-        tags: ["initiative:only-one"],
+    const tasks = [
+      makeTask({
+        title: "Single initiative task 1",
+        status: "pending",
+        initiative: "only-one",
       }),
-      makeMemory({
-        type: "task",
-        content: "Single initiative task 2",
-        outcome: "pending",
-        tags: ["initiative:only-one"],
+      makeTask({
+        title: "Single initiative task 2",
+        status: "pending",
+        initiative: "only-one",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     // When there's only one group, the initiative header is not shown
     expect(result).not.toContain("[only-one]");
   });
 
   it("handles empty scope path gracefully", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Empty scope task",
-        outcome: "pending",
+    const tasks = [
+      makeTask({
+        title: "Empty scope task",
+        status: "pending",
         scope: "",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     // Should not crash and should show the task
     expect(result).toContain("Empty scope task");
   });
 
   it("handles mixed pending and blocked tasks correctly", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Blocked task",
-        outcome: "blocked",
+    const tasks = [
+      makeTask({
+        title: "Blocked task",
+        status: "blocked",
       }),
-      makeMemory({
-        type: "task",
-        content: "Pending task",
-        outcome: "pending",
+      makeTask({
+        title: "Pending task",
+        status: "pending",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
     expect(result).toContain("[BLOCKED] Blocked task");
     expect(result).toContain("○ Pending task");
     expect(result).toContain("2 remaining");
   });
 
   it("uses compact mode for initiatives with 3+ tasks and shows initiative summary", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "T1: Setup database",
-        outcome: "pending",
-        severity: "high",
-        tags: ["initiative:data-pipeline"],
+    const tasks = [
+      makeTask({
+        title: "T1: Setup database",
+        status: "pending",
+        priority: "high",
+        initiative: "data-pipeline",
       }),
-      makeMemory({
-        type: "task",
-        content: "T2: Create migrations",
-        outcome: "pending",
-        severity: "medium",
-        tags: ["initiative:data-pipeline"],
+      makeTask({
+        title: "T2: Create migrations",
+        status: "pending",
+        priority: "medium",
+        initiative: "data-pipeline",
       }),
-      makeMemory({
-        type: "task",
-        content: "T3: Add seed data",
-        outcome: "pending",
-        severity: "low",
-        tags: ["initiative:data-pipeline"],
+      makeTask({
+        title: "T3: Add seed data",
+        status: "pending",
+        priority: "low",
+        initiative: "data-pipeline",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
     // Compact mode should show initiative summary line
     expect(result).toContain("[data-pipeline] 0 active, 3 pending");
-    // Should show next eligible task in summary (highest severity first = T1)
+    // Should show next eligible task in summary (highest priority first = T1)
     expect(result).toContain("(next: T1: Setup database [high])");
   });
 
-  it("sorts pending tasks by severity in (next: ...) summary", () => {
-    const memories = [
-      makeMemory({
-        type: "task",
-        content: "Low priority task",
-        outcome: "pending",
-        severity: "low",
-        tags: ["initiative:sort-test"],
+  it("sorts pending tasks by priority in (next: ...) summary", () => {
+    const tasks = [
+      makeTask({
+        title: "Low priority task",
+        status: "pending",
+        priority: "low",
+        initiative: "sort-test",
       }),
-      makeMemory({
-        type: "task",
-        content: "Critical priority task",
-        outcome: "pending",
-        severity: "critical",
-        tags: ["initiative:sort-test"],
+      makeTask({
+        title: "Critical priority task",
+        status: "pending",
+        priority: "critical",
+        initiative: "sort-test",
       }),
-      makeMemory({
-        type: "task",
-        content: "Medium priority task",
-        outcome: "pending",
-        severity: "medium",
-        tags: ["initiative:sort-test"],
+      makeTask({
+        title: "Medium priority task",
+        status: "pending",
+        priority: "medium",
+        initiative: "sort-test",
       }),
     ];
 
-    const result = buildWorkQueueSection(memories);
+    const result = buildWorkQueueSection(tasks);
 
-    // Critical task should appear in (next: ...) because it has highest severity
+    // Critical task should appear in (next: ...) because it has highest priority
     expect(result).toContain("(next: Critical priority task [critical])");
     // Low and medium should NOT appear in (next: ...)
     expect(result).not.toContain("(next: Low priority task");

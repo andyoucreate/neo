@@ -61,7 +61,7 @@ describe("memoryEntrySchema", () => {
     expect(result.subtype).toBe("fact");
   });
 
-  it("does not require supersedes field", () => {
+  it("parses entry without subtype", () => {
     const entry = {
       id: "mem_abc123",
       type: "knowledge",
@@ -74,6 +74,6 @@ describe("memoryEntrySchema", () => {
       accessCount: 0,
     };
     const result = memoryEntrySchema.parse(entry);
-    expect(result.supersedes).toBeUndefined();
+    expect(result.subtype).toBeUndefined();
   });
 });

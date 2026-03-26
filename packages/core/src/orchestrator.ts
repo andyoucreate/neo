@@ -426,24 +426,7 @@ export class Orchestrator extends NeoEventEmitter {
         attempt: 1,
       };
 
-      // Write episode to memory store
-      try {
-        const store = this.getMemoryStore();
-        await store.write({
-          type: "episode",
-          scope: input.repo,
-          content: `Run ${runId.slice(0, 8)} (${agent.name}): failed${failResult.error ? ` — ${failResult.error.slice(0, 150)}` : ""}`,
-          source: agent.name,
-          outcome: "failure",
-          runId,
-        });
-      } catch (err) {
-        // Best-effort — don't fail the run if memory write fails
-        console.debug(
-          `[orchestrator] Failed to write failure episode to memory: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
+      // Episode writes removed — episode type was deprecated (write-only, never read)
       return failResult;
     } finally {
       // Auto-commit, push, and cleanup session clone
@@ -570,25 +553,7 @@ export class Orchestrator extends NeoEventEmitter {
       },
     );
 
-    // Write episode to memory store
-    try {
-      const store = this.getMemoryStore();
-      const isSuccess = result.status === "success";
-      await store.write({
-        type: "episode",
-        scope: input.repo,
-        content: `Run ${runId.slice(0, 8)} (${agent.name}): ${isSuccess ? "completed" : "failed"}${result.error ? ` — ${result.error.slice(0, 150)}` : ""}`,
-        source: agent.name,
-        outcome: isSuccess ? "success" : "failure",
-        runId,
-      });
-    } catch (err) {
-      // Best-effort — don't fail the run if memory write fails
-      console.debug(
-        `[orchestrator] Failed to write completion episode to memory: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
+    // Episode writes removed — episode type was deprecated (write-only, never read)
     return result;
   }
 
@@ -661,7 +626,7 @@ export class Orchestrator extends NeoEventEmitter {
       const store = this.getMemoryStore();
       const memories = store.query({
         scope: repoPath,
-        types: ["fact", "procedure", "feedback"],
+        types: ["knowledge", "warning"],
         limit: 25,
         sortBy: "relevance",
       });
