@@ -8,26 +8,40 @@ This file contains domain-specific knowledge for the supervisor. Commands, heart
 |-------|-------|------|----------|
 | `architect` | opus | writable | Triage + design + write implementation plan to `.neo/specs/`. Spawns plan-reviewer subagent. Writes code in plans, NEVER modifies source files. |
 | `developer` | opus | writable | Executes implementation plans step by step (plan mode) OR direct tasks (direct mode). Spawns spec-reviewer and code-quality-reviewer subagents. |
-| `reviewer` | sonnet | readonly | Thorough single-pass review: quality, standards, security, perf, and coverage. Challenges by default — blocks on ≥1 CRITICAL or ≥3 WARNINGs |
-| `scout` | opus | readonly | Autonomous codebase explorer. Deep-dives into a repo to surface bugs, improvements, security issues, and tech debt. Creates decisions for the user |
+| `reviewer` | sonnet | readonly | Thorough two-pass review: spec compliance first (gate), then code quality. Challenges by default — blocks on ≥1 CRITICAL or ≥5 WARNINGs. |
+| `scout` | opus | readonly | Autonomous codebase explorer. Deep-dives into a repo to surface bugs, improvements, security issues, and tech debt. Creates decisions for CRITICAL/HIGH findings. Writes institutional memory. |
 
 ## Agent Output Contracts
 
 Read agent output to decide next actions.
 
-### architect → `plan_path` + `summary`
+### architect → approval decision (gate) → `plan_path` + `summary`
 
-React to: dispatch `developer` with `--prompt "Execute the implementation plan at {plan_path}. Create a PR when all tasks pass."` on the same branch.
+The architect workflow is two-phase:
 
-No more task-by-task dispatch from supervisor. The developer handles the full plan autonomously.
+**Phase A — Design Gate:** Before writing any plan, the architect creates a blocking approval decision:
+```bash
+neo decision create "Design approval for {ticket-id}" --type approval --context "..." --wait --timeout 30m
+```
+The architect is **paused waiting for your response**. Answer within 1-2 heartbeats — every missed heartbeat burns 30 minutes of architect session budget.
+
+React to:
+- `approved` → architect writes plan, then report arrives
+- `approved_with_changes` → architect revises design, re-submits (max 2 cycles)
+- `rejected` → architect restarts design
+
+**Phase B — Plan Ready:** After design is approved, architect reports:
+- `plan_path` + `summary` → dispatch `developer` with `--prompt "Execute the implementation plan at {plan_path}. Create a PR when all tasks pass."` on the same branch.
+
+The developer handles the full plan autonomously — no task-by-task dispatch from supervisor.
 
 ### developer → `status` + `branch_completion`
 
-React to status (same as before):
+React to status:
 - `status: "DONE"` + `PR_URL` → extract PR number, set ticket to CI pending, check CI at next heartbeat
 - `status: "DONE"` without PR → mark ticket done
-- `status: "DONE_WITH_CONCERNS"` → read concerns, evaluate impact. If concerns are architectural → create a decision or dispatch architect. If minor → mark done with note.
-- `status: "BLOCKED"` → route via decision system. If autoDecide, answer directly. Otherwise wait for human.
+- `status: "DONE_WITH_CONCERNS"` → read concerns, evaluate impact. If architectural → create a decision or dispatch architect. If minor → mark done with note.
+- `status: "BLOCKED"` → route via decision system. If you can answer directly (scope, priority, strategic question), do it. Otherwise wait for human.
 - `status: "NEEDS_CONTEXT"` → provide the requested context and re-dispatch developer on same branch.
 
 When `branch_completion` is present, supervisor decides:
@@ -38,25 +52,27 @@ When `branch_completion` is present, supervisor decides:
 
 ### reviewer → `verdict` + `issues[]`
 
-The reviewer challenges by default. It blocks on any CRITICAL issue or ≥3 WARNINGs.
-Expect `CHANGES_REQUESTED` more often than `APPROVED` — this is intentional.
+The reviewer runs two passes: spec compliance first (fail = stop), then code quality. It challenges by default.
 
-Also check `spec_compliance` field. If `FAIL`, the code deviated from spec.
+Blocks on:
+- Any CRITICAL issue
+- ≥5 WARNINGs
+- `spec_compliance: "FAIL"` (always blocks, regardless of code quality)
 
 React to:
 - `verdict: "APPROVED"` → mark ticket done
-- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard, re-dispatch `developer` with review feedback as context on same branch (include severity — developer should prioritize CRITICALs first)
+- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard, re-dispatch `developer` with review feedback as context on same branch (include severity — developer should prioritize CRITICALs first, then spec deviations)
 
 ### scout → `findings[]` + `decisions_created`
 
 React to:
-- Parse `findings[]` — each has `severity`, `category`, `suggestion`, and optional `decision_id`
-- CRITICAL findings with `decision_id` → wait for user decision before acting
-- HIGH findings with `decision_id` → wait for user decision before acting
-- User answers "yes" on a decision → route the finding as a ticket (dispatch `developer` or `architect` based on `effort`)
-- User answers "later" → backlog the finding
-- User answers "no" → discard
+- Parse `findings[]` — each has `severity`, `category`, `suggestion`, `effort`, and optional `decision_id`
+- CRITICAL/HIGH findings with `decision_id` → wait for user decision before acting
+- User answers `"yes"` on a decision → **run pre-dispatch dedup check** (§2) then route as ticket
+- User answers `"later"` → backlog the finding
+- User answers `"no"` → discard
 - MEDIUM/LOW findings (no decisions created) → log for reference, no action needed
+- Log `health_score` and `strengths` for project context
 
 ## Dispatch — `--meta` fields
 
@@ -65,14 +81,15 @@ Use `--meta` for traceability and idempotency:
 | Field | Required | Description |
 |-------|----------|-------------|
 | `ticketId` | always | Source ticket identifier for traceability |
-| `stage` | always | Pipeline stage: `develop`, `review` |
+| `stage` | always | Pipeline stage: `plan`, `develop`, `review` |
 | `prNumber` | if exists | GitHub PR number |
 | `parentTicketId` | sub-tickets | Parent ticket ID for decomposed work |
 
 ### Branch & PR lifecycle
 
 - `--branch` is **required for all agents**. Every session runs in an isolated clone on that branch.
-- **develop**: pass `--branch feat/PROJ-42-description` to name the working branch.
+- **plan**: pass `--branch feat/PROJ-42-description` — architect commits the spec to this branch.
+- **develop**: pass the same `--branch` as architect used.
 - **review**: pass the same `--branch` and `prNumber` in `--meta`.
 - On developer completion: extract `branch` and `prNumber` from `neo runs <runId>`, carry forward.
 
@@ -80,9 +97,9 @@ Use `--meta` for traceability and idempotency:
 
 The `--prompt` is the agent's only context. It must be self-contained:
 
-- **develop**: task description + acceptance criteria + instruction to create branch and PR
-- **review**: PR number + branch name + what to review
 - **architect**: feature description + constraints + scope
+- **developer**: task description + acceptance criteria + instruction to create branch and PR (or plan path for plan mode)
+- **reviewer**: PR number + branch name + what to review
 
 ### Examples
 
@@ -125,9 +142,10 @@ neo run scout --prompt "Explore this repository and surface bugs, improvements, 
    a. Read full ticket details.
    b. Self-evaluate missing fields (see below).
    c. Resolve target repository.
-   d. Route the ticket.
-   e. Update tracker → in progress.
-   f. **Yield.** Completion arrives at a future heartbeat.
+   d. **Scope check**: if the ticket involves removal or deletion of code, confirm exact scope before dispatching. If ambiguous, create a decision: "Should I delete ONLY X, or also Y?"
+   e. Route the ticket.
+   f. Update tracker → in progress.
+   g. **Yield.** Completion arrives at a future heartbeat.
 
 ### 2. Routing
 
@@ -149,49 +167,63 @@ Skip silently and log: `neo log discovery "Skipping <finding> — covered by PR 
 |-----------|--------|
 | Bug + critical priority | Dispatch `developer` direct (hotfix) |
 | Clear criteria + small scope (< 3 points) | Dispatch `developer` direct |
-| Complexity ≥ 3 | Dispatch `architect` first → plan → dispatch `developer` with plan path |
+| Complexity ≥ 3 | Dispatch `architect` first → design gate → plan → dispatch `developer` with plan path |
 | Unclear criteria or vague scope | Dispatch `architect` (handles triage via decision poll) |
+| Deletion / large removal | Create scope decision first, then dispatch `developer` direct |
 | Proactive exploration / no specific ticket | Dispatch `scout` on target repo |
 
-### 3. On Developer Completion — with PR
+### 3. On Architect Design Gate
+
+When architect creates an approval decision (`--type approval --wait`):
+
+1. Read the decision context immediately — the architect is paused waiting.
+2. Evaluate: does the proposed design match the ticket's intent? Are the components and scope reasonable?
+3. **Can you approve directly?** (most common — if the approach is reasonable and in scope)
+   → `neo decision answer <id> approved`
+4. **Need changes?** → `neo decision answer <id> "approved_with_changes: <specific changes needed>"`
+5. **Fundamentally wrong approach?** → `neo decision answer <id> rejected` + explain what direction to take instead.
+
+Do NOT dispatch follow-up agents until the architect reports `plan_path`.
+
+### 4. On Developer Completion — with PR
 
 1. Parse output for `PR_URL`, extract PR number.
 2. Handle by status:
    - `status: "DONE"` → update tracker → CI pending.
    - `status: "DONE_WITH_CONCERNS"` → read concerns, evaluate impact. If architectural → create a decision or dispatch architect. If minor → update tracker → CI pending, note concerns.
-   - `status: "BLOCKED"` → route via decision system. If autoDecide, answer directly. Otherwise wait for human.
-   - `status: "NEEDS_CONTEXT"` → provide the requested context and re-dispatch developer on same branch.
+   - `status: "BLOCKED"` → route via decision system.
+   - `status: "NEEDS_CONTEXT"` → provide context, re-dispatch developer on same branch.
 3. For CI pending tickets: check CI: `gh pr checks <prNumber> --repo <repository>`.
 4. CI passed → update tracker → in review, dispatch `reviewer`.
 5. CI failed → re-dispatch `developer` with CI error context on same branch.
 6. CI pending → note in focus, check at next heartbeat.
 
-### 4. On Developer Completion — no PR
+### 5. On Developer Completion — no PR
 
 - `status: "DONE"` → update tracker → done.
 - `status: "DONE_WITH_CONCERNS"` → evaluate concerns, mark done with note if minor.
 - `status: "BLOCKED"` → route via decision system.
 - `status: "NEEDS_CONTEXT"` → provide context, re-dispatch developer.
 
-### 5. On Review Completion
+### 6. On Review Completion
 
 Parse reviewer's JSON output:
 - `verdict: "APPROVED"` → update tracker → done.
-- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard → re-dispatch `developer` with review feedback as context on same branch, or escalate.
+- `verdict: "CHANGES_REQUESTED"` → check anti-loop guard → re-dispatch `developer` with review feedback as context on same branch (include spec deviations + CRITICAL issues + WARNING count), or escalate.
 
-### 6. On Scout Completion
+### 7. On Scout Completion
 
 Parse scout's JSON output:
 - For each finding with `decision_id`: wait for user decision at future heartbeat.
-- User answers "yes" on a decision:
-  - **Run pre-dispatch dedup check** (§2) before dispatching — if a similar PR is already open or was merged recently, skip and log.
+- User answers `"yes"` on a decision:
+  - **Run pre-dispatch dedup check** (§2) before dispatching.
   - `effort: "XS" | "S"` → dispatch `developer` with finding as ticket
   - `effort: "M" | "L"` → dispatch `architect` for design first
-- User answers "later" → log to backlog, no dispatch
-- User answers "no" → discard finding, no action
+- User answers `"later"` → log to backlog, no dispatch
+- User answers `"no"` → discard finding, no action
 - Log `health_score` and `strengths` for project context.
 
-### 7. On Agent Failure
+### 8. On Agent Failure
 
 Update tracker → abandoned. Log the failure reason.
 
@@ -207,6 +239,9 @@ ready → in progress → ci pending → in review → done
              │
              └──→ blocked (escalation/budget/anti-loop)
              └──→ abandoned (terminal failure)
+
+architect path:
+ready → design gate (--wait decision) → plan written → in progress → ...
 ```
 
 ## Self-Evaluation (Missing Ticket Fields)
@@ -217,6 +252,7 @@ Infer missing fields before routing:
 - "crash", "error", "broken", "fix", "regression" → `bug`
 - "add", "create", "implement", "build", "new" → `feature`
 - "refactor", "clean", "improve", "optimize" → `chore`
+- "remove", "delete", "cleanup" → `chore` (requires scope confirmation — see §1d)
 - Unclear → `feature`
 
 **Complexity (Fibonacci):**
@@ -227,6 +263,7 @@ Infer missing fields before routing:
 - Bugs: "The bug described in the title is fixed and does not regress"
 - Features: derive from title
 - Chores: "Code is cleaned up without breaking existing behavior"
+- Deletions: "ONLY the named subsystem is removed. Nothing adjacent is deleted."
 
 **Priority** (when unset): `medium`
 
@@ -243,7 +280,7 @@ When an architect completes:
 
 When a pending decision arrives from an agent:
 
-1. **Can you answer directly?** (strategic question, scope, priority)
+1. **Can you answer directly?** (strategic question, scope, priority, design approval)
    → `neo decision answer <id> <answer>`
 
 2. **Needs codebase investigation?** (technical question about existing code)
@@ -253,8 +290,27 @@ When a pending decision arrives from an agent:
 3. **Needs human input?** (`autoDecide: false`, or genuinely uncertain)
    → Log and wait for human response
 
-IMPORTANT: An agent is BLOCKED waiting on this decision.
-Answer within 1–2 heartbeats. Stale decisions waste agent session budget.
+IMPORTANT: An agent may be BLOCKED waiting on this decision (especially architect with `--wait`).
+Answer within 1-2 heartbeats. Stale decisions waste agent session budget.
+
+## Memory Usage
+
+Use `neo memory write` to capture stable facts that would change how future agents approach work on this repo.
+
+Write memories when:
+- A scout or developer reveals a non-obvious constraint not in docs (e.g., "build must pass locally before push — CI runs compiled output only")
+- A developer or reviewer hits the same issue twice (→ write a `procedure` memory with the fix)
+- A user provides feedback that affects future dispatches (→ write a `feedback` memory with scope)
+- A design decision locks in a pattern that future architects should know (→ write a `fact` memory)
+
+```bash
+neo memory write --type fact --scope <repo-path> "<stable truth>"
+neo memory write --type procedure --scope <repo-path> "<step-by-step how-to>"
+neo memory write --type feedback --scope <repo-path> "<recurring complaint or preference>"
+neo memory write --type focus --expires 2h "<current working context>"
+```
+
+Do NOT memorize: file paths, general best practices, obvious conventions, anything in README or package.json.
 
 ## Idle Behavior
 
@@ -280,6 +336,11 @@ When the supervisor has **no events, no active runs, and no pending tasks**, it 
 ### Escalation Policy
 - If developer reports `status: "BLOCKED"` or fails **3× on the same error type**: escalate immediately.
 - Do NOT attempt a 4th variant.
+
+### Scope Guard
+- For deletion or large removal tasks: always confirm exact scope before dispatch.
+- "Remove X" means ONLY X — never adjacent systems unless explicitly stated.
+- When in doubt: create a decision with boundary options before dispatching.
 
 ### Budget Enforcement
 - Check `neo cost --short` before every dispatch.
