@@ -203,6 +203,15 @@ export class DecisionStore {
   }
 
   /**
+   * Check if a decision has already been answered without throwing.
+   * Returns true if answered, false otherwise (including non-existent decisions).
+   */
+  async isAnswered(id: string): Promise<boolean> {
+    const decision = await this.get(id);
+    return decision?.answer !== undefined;
+  }
+
+  /**
    * Auto-answer expired decisions with their defaultAnswer.
    * Decisions without defaultAnswer are marked as expired (expiredAt).
    * Uses a mutex to serialize concurrent calls and prevent race conditions.

@@ -97,19 +97,20 @@ export const STALE_GRACE_PERIOD_MS = 30_000;
  * - If no PID and past grace period → stale (ghost run)
  *
  * For "paused" status: always considered active (waiting for user action).
+ * For "blocked" status: always considered active (waiting for blocker resolution).
  */
 export function isRunActive(
   run: PersistedRun,
   isAlive: (pid: number) => boolean = isProcessAlive,
   now: number = Date.now(),
 ): boolean {
-  // Skip non-active statuses
-  if (run.status !== "running" && run.status !== "paused") {
+  // Skip terminal statuses
+  if (run.status === "completed" || run.status === "failed") {
     return false;
   }
 
-  // Paused runs are always considered active (waiting for user action)
-  if (run.status === "paused") {
+  // Paused and blocked runs are always considered active (waiting for resolution)
+  if (run.status === "paused" || run.status === "blocked") {
     return true;
   }
 
@@ -248,6 +249,8 @@ export class HeartbeatLoop {
   private readonly memoryDbPath: string | undefined;
   private readonly onWebhookEvent: WebhookEventEmitter | undefined;
   private decisionStore: DecisionStore | null = null;
+  /** Cache of decision IDs already answered in this session to prevent re-answer spam */
+  private readonly answeredDecisionIds = new Set<string>();
 
   /** ConfigWatcher for hot-reload support */
   private configWatcher: ConfigWatcher | null = null;
@@ -1135,6 +1138,9 @@ export class HeartbeatLoop {
   /**
    * Process decision:answer events from inbox messages.
    * Expected format: "decision:answer <decisionId> <answer>"
+   *
+   * Uses an in-memory deduplication cache to prevent re-answering decisions
+   * that have already been processed, avoiding the "already answered" error spam.
    */
   private async processDecisionAnswers(
     rawEvents: QueuedEvent[],
@@ -1151,18 +1157,39 @@ export class HeartbeatLoop {
       const answer = match[2];
       if (!decisionId || !answer) continue;
 
+      // Skip if we've already processed this decision ID in this session
+      if (this.answeredDecisionIds.has(decisionId)) {
+        continue;
+      }
+
+      // Check if already answered in the store (without throwing)
+      const alreadyAnswered = await store.isAnswered(decisionId);
+      if (alreadyAnswered) {
+        // Mark as known and skip
+        this.answeredDecisionIds.add(decisionId);
+        continue;
+      }
+
       try {
         await store.answer(decisionId, answer);
+        // Track successful answer to prevent future attempts
+        this.answeredDecisionIds.add(decisionId);
         await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
           decisionId,
           answer,
         });
       } catch (error) {
         const msg = error instanceof Error ? error.message : String(error);
-        await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
-          decisionId,
-          answer,
-        });
+        // Only log if it's NOT an "already answered" error (edge case: race condition)
+        if (!msg.includes("already answered")) {
+          await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
+            decisionId,
+            answer,
+          });
+        } else {
+          // Add to cache to prevent future attempts
+          this.answeredDecisionIds.add(decisionId);
+        }
       }
     }
   }

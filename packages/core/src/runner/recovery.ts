@@ -14,6 +14,53 @@ export interface RecoveryOptions extends SessionOptions {
   onAttempt?: (attempt: number, strategy: string) => void;
 }
 
+// ─── Failure Context ────────────────────────────────────
+
+interface FailureContext {
+  errorMessage: string;
+  errorType: string;
+  attempt: number;
+  strategy: string;
+}
+
+/**
+ * Build a prompt prefix that injects the previous failure context.
+ * This gives the agent information to try a different approach.
+ */
+function buildFailureContextPrefix(ctx: FailureContext): string {
+  return `## PREVIOUS ATTEMPT FAILED
+
+Your previous attempt (attempt ${ctx.attempt}, strategy: ${ctx.strategy}) failed with:
+- **Error type:** ${ctx.errorType}
+- **Error message:** ${ctx.errorMessage}
+
+Please try a different approach to complete this task. Consider what caused the failure and how to avoid it.
+
+---
+
+`;
+}
+
+/**
+ * Inject failure context into the prompt for retry attempts.
+ */
+function injectFailureContext(originalPrompt: string, ctx: FailureContext): string {
+  return buildFailureContextPrefix(ctx) + originalPrompt;
+}
+
+/**
+ * Extract error information from an unknown error.
+ */
+function extractErrorInfo(error: unknown): { message: string; type: string } {
+  if (error instanceof SessionError) {
+    return { message: error.message, type: error.errorType };
+  }
+  if (error instanceof Error) {
+    return { message: error.message, type: "unknown" };
+  }
+  return { message: String(error), type: "unknown" };
+}
+
 // ─── Default non-retryable errors ───────────────────────
 
 const DEFAULT_NON_RETRYABLE = ["error_max_turns", "budget_exceeded"];
@@ -68,6 +115,9 @@ function buildFinalError(error: unknown, maxRetries: number): Error {
  *
  * Non-retryable errors skip to immediate failure.
  * Backoff: backoffBaseMs * attempt between levels.
+ *
+ * On retry, the prompt is enriched with failure context from the previous
+ * attempt, giving the agent information to try a different approach.
  */
 export async function runWithRecovery(options: RecoveryOptions): Promise<SessionResult> {
   const {
@@ -75,18 +125,26 @@ export async function runWithRecovery(options: RecoveryOptions): Promise<Session
     backoffBaseMs,
     nonRetryable = DEFAULT_NON_RETRYABLE,
     onAttempt,
+    prompt: originalPrompt,
     ...rest
   } = options;
 
   let lastSessionId: string | undefined;
+  let lastFailureContext: FailureContext | undefined;
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     const strategy = getStrategy(attempt);
     onAttempt?.(attempt, strategy);
 
+    // Inject failure context on retry attempts
+    const prompt = lastFailureContext
+      ? injectFailureContext(originalPrompt, lastFailureContext)
+      : originalPrompt;
+
     try {
       const result = await runSession({
         ...rest,
+        prompt,
         resumeSessionId: strategy === "resume" ? lastSessionId : undefined,
       });
       return result;
@@ -95,6 +153,15 @@ export async function runWithRecovery(options: RecoveryOptions): Promise<Session
 
       if (isNonRetryable(error, nonRetryable)) throw error;
       if (attempt === maxRetries) throw buildFinalError(error, maxRetries);
+
+      // Capture failure context for next attempt
+      const errorInfo = extractErrorInfo(error);
+      lastFailureContext = {
+        errorMessage: errorInfo.message,
+        errorType: errorInfo.type,
+        attempt,
+        strategy,
+      };
 
       // Next attempt will be "fresh" — clear session to start clean
       if (getStrategy(attempt + 1) === "fresh") {
