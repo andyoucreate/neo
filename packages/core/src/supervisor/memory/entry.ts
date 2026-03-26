@@ -3,15 +3,18 @@ import { z } from "zod";
 // ─── Memory types ────────────────────────────────────────
 
 export const memoryTypeSchema = z.enum([
-  "fact",
-  "procedure",
-  "episode",
-  "focus",
-  "feedback",
-  "task",
+  "knowledge", // replaces fact + procedure
+  "warning", // replaces feedback, always injected
+  "focus", // unchanged, ephemeral working memory
 ]);
 
 export type MemoryType = z.infer<typeof memoryTypeSchema>;
+
+// ─── Subtype for knowledge entries ───────────────────────
+
+export const knowledgeSubtypeSchema = z.enum(["fact", "procedure"]);
+
+export type KnowledgeSubtype = z.infer<typeof knowledgeSubtypeSchema>;
 
 // ─── Memory entry (persisted in SQLite) ──────────────────
 
@@ -30,11 +33,12 @@ export const memoryEntrySchema = z.object({
 
   // Optional per-type fields
   expiresAt: z.string().optional(), // focus TTL
-  outcome: z.string().optional(), // episode: success/failure/blocked
+  outcome: z.string().optional(), // legacy, kept for task migration
   runId: z.string().optional(),
-  category: z.string().optional(), // feedback: reviewer issue category
+  category: z.string().optional(), // warning: category
   severity: z.string().optional(),
-  supersedes: z.string().optional(), // contradiction resolution
+  subtype: z.string().optional(), // knowledge: "fact" | "procedure"
+  // supersedes removed — dead code
 });
 
 export type MemoryEntry = z.infer<typeof memoryEntrySchema>;
@@ -52,7 +56,7 @@ export const memoryWriteInputSchema = z.object({
   runId: z.string().optional(),
   category: z.string().optional(),
   severity: z.string().optional(),
-  supersedes: z.string().optional(),
+  subtype: z.string().optional(), // "fact" | "procedure" for knowledge type
 });
 
 export type MemoryWriteInput = z.input<typeof memoryWriteInputSchema>;
