@@ -42,6 +42,11 @@ afterEach(async () => {
   process.exitCode = undefined;
 });
 
+// Helper to create args with correct citty shape
+function makeArgs(task: string, name: string, detach: boolean) {
+  return { task, name, detach, d: detach, _: [] as string[] };
+}
+
 describe("neo do command", () => {
   it("sends message to supervisor inbox when running", async () => {
     const { isDaemonRunning } = await import("../daemon-utils.js");
@@ -53,7 +58,7 @@ describe("neo do command", () => {
     const { default: doCommand } = await import("../commands/do.js");
 
     await doCommand.run?.({
-      args: { task: "add rate limiter", name: "supervisor", detach: false },
+      args: makeArgs("add rate limiter", "supervisor", false),
     } as never);
 
     const inboxPath = path.join(TMP_DIR, "supervisor", "inbox.jsonl");
@@ -75,7 +80,7 @@ describe("neo do command", () => {
     const { default: doCommand } = await import("../commands/do.js");
 
     await doCommand.run?.({
-      args: { task: "add rate limiter", name: "supervisor", detach: false },
+      args: makeArgs("add rate limiter", "supervisor", false),
     } as never);
 
     const activityPath = path.join(TMP_DIR, "supervisor", "activity.jsonl");
@@ -94,7 +99,7 @@ describe("neo do command", () => {
     const { default: doCommand } = await import("../commands/do.js");
 
     await doCommand.run?.({
-      args: { task: "test task", name: "supervisor", detach: false },
+      args: makeArgs("test task", "supervisor", false),
     } as never);
 
     expect(process.exitCode).toBe(1);
@@ -109,7 +114,7 @@ describe("neo do command", () => {
     const { default: doCommand } = await import("../commands/do.js");
 
     await doCommand.run?.({
-      args: { task: "test task", name: "supervisor", detach: true },
+      args: makeArgs("test task", "supervisor", true),
     } as never);
 
     expect(startDaemonDetached).toHaveBeenCalledWith("supervisor");
