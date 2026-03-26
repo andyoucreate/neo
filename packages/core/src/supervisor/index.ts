@@ -42,6 +42,8 @@ export {
   memoryTypeSchema,
   memoryWriteInputSchema,
 } from "./memory/index.js";
+// ─── Notifications ───────────────────────────────────────
+export { notify, notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 export type {
   ConsolidationPromptOptions,
   PromptOptions,
