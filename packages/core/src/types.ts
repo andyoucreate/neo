@@ -56,7 +56,11 @@ export interface PersistedRun {
   branch?: string | undefined;
   sessionPath?: string | undefined;
   pid?: number | undefined;
-  status: "running" | "paused" | "completed" | "failed";
+  status: "running" | "paused" | "completed" | "failed" | "blocked";
+  /** Reason why this run is blocked (if status is "blocked") */
+  blockedReason?: string | undefined;
+  /** Timestamp when the run was blocked */
+  blockedAt?: string | undefined;
   steps: Record<string, StepResult>;
   createdAt: string;
   updatedAt: string;
@@ -64,7 +68,7 @@ export interface PersistedRun {
 }
 
 export interface StepResult {
-  status: "pending" | "running" | "success" | "failure" | "skipped";
+  status: "pending" | "running" | "success" | "failure" | "skipped" | "blocked";
   sessionId?: string | undefined;
   output?: unknown;
   rawOutput?: string | undefined;
@@ -76,6 +80,8 @@ export interface StepResult {
   startedAt?: string | undefined;
   completedAt?: string | undefined;
   error?: string | undefined;
+  /** Reason why this step is blocked (if status is "blocked") */
+  blockedReason?: string | undefined;
   attempt: number;
 }
 

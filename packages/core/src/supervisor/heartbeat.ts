@@ -97,19 +97,20 @@ export const STALE_GRACE_PERIOD_MS = 30_000;
  * - If no PID and past grace period → stale (ghost run)
  *
  * For "paused" status: always considered active (waiting for user action).
+ * For "blocked" status: always considered active (waiting for blocker resolution).
  */
 export function isRunActive(
   run: PersistedRun,
   isAlive: (pid: number) => boolean = isProcessAlive,
   now: number = Date.now(),
 ): boolean {
-  // Skip non-active statuses
-  if (run.status !== "running" && run.status !== "paused") {
+  // Skip terminal statuses
+  if (run.status === "completed" || run.status === "failed") {
     return false;
   }
 
-  // Paused runs are always considered active (waiting for user action)
-  if (run.status === "paused") {
+  // Paused and blocked runs are always considered active (waiting for resolution)
+  if (run.status === "paused" || run.status === "blocked") {
     return true;
   }
 
