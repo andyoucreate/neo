@@ -3,7 +3,13 @@ import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { Embedder } from "./embedder.js";
-import type { MemoryEntry, MemoryQuery, MemoryStats, MemoryWriteInput } from "./entry.js";
+import type {
+  MemoryEntry,
+  MemoryQuery,
+  MemoryStats,
+  MemoryWriteInput,
+  SearchResult,
+} from "./entry.js";
 
 const esmRequire = createRequire(import.meta.url);
 
@@ -288,7 +294,7 @@ export class MemoryStore {
 
   // ─── Search (async — semantic or FTS) ────────────────
 
-  async search(text: string, opts: MemoryQuery = {}): Promise<MemoryEntry[]> {
+  async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
     // Try vector search first
     if (this.embedder && this.hasVec) {
       try {
@@ -321,7 +327,12 @@ export class MemoryStore {
           return true;
         });
 
-        return filtered.slice(0, limit).map((row) => rowToEntry(row));
+        return filtered.slice(0, limit).map((row) => ({
+          ...rowToEntry(row),
+          // Convert distance to similarity score (1 - distance for cosine)
+          // Clamp to [0, 1] to handle edge cases
+          score: Math.max(0, Math.min(1, 1 - row.distance)),
+        }));
       } catch {
         // Fall through to FTS
       }
@@ -335,7 +346,9 @@ export class MemoryStore {
       .map((w) => `"${w}"`)
       .join(" OR ");
 
-    if (!ftsQuery) return this.query(opts);
+    if (!ftsQuery) {
+      return this.query(opts).map((e) => ({ ...e, score: 0 }));
+    }
 
     try {
       const rows = this.db
@@ -347,7 +360,7 @@ export class MemoryStore {
          ORDER BY rank
          LIMIT ?`,
         )
-        .all(ftsQuery, limit) as RawMemoryRow[];
+        .all(ftsQuery, limit) as (RawMemoryRow & { rank: number })[];
 
       const filtered = rows.filter((row) => {
         if (opts.scope && row.scope !== opts.scope && row.scope !== "global") return false;
@@ -360,10 +373,34 @@ export class MemoryStore {
         return true;
       });
 
-      return filtered.map(rowToEntry);
+      if (filtered.length === 0) {
+        return [];
+      }
+
+      // Normalize FTS rank to 0-1 score
+      // FTS5 rank is negative, lower (more negative) is better match
+      // We invert and normalize: best match gets score close to 1
+      const ranks = filtered.map((r) => r.rank);
+      const minRank = Math.min(...ranks);
+      const maxRank = Math.max(...ranks);
+
+      return filtered.map((row) => {
+        let score: number;
+        if (minRank === maxRank) {
+          // All same rank, give them equal high score
+          score = 0.8;
+        } else {
+          // Normalize: minRank (best) -> 1, maxRank (worst) -> 0
+          score = 1 - (row.rank - minRank) / (maxRank - minRank);
+        }
+        return {
+          ...rowToEntry(row),
+          score: Math.max(0, Math.min(1, score)),
+        };
+      });
     } catch {
       // FTS query syntax error — fall back to LIKE
-      return this.query(opts);
+      return this.query(opts).map((e) => ({ ...e, score: 0 }));
     }
   }
 
@@ -443,6 +480,21 @@ export class MemoryStore {
     }
 
     return { total, byType, byScope };
+  }
+
+  /**
+   * Get the top N most-accessed memories.
+   */
+  topAccessed(limit = 5): MemoryEntry[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM memories
+       ORDER BY access_count DESC
+       LIMIT ?`,
+      )
+      .all(limit) as RawMemoryRow[];
+
+    return rows.map(rowToEntry);
   }
 
   // ─── Cleanup ─────────────────────────────────────────

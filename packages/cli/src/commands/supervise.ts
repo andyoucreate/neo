@@ -1,42 +1,19 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { closeSync, existsSync, openSync } from "node:fs";
-import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { appendFile, rm } from "node:fs/promises";
 import {
   getSupervisorActivityPath,
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorLockPath,
-  getSupervisorStatePath,
   isProcessAlive,
   loadGlobalConfig,
-  type SupervisorDaemonState,
-  supervisorDaemonStateSchema,
 } from "@neotx/core";
 import { defineCommand } from "citty";
+import { isDaemonRunning, startDaemonDetached } from "../daemon-utils.js";
 import { printError, printSuccess } from "../output.js";
 
 const DEFAULT_NAME = "supervisor";
-
-async function readState(name: string): Promise<SupervisorDaemonState | null> {
-  const statePath = getSupervisorStatePath(name);
-  if (!existsSync(statePath)) return null;
-  try {
-    const raw = await readFile(statePath, "utf-8");
-    return supervisorDaemonStateSchema.parse(JSON.parse(raw));
-  } catch {
-    return null;
-  }
-}
-
-async function isDaemonRunning(name: string): Promise<SupervisorDaemonState | null> {
-  const state = await readState(name);
-  if (!state || state.status === "stopped") return null;
-  if (!isProcessAlive(state.pid)) return null;
-  return state;
-}
 
 async function handleStatus(name: string): Promise<void> {
   const state = await isDaemonRunning(name);
@@ -129,26 +106,10 @@ async function startDaemon(name: string): Promise<void> {
     await rm(lockPath, { force: true });
   }
 
-  // Resolve the worker script path and package root (for module resolution)
-  const __dirname = path.dirname(fileURLToPath(import.meta.url));
-  const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
-  const packageRoot = path.resolve(__dirname, "..");
-
-  // Spawn as detached child process with stdio to log file
-  const logDir = getSupervisorDir(name);
-  await mkdir(logDir, { recursive: true });
-  const logFd = openSync(path.join(logDir, "daemon.log"), "a");
-  const child = spawn(process.execPath, [workerPath, name], {
-    detached: true,
-    stdio: ["ignore", logFd, logFd],
-    cwd: packageRoot,
-    env: process.env,
-  });
-  child.unref();
-  closeSync(logFd);
-
+  const pid = await startDaemonDetached(name);
   const config = await loadGlobalConfig();
-  printSuccess(`Supervisor "${name}" started (PID ${child.pid})`);
+
+  printSuccess(`Supervisor "${name}" started (PID ${pid})`);
   console.log(`  Port:     ${config.supervisor.port}`);
   console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
   console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);

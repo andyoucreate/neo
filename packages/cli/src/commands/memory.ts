@@ -17,6 +17,8 @@ interface ParsedArgs {
   severity: string | undefined;
   category: string | undefined;
   tags: string | undefined;
+  full: boolean;
+  limit: string | undefined;
 }
 
 function parseDuration(input: string): string | undefined {
@@ -51,10 +53,17 @@ function openStore(name: string, withEmbeddings = false): MemoryStore {
   return new MemoryStore(path.join(dir, "memory.sqlite"), embedder);
 }
 
-function formatResultsTable(results: MemoryEntry[]): void {
+function formatResultsTable(results: MemoryEntry[], full = false): void {
+  const maxContent = full ? 500 : 60;
   printTable(
     ["ID", "TYPE", "SCOPE", "CONTENT", "ACCESSES"],
-    results.map((m) => [m.id, m.type, m.scope, truncate(m.content, 60), String(m.accessCount)]),
+    results.map((m) => [
+      m.id,
+      m.type,
+      m.scope,
+      truncate(m.content, maxContent),
+      String(m.accessCount),
+    ]),
   );
 }
 
@@ -196,7 +205,19 @@ async function handleSearch(args: ParsedArgs): Promise<void> {
       return;
     }
 
-    formatResultsTable(results);
+    // Display with relevance score
+    const maxContent = args.full ? 500 : 60;
+    printTable(
+      ["ID", "TYPE", "SCOPE", "SCORE", "CONTENT", "ACCESSES"],
+      results.map((m) => [
+        m.id,
+        m.type,
+        m.scope,
+        `${(m.score * 100).toFixed(0)}%`,
+        truncate(m.content, maxContent),
+        String(m.accessCount),
+      ]),
+    );
   } finally {
     store.close();
   }
@@ -215,7 +236,30 @@ function handleList(args: ParsedArgs): void {
       return;
     }
 
-    formatResultsTable(results);
+    formatResultsTable(results, args.full);
+  } finally {
+    store.close();
+  }
+}
+
+function handleRecent(args: ParsedArgs): void {
+  const limit = args.limit ? Number(args.limit) : 10;
+
+  const store = openStore(args.name);
+  try {
+    const results = store.query({
+      ...(args.scope !== "global" && { scope: args.scope }),
+      ...(args.type && { types: [args.type as MemoryType] }),
+      sortBy: "createdAt",
+      limit,
+    });
+
+    if (results.length === 0) {
+      console.log("No memories found.");
+      return;
+    }
+
+    formatResultsTable(results, args.full);
   } finally {
     store.close();
   }
@@ -240,6 +284,17 @@ function handleStats(args: ParsedArgs): void {
         ["SCOPE", "COUNT"],
         Object.entries(s.byScope).map(([sc, c]) => [sc, String(c)]),
       );
+      console.log();
+    }
+
+    // Show top 5 most-accessed memories
+    const topAccessed = store.topAccessed(5);
+    if (topAccessed.length > 0) {
+      console.log("Top 5 most-accessed memories:\n");
+      printTable(
+        ["ID", "TYPE", "ACCESSES", "CONTENT"],
+        topAccessed.map((m) => [m.id, m.type, String(m.accessCount), truncate(m.content, 50)]),
+      );
     }
   } finally {
     store.close();
@@ -254,7 +309,7 @@ export default defineCommand({
   args: {
     action: {
       type: "positional",
-      description: "Action: write, forget, update, search, list, stats",
+      description: "Action: write, forget, update, search, list, stats, recent",
       required: true,
     },
     value: {
@@ -301,6 +356,15 @@ export default defineCommand({
       description: "Supervisor name",
       default: "supervisor",
     },
+    full: {
+      type: "boolean",
+      description: "Show full content without truncation",
+      default: false,
+    },
+    limit: {
+      type: "string",
+      description: "Limit number of results (for recent command)",
+    },
   },
   async run({ args }) {
     const action = args.action as string;
@@ -315,6 +379,8 @@ export default defineCommand({
       severity: args.severity as string | undefined,
       category: args.category as string | undefined,
       tags: args.tags as string | undefined,
+      full: args.full as boolean,
+      limit: args.limit as string | undefined,
     };
 
     switch (action) {
@@ -330,9 +396,11 @@ export default defineCommand({
         return handleList(parsed);
       case "stats":
         return handleStats(parsed);
+      case "recent":
+        return handleRecent(parsed);
       default:
         printError(
-          `Unknown action "${action}". Must be one of: write, forget, update, search, list, stats`,
+          `Unknown action "${action}". Must be one of: write, forget, update, search, list, stats, recent`,
         );
         process.exitCode = 1;
     }
