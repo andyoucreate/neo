@@ -35,10 +35,11 @@ export class MemoryStore {
   // ─── Schema initialization ───────────────────────────
 
   private initSchema(): void {
+    // Create table with new type constraint
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
-        type TEXT NOT NULL CHECK(type IN ('fact','procedure','episode','focus','feedback','task')),
+        type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
         scope TEXT NOT NULL,
         content TEXT NOT NULL,
         source TEXT NOT NULL,
@@ -51,15 +52,15 @@ export class MemoryStore {
         run_id TEXT,
         category TEXT,
         severity TEXT,
-        supersedes TEXT
+        subtype TEXT
       );
 
       CREATE INDEX IF NOT EXISTS idx_mem_type_scope ON memories(type, scope);
       CREATE INDEX IF NOT EXISTS idx_mem_created ON memories(created_at);
     `);
 
-    // Migrate CHECK constraint if table predates 'task' type
-    this.migrateCheckConstraint();
+    // Run migration from old schema if needed
+    this.migrateSchema();
 
     // FTS5 for full-text search
     this.db.exec(`
@@ -105,39 +106,120 @@ export class MemoryStore {
   }
 
   /**
-   * Migrate existing tables whose CHECK constraint predates the 'task' type.
-   * SQLite doesn't allow ALTER CHECK, so we recreate the table if needed.
+   * Migrate from old schema to new schema:
+   * - fact, procedure → knowledge (with subtype)
+   * - feedback → warning
+   * - episode → delete
+   * - task → migrated by TaskStore (deleted here)
+   * - Add subtype column if missing
    */
-  private migrateCheckConstraint(): void {
-    const tableInfo = this.db
-      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
-      .get() as { sql: string } | undefined;
-    if (!tableInfo || tableInfo.sql.includes("'task'")) return;
+  private migrateSchema(): void {
+    try {
+      // Check if we need to migrate (old types exist)
+      const tableInfo = this.db
+        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
+        .get() as { sql: string } | undefined;
 
-    this.db.exec(`
-      ALTER TABLE memories RENAME TO memories_old;
+      if (!tableInfo) return;
 
-      CREATE TABLE memories (
-        id TEXT PRIMARY KEY,
-        type TEXT NOT NULL CHECK(type IN ('fact','procedure','episode','focus','feedback','task')),
-        scope TEXT NOT NULL,
-        content TEXT NOT NULL,
-        source TEXT NOT NULL,
-        tags TEXT DEFAULT '[]',
-        created_at TEXT NOT NULL,
-        last_accessed_at TEXT NOT NULL,
-        access_count INTEGER DEFAULT 0,
-        expires_at TEXT,
-        outcome TEXT,
-        run_id TEXT,
-        category TEXT,
-        severity TEXT,
-        supersedes TEXT
-      );
+      // Check if subtype column exists
+      const hasSubtype = tableInfo.sql.includes("subtype");
+      if (!hasSubtype) {
+        this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
+      }
 
-      INSERT INTO memories SELECT * FROM memories_old;
-      DROP TABLE memories_old;
-    `);
+      // Check if old types exist in the constraint
+      const hasOldTypes =
+        tableInfo.sql.includes("'fact'") ||
+        tableInfo.sql.includes("'procedure'") ||
+        tableInfo.sql.includes("'feedback'") ||
+        tableInfo.sql.includes("'episode'") ||
+        tableInfo.sql.includes("'task'");
+
+      if (!hasOldTypes) return;
+
+      // Check if there's data to migrate
+      const oldTypesExist = this.db
+        .prepare(
+          "SELECT COUNT(*) as count FROM memories WHERE type IN ('fact', 'procedure', 'feedback', 'episode', 'task')",
+        )
+        .get() as { count: number };
+
+      // Migrate in a transaction
+      this.db.exec("BEGIN TRANSACTION");
+      try {
+        // Capture subtypes before migration
+        this.db.exec(`
+          UPDATE memories SET subtype = 'fact' WHERE type = 'fact';
+          UPDATE memories SET subtype = 'procedure' WHERE type = 'procedure';
+        `);
+
+        // Migrate fact and procedure to knowledge
+        this.db.exec(`
+          UPDATE memories SET type = 'knowledge' WHERE type IN ('fact', 'procedure');
+        `);
+
+        // Migrate feedback to warning
+        this.db.exec(`
+          UPDATE memories SET type = 'warning' WHERE type = 'feedback';
+        `);
+
+        // Delete episodes (write-only, never read)
+        this.db.exec(`
+          DELETE FROM memories WHERE type = 'episode';
+        `);
+
+        // Delete tasks (migrated by TaskStore)
+        this.db.exec(`
+          DELETE FROM memories WHERE type = 'task';
+        `);
+
+        // Set default subtype for knowledge entries without one
+        this.db.exec(`
+          UPDATE memories SET subtype = 'fact' WHERE type = 'knowledge' AND subtype IS NULL;
+        `);
+
+        // Only recreate table if there were old types in the constraint
+        if (oldTypesExist.count > 0 || hasOldTypes) {
+          // Recreate table with new constraint
+          this.db.exec(`
+            ALTER TABLE memories RENAME TO memories_old;
+
+            CREATE TABLE memories (
+              id TEXT PRIMARY KEY,
+              type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
+              scope TEXT NOT NULL,
+              content TEXT NOT NULL,
+              source TEXT NOT NULL,
+              tags TEXT DEFAULT '[]',
+              created_at TEXT NOT NULL,
+              last_accessed_at TEXT NOT NULL,
+              access_count INTEGER DEFAULT 0,
+              expires_at TEXT,
+              outcome TEXT,
+              run_id TEXT,
+              category TEXT,
+              severity TEXT,
+              subtype TEXT
+            );
+
+            INSERT INTO memories SELECT
+              id, type, scope, content, source, tags, created_at, last_accessed_at,
+              access_count, expires_at, outcome, run_id, category, severity, subtype
+            FROM memories_old;
+
+            DROP TABLE memories_old;
+          `);
+        }
+
+        this.db.exec("COMMIT");
+      } catch (err) {
+        this.db.exec("ROLLBACK");
+        throw err;
+      }
+    } catch {
+      // Migration not needed or failed — continue
+    }
   }
 
   // ─── Write ───────────────────────────────────────────
@@ -148,7 +230,7 @@ export class MemoryStore {
 
     this.db
       .prepare(
-        `INSERT INTO memories (id, type, scope, content, source, tags, created_at, last_accessed_at, access_count, expires_at, outcome, run_id, category, severity, supersedes)
+        `INSERT INTO memories (id, type, scope, content, source, tags, created_at, last_accessed_at, access_count, expires_at, outcome, run_id, category, severity, subtype)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
@@ -165,7 +247,7 @@ export class MemoryStore {
         input.runId ?? null,
         input.category ?? null,
         input.severity ?? null,
-        input.supersedes ?? null,
+        input.subtype ?? null,
       );
 
     // Embed and store vector
@@ -259,6 +341,15 @@ export class MemoryStore {
     if (opts.since) {
       conditions.push("created_at > ?");
       params.push(opts.since);
+    }
+
+    // Tag filter using JSON_EACH
+    if (opts.tags && opts.tags.length > 0) {
+      const tagConditions = opts.tags.map(
+        () => "EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)",
+      );
+      conditions.push(`(${tagConditions.join(" OR ")})`);
+      params.push(...opts.tags);
     }
 
     const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
@@ -384,27 +475,17 @@ export class MemoryStore {
   }
 
   decay(maxAgeDays = 30, minAccessCount = 3): number {
-    // Delete stale low-access memories
+    // Delete stale low-access memories (focus excluded)
     const staleResult = this.db
       .prepare(
         `DELETE FROM memories
        WHERE access_count < ?
          AND julianday('now') - julianday(last_accessed_at) > ?
-         AND type NOT IN ('focus', 'task')`,
+         AND type NOT IN ('focus')`,
       )
       .run(minAccessCount, maxAgeDays);
 
-    // Delete completed tasks older than 7 days
-    const taskResult = this.db
-      .prepare(
-        `DELETE FROM memories
-       WHERE type = 'task'
-         AND outcome = 'done'
-         AND julianday('now') - julianday(last_accessed_at) > 7`,
-      )
-      .run();
-
-    return staleResult.changes + taskResult.changes;
+    return staleResult.changes;
   }
 
   expireEphemeral(): number {
@@ -469,7 +550,7 @@ interface RawMemoryRow {
   run_id: string | null;
   category: string | null;
   severity: string | null;
-  supersedes: string | null;
+  subtype: string | null;
 }
 
 function rowToEntry(row: RawMemoryRow): MemoryEntry {
@@ -495,6 +576,6 @@ function rowToEntry(row: RawMemoryRow): MemoryEntry {
     runId: row.run_id ?? undefined,
     category: row.category ?? undefined,
     severity: row.severity ?? undefined,
-    supersedes: row.supersedes ?? undefined,
+    subtype: row.subtype ?? undefined,
   };
 }
