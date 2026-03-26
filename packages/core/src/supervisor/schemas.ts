@@ -168,3 +168,19 @@ export type QueuedEvent =
   | { kind: "message"; data: InboxMessage }
   | { kind: "run_complete"; runId: string; timestamp: string }
   | { kind: "internal"; eventKind: InternalEventKind; timestamp: string };
+
+// ─── Failure report (written to inbox.jsonl on run failure) ──
+
+export const failureReportSchema = z.object({
+  type: z.literal("failure-report"),
+  runId: z.string(),
+  task: z.string(),
+  reason: z.string(),
+  attemptCount: z.number().int().min(1),
+  lastErrorType: z.enum(["spawn_error", "timeout", "budget", "recovery_exhausted", "unknown"]),
+  suggestedAction: z.string(),
+  costUsd: z.number(),
+  timestamp: z.string(),
+});
+
+export type FailureReport = z.infer<typeof failureReportSchema>;
