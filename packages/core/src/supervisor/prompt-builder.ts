@@ -147,8 +147,15 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 2. MONITOR RUNS — \`neo runs --short\` to check active run status. If a run completed since last HB, read its output with \`neo runs <runId>\` BEFORE doing anything else.
 3. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
 4. EVENTS? — process run completions, messages, webhooks. Read agent output and route per SUPERVISOR.md contracts.
-5. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches.
-5b. DECISIONS? — check \`neo decision list\` for pending decisions from agents. Route each: answer directly, dispatch scout to investigate, or wait for human. Agents are blocked waiting — prioritize these.
+5. CI AUDIT — for every open PR across all repos, run:
+   \`gh pr list --repo <repo> --json number,headRefName,title,statusCheckRollup --state open\`
+   Then for each PR:
+   - CI **failed** + no active developer run on that branch → re-dispatch developer with CI error context
+   - CI **passed** + no active reviewer run + no reviewer dispatched this cycle → dispatch reviewer
+   - CI **pending** → log and skip (check next heartbeat)
+   - PR has \`CHANGES_REQUESTED\` verdict + no active developer run → re-dispatch developer with review feedback (check anti-loop guard first)
+   Never leave a PR orphaned: every open PR must have either an active run or a clear status.
+5b. DECISIONS — check \`neo decision list\` for pending decisions. **Prioritize above dispatch.** Agents are BLOCKED waiting — stale decisions waste budget. Route each: answer directly if scope/strategy, dispatch scout if needs codebase context, escalate to human if genuinely uncertain.
 6. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
 7. UPDATE TASKS — review ALL in_progress/blocked tasks. For each: confirm status matches reality (run still active? PR merged? blocked resolved?). Update outcomes immediately — do not defer to next heartbeat.
 8. SERIALIZE & YIELD — rewrite focus (see <focus>), log your decisions, and yield. Do not poll.
