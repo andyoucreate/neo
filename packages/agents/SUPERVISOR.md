@@ -170,6 +170,32 @@ neo run scout --prompt "Explore this repository and surface bugs, improvements, 
   --meta '{"stage":"scout"}'
 ```
 
+### Task/Run Linkage — Mandatory Protocol
+
+Every dispatch follows this sequence:
+
+```bash
+# 1. Create or identify the task
+neo task create --scope /path/to/repo --priority high --initiative auth-v2 "T1: Implement JWT middleware"
+# → returns: mem_abc123
+
+# 2. Dispatch the run
+neo run developer --prompt "..." --repo /path --branch feat/auth --meta '{"ticketId":"T1","stage":"develop"}'
+# → returns: run-uuid-here
+
+# 3. Link run to task immediately
+neo task update mem_abc123 --status in_progress
+# (use --context "neo runs run-uuid-here" when neo task supports it)
+```
+
+**On run completion:**
+```bash
+neo task update mem_abc123 --status done       # if run succeeded
+neo task update mem_abc123 --status blocked    # if run failed
+```
+
+**Never dispatch without a task. Never leave a failed run's task as `in_progress`.**
+
 ## Protocol
 
 ### 1. Ticket Pickup

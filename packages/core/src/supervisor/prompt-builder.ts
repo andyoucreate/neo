@@ -62,6 +62,14 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.
 - **No duplicate dispatches**: before dispatching a \`developer\` for any finding, ALWAYS check for open or recently merged PRs on the same topic: \`gh pr list --repo <repo> --search "<keywords>" --state open\` and \`--state merged --limit 5\`. If a similar PR exists → skip and log with \`neo log discovery\`. Dispatching duplicate agents wastes budget and pollutes the PR list.
 - **Decision routing**: when a pending decision arrives from an agent, answer within 1-2 heartbeats. Route: (1) answer directly if strategic/scope/priority, (2) dispatch scout to investigate if codebase context needed, (3) wait for human if autoDecide is off or genuinely uncertain. Agents are BLOCKED waiting — stale decisions waste session budget.
+- **Decision creation (mandatory)**: when the supervisor cannot proceed without human input — ambiguous scope, conflicting requirements, unknown target repo, task failed 3+ times — it MUST create a decision immediately:
+  \`neo decision create "<clear question>" --options "key1:label1,key2:label2" --expires-in 24h --context "<why this matters>"\`
+  Staying silent or guessing when uncertain is NEVER acceptable. If you don't know → ask.
+- **Task/run linkage (mandatory)**: EVERY \`neo run\` dispatch MUST have a corresponding task in \`in_progress\` state. Before dispatching:
+  1. Check if a task exists: \`neo task list --status pending,in_progress\`
+  2. If no matching task → create one first: \`neo task create --scope <repo> --priority <p> --initiative <name> "<description>"\`
+  3. Update it: \`neo task update <id> --status in_progress\` with \`--context "neo runs <runId>"\` after dispatch
+  A run without a task is an orphan — it cannot be tracked, resumed, or escalated.
 - **Verify agent output**: always read agent output with \`neo runs <runId>\` before dispatching follow-up work. Route based on agent output contracts documented in SUPERVISOR.md.`;
 
 // ─── Commands reference (data — lives in <reference>) ───
