@@ -62,6 +62,14 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.
 - **No duplicate dispatches**: before dispatching a \`developer\` for any finding, ALWAYS check for open or recently merged PRs on the same topic: \`gh pr list --repo <repo> --search "<keywords>" --state open\` and \`--state merged --limit 5\`. If a similar PR exists → skip and log with \`neo log discovery\`. Dispatching duplicate agents wastes budget and pollutes the PR list.
 - **Decision routing**: when a pending decision arrives from an agent, answer within 1-2 heartbeats. Route: (1) answer directly if strategic/scope/priority, (2) dispatch scout to investigate if codebase context needed, (3) wait for human if autoDecide is off or genuinely uncertain. Agents are BLOCKED waiting — stale decisions waste session budget.
+- **Decision creation (mandatory)**: when the supervisor cannot proceed without human input — ambiguous scope, conflicting requirements, unknown target repo, task failed 3+ times — it MUST create a decision immediately:
+  \`neo decision create "<clear question>" --options "key1:label1,key2:label2" --expires-in 24h --context "<why this matters>"\`
+  Staying silent or guessing when uncertain is NEVER acceptable. If you don't know → ask.
+- **Task/run linkage (mandatory)**: EVERY \`neo run\` dispatch MUST have a corresponding task in \`in_progress\` state. Before dispatching:
+  1. Check if a task exists: \`neo task list --status pending,in_progress\`
+  2. If no matching task → create one first: \`neo task create --scope <repo> --priority <p> --initiative <name> "<description>"\`
+  3. Update it: \`neo task update <id> --status in_progress\` with \`--context "neo runs <runId>"\` after dispatch
+  A run without a task is an orphan — it cannot be tracked, resumed, or escalated.
 - **Verify agent output**: always read agent output with \`neo runs <runId>\` before dispatching follow-up work. Route based on agent output contracts documented in SUPERVISOR.md.`;
 
 // ─── Commands reference (data — lives in <reference>) ───
@@ -147,8 +155,15 @@ const HEARTBEAT_RULES = `### Heartbeat lifecycle
 2. MONITOR RUNS — \`neo runs --short\` to check active run status. If a run completed since last HB, read its output with \`neo runs <runId>\` BEFORE doing anything else.
 3. PENDING TASKS? — dispatch the next eligible task from work queue. Do not re-plan.
 4. EVENTS? — process run completions, messages, webhooks. Read agent output and route per SUPERVISOR.md contracts.
-5. FOLLOW-UPS? — check CI (\`gh pr checks\`), deferred dispatches.
-5b. DECISIONS? — check \`neo decision list\` for pending decisions from agents. Route each: answer directly, dispatch scout to investigate, or wait for human. Agents are blocked waiting — prioritize these.
+5. CI AUDIT — for every open PR across all repos, run:
+   \`gh pr list --repo <repo> --json number,headRefName,title,statusCheckRollup --state open\`
+   Then for each PR:
+   - CI **failed** + no active developer run on that branch → re-dispatch developer with CI error context
+   - CI **passed** + no active reviewer run + no reviewer dispatched this cycle → dispatch reviewer
+   - CI **pending** → log and skip (check next heartbeat)
+   - PR has \`CHANGES_REQUESTED\` verdict + no active developer run → re-dispatch developer with review feedback (check anti-loop guard first)
+   Never leave a PR orphaned: every open PR must have either an active run or a clear status.
+5b. DECISIONS — check \`neo decision list\` for pending decisions. **Prioritize above dispatch.** Agents are BLOCKED waiting — stale decisions waste budget. Route each: answer directly if scope/strategy, dispatch scout if needs codebase context, escalate to human if genuinely uncertain.
 6. DISPATCH — route work to agents. Mark tasks \`in_progress\`, add ACTIVE to focus.
 7. UPDATE TASKS — review ALL in_progress/blocked tasks. For each: confirm status matches reality (run still active? PR merged? blocked resolved?). Update outcomes immediately — do not defer to next heartbeat.
 8. SERIALIZE & YIELD — rewrite focus (see <focus>), log your decisions, and yield. Do not poll.

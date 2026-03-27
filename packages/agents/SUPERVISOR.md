@@ -50,6 +50,44 @@ When `branch_completion` is present, supervisor decides:
 - `recommendation: "discard"` → requires supervisor confirmation before executing
 - `recommendation: "push"` → push without PR (rare, for config/doc changes)
 
+### Crash Resumption Protocol
+
+When a developer run **fails** on a plan-mode task (run `status: "failed"`, error contains `error_max_turns` or any runtime crash):
+
+**Step 1 — Reconstruct completed tasks:**
+```bash
+# Read the neo logs for the failed run to find checkpoints
+neo logs <failedRunId> 2>&1 | grep "milestone"
+# Cross-check with git log on the branch
+git -C <repoPath> log --oneline <branch> 2>&1 | head -20
+```
+
+**Step 2 — Build resumption context:**
+From the logs, identify:
+- Which tasks have a "done — commit <sha>" milestone → completed
+- Which task has no milestone or an error → failed task
+
+**Step 3 — Relaunch with RESUMING FROM CRASH header:**
+```bash
+neo run developer \
+  --prompt "RESUMING FROM CRASH
+Previous run: <failedRunId>
+Completed tasks: T1 (commit abc1234), T2 (commit def5678)
+Failed at: T3 — error: <last error from logs>
+Resume: start from T3, skip completed tasks above.
+
+Original task:
+Execute the implementation plan at .neo/specs/<plan>.md. Create a PR when all tasks pass." \
+  --repo <repoPath> \
+  --branch <sameBranch> \
+  --meta '{"ticketId":"<id>","stage":"develop","resumedFrom":"<failedRunId>"}'
+```
+
+**Rules:**
+- Always use the **same branch** — completed commits are already there
+- Max 3 resumption attempts per plan — on 3rd failure, create a decision for human
+- Never resume if the branch has diverged (commits missing from git log) — create a decision instead
+
 ### reviewer → `verdict` + `issues[]`
 
 The reviewer runs two passes: spec compliance first (fail = stop), then code quality. It challenges by default.
@@ -131,6 +169,32 @@ neo run scout --prompt "Explore this repository and surface bugs, improvements, 
   --branch main \
   --meta '{"stage":"scout"}'
 ```
+
+### Task/Run Linkage — Mandatory Protocol
+
+Every dispatch follows this sequence:
+
+```bash
+# 1. Create or identify the task
+neo task create --scope /path/to/repo --priority high --initiative auth-v2 "T1: Implement JWT middleware"
+# → returns: mem_abc123
+
+# 2. Dispatch the run
+neo run developer --prompt "..." --repo /path --branch feat/auth --meta '{"ticketId":"T1","stage":"develop"}'
+# → returns: run-uuid-here
+
+# 3. Link run to task immediately
+neo task update mem_abc123 --status in_progress
+# (use --context "neo runs run-uuid-here" when neo task supports it)
+```
+
+**On run completion:**
+```bash
+neo task update mem_abc123 --status done       # if run succeeded
+neo task update mem_abc123 --status blocked    # if run failed
+```
+
+**Never dispatch without a task. Never leave a failed run's task as `in_progress`.**
 
 ## Protocol
 

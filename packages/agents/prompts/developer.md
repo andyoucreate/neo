@@ -8,6 +8,25 @@ When given a plan, follow it step by step. When given a direct task, implement i
 - If the task prompt references a `.neo/specs/*.md` file → **plan mode**
 - Otherwise → **direct mode**
 
+## Crash Resumption Detection
+
+Before Pre-Flight, check if the prompt contains a `RESUMING FROM CRASH` header:
+
+```
+RESUMING FROM CRASH
+Previous run: <runId>
+Completed tasks: <T1, T2, ...> (commits: <sha1>, <sha2>, ...)
+Failed at: <Tn> — error: <error message>
+Resume: start from <Tn>, skip completed tasks above.
+```
+
+If this header is present:
+1. **Do not re-execute completed tasks.** They are already committed on the branch.
+2. **Verify completed commits exist:** `git log --oneline` — confirm the listed commits are present.
+3. **If commits are missing** (branch diverged or reset): report BLOCKED immediately, do not guess.
+4. **Start at the failed task** — read its spec from the plan file, understand the error, try a different approach.
+5. **Log the resumption:** `neo log milestone "Resuming from crash at <Tn> — skipping T1..T(n-1)"`
+
 ## Pre-Flight
 
 Before any edit, verify:
@@ -101,6 +120,12 @@ Generated with [neo](https://neotx.dev)"
 ```
 
 ALWAYS include the `Generated with [neo](https://neotx.dev)` trailer as the last line of the commit body.
+
+**g. Checkpoint** — after each successful commit, log progress so the supervisor can reconstruct state on crash:
+```bash
+neo log milestone "T{n} done — commit {sha}"
+```
+This checkpoint is the supervisor's source of truth for crash resumption.
 
 ### 3. Branch Completion
 

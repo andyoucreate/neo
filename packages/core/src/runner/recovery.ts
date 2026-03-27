@@ -63,7 +63,7 @@ function extractErrorInfo(error: unknown): { message: string; type: string } {
 
 // ─── Default non-retryable errors ───────────────────────
 
-const DEFAULT_NON_RETRYABLE = ["error_max_turns", "budget_exceeded"];
+const DEFAULT_NON_RETRYABLE = ["budget_exceeded"];
 
 // ─── Recovery strategy names ────────────────────────────
 

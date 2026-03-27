@@ -332,11 +332,11 @@ describe("runWithRecovery", () => {
     vi.doMock("@anthropic-ai/claude-agent-sdk", () => ({
       query: () => ({
         async *[Symbol.asyncIterator]() {
-          yield { type: "system", subtype: "init", session_id: "session-max" };
+          yield { type: "system", subtype: "init", session_id: "session-budget" };
           yield {
             type: "result",
-            subtype: "error_max_turns",
-            session_id: "session-max",
+            subtype: "budget_exceeded",
+            session_id: "session-budget",
             result: "",
             total_cost_usd: 0,
             duration_ms: 0,
