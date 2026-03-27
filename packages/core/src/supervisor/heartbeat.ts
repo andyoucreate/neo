@@ -1174,49 +1174,41 @@ export class HeartbeatLoop {
     store: DecisionStore,
   ): Promise<void> {
     for (const event of rawEvents) {
-      if (event.kind !== "message") continue;
+      const parsed = parseDecisionAnswerEvent(event);
+      if (!parsed) continue;
+      await this.applyDecisionAnswer(parsed.decisionId, parsed.answer, store);
+    }
+  }
 
-      const text = event.data.text.trim();
-      const match = /^decision:answer\s+(\S+)\s+(.+)$/i.exec(text);
-      if (!match) continue;
+  private async applyDecisionAnswer(
+    decisionId: string,
+    answer: string,
+    store: DecisionStore,
+  ): Promise<void> {
+    if (this.answeredDecisionIds.has(decisionId)) return;
 
-      const decisionId = match[1];
-      const answer = match[2];
-      if (!decisionId || !answer) continue;
+    const alreadyAnswered = await store.isAnswered(decisionId);
+    if (alreadyAnswered) {
+      this.answeredDecisionIds.add(decisionId);
+      return;
+    }
 
-      // Skip if we've already processed this decision ID in this session
-      if (this.answeredDecisionIds.has(decisionId)) {
-        continue;
-      }
-
-      // Check if already answered in the store (without throwing)
-      const alreadyAnswered = await store.isAnswered(decisionId);
-      if (alreadyAnswered) {
-        // Mark as known and skip
+    try {
+      await store.answer(decisionId, answer);
+      this.answeredDecisionIds.add(decisionId);
+      await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
+        decisionId,
+        answer,
+      });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes("already answered")) {
         this.answeredDecisionIds.add(decisionId);
-        continue;
-      }
-
-      try {
-        await store.answer(decisionId, answer);
-        // Track successful answer to prevent future attempts
-        this.answeredDecisionIds.add(decisionId);
-        await this.activityLog.log("event", `Decision answered: ${decisionId}`, {
+      } else {
+        await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
           decisionId,
           answer,
         });
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
-        // Only log if it's NOT an "already answered" error (edge case: race condition)
-        if (!msg.includes("already answered")) {
-          await this.activityLog.log("error", `Failed to answer decision ${decisionId}: ${msg}`, {
-            decisionId,
-            answer,
-          });
-        } else {
-          // Add to cache to prevent future attempts
-          this.answeredDecisionIds.add(decisionId);
-        }
       }
     }
   }
@@ -1438,4 +1430,22 @@ export class HeartbeatLoop {
       }
     }
   }
+}
+
+/**
+ * Parse a queued event into a decision answer if it matches the expected format.
+ * Expected message format: "decision:answer <decisionId> <answer>"
+ */
+function parseDecisionAnswerEvent(
+  event: QueuedEvent,
+): { decisionId: string; answer: string } | null {
+  if (event.kind !== "message") return null;
+  if (!event.data.text) return null;
+  const text = event.data.text.trim();
+  const match = /^decision:answer\s+(\S+)\s+(.+)$/i.exec(text);
+  if (!match) return null;
+  const decisionId = match[1];
+  const answer = match[2];
+  if (!decisionId || !answer) return null;
+  return { decisionId, answer };
 }

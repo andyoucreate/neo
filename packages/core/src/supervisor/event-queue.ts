@@ -104,6 +104,7 @@ export class EventQueue {
 
     for (const event of rawEvents) {
       if (event.kind === "message") {
+        if (!event.data.text) continue;
         const key = event.data.text.trim().toLowerCase();
         const existing = messageMap.get(key);
         if (existing) {
