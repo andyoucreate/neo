@@ -9,5 +9,4 @@ tools:
   - WebSearch
   - WebFetch
 sandbox: readonly
-maxTurns: 50
 prompt: ../prompts/scout.md

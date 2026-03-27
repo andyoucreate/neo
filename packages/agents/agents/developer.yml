@@ -10,7 +10,6 @@ tools:
   - Grep
   - Agent
 sandbox: writable
-maxTurns: 200
 prompt: ../prompts/developer.md
 agents:
   spec-reviewer:

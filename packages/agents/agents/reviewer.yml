@@ -7,5 +7,4 @@ tools:
   - Grep
   - Bash
 sandbox: readonly
-maxTurns: 30
 prompt: ../prompts/reviewer.md

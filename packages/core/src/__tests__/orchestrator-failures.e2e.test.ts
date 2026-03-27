@@ -573,8 +573,8 @@ describe("orchestrator E2E: graceful shutdown during active run", () => {
 
 describe("orchestrator E2E: error recovery behavior", () => {
   it("does not retry non-retryable errors", async () => {
-    // error_max_turns is non-retryable by default
-    mockBehavior = { mode: "error_result", errorType: "error_max_turns" };
+    // budget_exceeded is non-retryable by default
+    mockBehavior = { mode: "error_result", errorType: "budget_exceeded" };
 
     const orchestrator = new Orchestrator(
       makeConfig(TEST_REPO_DIR, {

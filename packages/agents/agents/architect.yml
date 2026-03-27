@@ -12,7 +12,6 @@ tools:
   - WebFetch
   - Agent
 sandbox: writable
-maxTurns: 100
 prompt: ../prompts/architect.md
 agents:
   plan-reviewer:
