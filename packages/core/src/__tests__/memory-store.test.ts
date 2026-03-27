@@ -377,16 +377,18 @@ describe("MemoryStore", () => {
     it("returns SearchResult with score field", async () => {
       const store = createStore();
       await store.write({
-        type: "fact",
+        type: "knowledge",
         scope: "global",
         content: "TypeScript is a typed language",
         source: "dev",
+        subtype: "fact",
       });
       await store.write({
-        type: "fact",
+        type: "knowledge",
         scope: "global",
         content: "Python is a dynamic language",
         source: "dev",
+        subtype: "fact",
       });
 
       const results = await store.search("TypeScript typed");
@@ -404,16 +406,18 @@ describe("MemoryStore", () => {
     it("returns memories sorted by access count", async () => {
       const store = createStore();
       await store.write({
-        type: "fact",
+        type: "knowledge",
         scope: "global",
         content: "Low access",
         source: "user",
+        subtype: "fact",
       });
       const id2 = await store.write({
-        type: "fact",
+        type: "knowledge",
         scope: "global",
         content: "High access",
         source: "user",
+        subtype: "fact",
       });
 
       // Access id2 multiple times
