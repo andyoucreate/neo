@@ -1,4 +1,5 @@
 import type { RepoConfig } from "@/config";
+import type { TaskEntry } from "@/supervisor/task-store";
 import type { Decision } from "./decisions.js";
 import type { GroupedEvents } from "./event-queue.js";
 import type { MemoryEntry } from "./memory/entry.js";
@@ -20,6 +21,7 @@ export interface PromptOptions {
   customInstructions?: string | undefined;
   supervisorDir: string;
   memories: MemoryEntry[];
+  tasks: TaskEntry[];
   recentActions: ActivityEntry[];
   pendingDecisions?: Decision[] | undefined;
   answeredDecisions?: Decision[] | undefined;
@@ -92,11 +94,12 @@ neo cost --short [--all]            # check budget
 
 ### Memory
 \`\`\`bash
-neo memory write --type fact --scope /path "Stable fact about repo"
+neo memory write --type knowledge --subtype fact --scope /path "Stable fact about repo"
+neo memory write --type knowledge --subtype procedure --scope /path "How to do X"
+neo memory write --type warning --scope /path "Recurring issue to watch for"
 neo memory write --type focus --expires 2h "Current working context"
-neo memory write --type procedure --scope /path "How to do X"
-neo memory write --type task --scope /path --severity high --category "neo runs <id>" "Task description"
-neo memory update <id> --outcome in_progress|done|blocked|abandoned
+neo task create --scope /path --priority high --context "neo runs <id>" "Task description"
+neo task update <id> --status in_progress|done|blocked|abandoned
 neo memory forget <id>
 neo memory search "keyword"
 neo memory list --type fact
@@ -196,32 +199,43 @@ function buildMemoryRulesCore(supervisorDir: string): string {
   return `### Memory
 
 <memory-types>
-| Type | Store when | TTL |
-|------|-----------|-----|
-| \`fact\` | Stable truth affecting dispatch decisions | Permanent (decays) |
-| \`procedure\` | Same failure 3+ times | Permanent |
-| \`focus\` | After every dispatch/deferral | --expires required |
-| \`task\` | Any planned work (tickets, decompositions, follow-ups) | Until done/abandoned |
-| \`feedback\` | Same review complaint 3+ times | Permanent |
+| Type | Subtype | Store when | TTL |
+|------|---------|-----------|-----|
+| \`knowledge\` | \`fact\` | Stable truth affecting dispatch decisions | Permanent (decays) |
+| \`knowledge\` | \`procedure\` | Same failure 3+ times | Permanent |
+| \`warning\` | — | Same review complaint 3+ times | Permanent |
+| \`focus\` | — | After every dispatch/deferral | --expires required |
 </memory-types>
+
+<tasks>
+Tasks are managed separately via \`neo task\` commands:
+\`\`\`bash
+neo task create --scope /path --priority high --context "neo runs <id>" "Task description"
+neo task update <id> --status in_progress|done|blocked|abandoned
+neo task list [--initiative <name>] [--status pending,in_progress]
+\`\`\`
+</tasks>
 
 <memory-rules>
 - Focus is free-form working memory — rewrite at end of EVERY heartbeat (see <focus>).
 - NEVER store: file counts, line numbers, completed work details, data available via \`neo runs <id>\`.
 - After PR merge: forget related facts unless they are reusable architectural truths.
-- Pattern escalation: same failure 3+ times \u2192 write a \`procedure\`.
-- Every memory that references external context MUST include a retrieval command (in \`--category\` for tasks, in content for facts/procedures). You are stateless — if you can't retrieve it later, don't store it.
+- Pattern escalation: same failure 3+ times → write a \`procedure\` (knowledge subtype).
+- Every memory that references external context MUST include a retrieval command in the content. You are stateless — if you can't retrieve it later, don't store it.
 </memory-rules>
 
 <task-workflow>
-Queue markers: \u25cb pending \u00b7 [ACTIVE] in_progress \u00b7 [BLOCKED] blocked.
-Create tasks for: incoming tickets, architect decompositions, sub-tickets, follow-ups, CI fixes.
-- \`--tags "initiative:<name>"\` — groups related tasks
-- \`--tags "depends:mem_<id>"\` — blocks until dependency is done
-- \`--category\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` \u00b7 \`"cat ${notesDir}/plan-feature.md"\` \u00b7 \`"API-retrieve-a-page <notionPageId>"\`
-Lifecycle: create → in_progress (on dispatch) → done | blocked | abandoned
+Tasks are separate from memory. Use \`neo task\` commands:
+- \`neo task create --scope /path --priority high --initiative <name> "Description"\`
+- \`neo task update <id> --status in_progress|done|blocked|abandoned\`
 
-**Update frequency:** task outcomes MUST be updated in the same heartbeat as the triggering event. Never defer a task update to "next heartbeat" — by then you will have forgotten. Stale task states cause duplicate dispatches and wasted budget.
+Queue markers: ○ pending · [ACTIVE] in_progress · [BLOCKED] blocked.
+Create tasks for: incoming tickets, architect decompositions, sub-tickets, follow-ups, CI fixes.
+- \`--initiative <name>\` — groups related tasks
+- \`--depends <task_id>\` — blocks until dependency is done
+- \`--context\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` · \`"cat ${notesDir}/plan-feature.md"\`
+
+**Update frequency:** task status MUST be updated in the same heartbeat as the triggering event. Never defer to "next heartbeat" — by then you will have forgotten.
 
 **Mandatory cross-check:** before yielding, verify that:
 1. Every dispatched run has a corresponding \`in_progress\` task
@@ -252,13 +266,13 @@ function buildMemoryRulesExamples(supervisorDir: string): string {
   const notesDir = `${supervisorDir}/notes`;
   return `<memory-examples>
 neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat ${notesDir}/plan-YC-2670-kanban.md)"
-neo memory write --type fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
-neo memory write --type fact --scope /repo "pnpm build must pass before push — CI does not rebuild, run 2g589f34a5a failed without it"
-neo memory write --type procedure --scope /repo "After architect run: read plan path from output, dispatch developer with plan per SUPERVISOR.md routing"
-neo memory write --type procedure --scope /repo "When developer run fails with ENOSPC: the repo has large fixtures — use --branch with shallow clone flag"
-neo memory write --type feedback --scope /repo "User wants PR descriptions in French even though code is in English"
-neo memory write --type task --scope /repo --severity high --category "neo runs 2g589f34a5a" --tags "initiative:auth-v2,depends:mem_xyz" "T1: Auth middleware"
-neo memory update <id> --outcome in_progress|done|blocked|abandoned
+neo memory write --type knowledge --subtype fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
+neo memory write --type knowledge --subtype fact --scope /repo "pnpm build must pass before push — CI does not rebuild, run 2g589f34a5a failed without it"
+neo memory write --type knowledge --subtype procedure --scope /repo "After architect run: read plan path from output, dispatch developer with plan per SUPERVISOR.md routing"
+neo memory write --type knowledge --subtype procedure --scope /repo "When developer run fails with ENOSPC: the repo has large fixtures — use --branch with shallow clone flag"
+neo memory write --type warning --scope /repo "User wants PR descriptions in French even though code is in English"
+neo task create --scope /repo --priority high --context "neo runs 2g589f34a5a" --initiative auth-v2 --depends mem_xyz "T1: Auth middleware"
+neo task update <id> --status in_progress|done|blocked|abandoned
 neo memory forget <id>
 </memory-examples>`;
 }
@@ -374,7 +388,7 @@ function buildFullContext(opts: PromptOptions): string {
   parts.push(buildFocusSection(opts.memories));
 
   // 2. Work state — what's happening right now
-  const workQueue = buildWorkQueueSection(opts.memories);
+  const workQueue = buildWorkQueueSection(opts.tasks);
   if (workQueue) {
     parts.push(workQueue);
   }
@@ -421,7 +435,7 @@ function buildCompactionContext(opts: PromptOptions): string {
   parts.push(buildFocusSection(opts.memories));
   parts.push(buildKnowledgeSection(opts.memories));
 
-  const workQueue = buildWorkQueueSection(opts.memories);
+  const workQueue = buildWorkQueueSection(opts.tasks);
   if (workQueue) {
     parts.push(workQueue);
   }
@@ -483,13 +497,15 @@ function buildEnvironmentSections(opts: PromptOptions): string[] {
 }
 
 /**
- * Build the knowledge section: facts, procedures, and feedback.
+ * Build the knowledge section: facts, procedures (from knowledge type), and warnings.
  * Focus is excluded — it's rendered separately at context top level.
  */
 function buildKnowledgeSection(memories: MemoryEntry[]): string {
-  const factEntries = memories.filter((m) => m.type === "fact");
-  const procedureEntries = memories.filter((m) => m.type === "procedure");
-  const feedbackEntries = memories.filter((m) => m.type === "feedback");
+  const knowledgeEntries = memories.filter((m) => m.type === "knowledge");
+  const warningEntries = memories.filter((m) => m.type === "warning");
+
+  const factEntries = knowledgeEntries.filter((m) => m.subtype === "fact" || !m.subtype);
+  const procedureEntries = knowledgeEntries.filter((m) => m.subtype === "procedure");
 
   const parts: string[] = [];
 
@@ -527,9 +543,9 @@ function buildKnowledgeSection(memories: MemoryEntry[]): string {
     parts.push(`Procedures:\n${lines}`);
   }
 
-  // Recurring feedback
-  if (feedbackEntries.length > 0) {
-    const lines = feedbackEntries
+  // Warnings (replaces feedback)
+  if (warningEntries.length > 0) {
+    const lines = warningEntries
       .map((m) => `- [${m.category ?? "general"}] ${m.content}`)
       .join("\n");
     parts.push(`Recurring review issues:\n${lines}`);
@@ -540,51 +556,45 @@ function buildKnowledgeSection(memories: MemoryEntry[]): string {
 
 // ─── Work queue (tasks) ─────────────────────────────────
 
-const DONE_OUTCOMES = new Set(["done", "abandoned"]);
+const DONE_STATUSES = new Set(["done", "abandoned"]);
 const MAX_TASKS = 15;
 
 interface TaskGroup {
   initiative: string | null;
-  tasks: MemoryEntry[];
+  tasks: TaskEntry[];
 }
 
-export function buildWorkQueueSection(memories: MemoryEntry[]): string {
-  const tasks = memories.filter((m) => m.type === "task" && !DONE_OUTCOMES.has(m.outcome ?? ""));
-  const doneCount = countDoneTasks(memories);
+export function buildWorkQueueSection(tasks: TaskEntry[]): string {
+  const activeTasks = tasks.filter((t) => !DONE_STATUSES.has(t.status));
+  const doneCount = tasks.filter((t) => DONE_STATUSES.has(t.status)).length;
 
-  if (tasks.length === 0) {
+  if (activeTasks.length === 0) {
     if (doneCount > 0) {
       return `Work queue (0 remaining, ${doneCount} done) \u2014 all tasks complete. Pick up new work or wait for events.`;
     }
     return "";
   }
 
-  const groups = groupTasksByInitiative(tasks);
+  const groups = groupTasksByInitiative(activeTasks);
   const lines = renderTaskGroups(groups);
 
-  if (tasks.length > MAX_TASKS) {
-    lines.push(`  ... and ${tasks.length - MAX_TASKS} more pending`);
+  if (activeTasks.length > MAX_TASKS) {
+    lines.push(`  ... and ${activeTasks.length - MAX_TASKS} more pending`);
   }
 
-  const header = `Work queue (${tasks.length} remaining, ${doneCount} done) \u2014 dispatch the next eligible task:`;
+  const header = `Work queue (${activeTasks.length} remaining, ${doneCount} done) \u2014 dispatch the next eligible task:`;
   return `${header}\n${lines.join("\n")}`;
 }
 
-function countDoneTasks(memories: MemoryEntry[]): number {
-  return memories.filter((m) => m.type === "task" && DONE_OUTCOMES.has(m.outcome ?? "")).length;
-}
-
-function groupTasksByInitiative(tasks: MemoryEntry[]): TaskGroup[] {
-  const initiativeMap = new Map<string, MemoryEntry[]>();
-  const noInitiative: MemoryEntry[] = [];
+function groupTasksByInitiative(tasks: TaskEntry[]): TaskGroup[] {
+  const initiativeMap = new Map<string, TaskEntry[]>();
+  const noInitiative: TaskEntry[] = [];
 
   for (const task of tasks) {
-    const tag = task.tags.find((t) => t.startsWith("initiative:"));
-    if (tag) {
-      const key = tag.slice("initiative:".length);
-      const group = initiativeMap.get(key) ?? [];
+    if (task.initiative) {
+      const group = initiativeMap.get(task.initiative) ?? [];
       group.push(task);
-      initiativeMap.set(key, group);
+      initiativeMap.set(task.initiative, group);
     } else {
       noInitiative.push(task);
     }
@@ -600,30 +610,30 @@ function groupTasksByInitiative(tasks: MemoryEntry[]): TaskGroup[] {
   return groups;
 }
 
-const SEVERITY_ORDER: Record<string, number> = {
+const PRIORITY_ORDER: Record<string, number> = {
   critical: 0,
   high: 1,
   medium: 2,
   low: 3,
 };
 
-function bySeverity(a: MemoryEntry, b: MemoryEntry): number {
-  const aOrder = SEVERITY_ORDER[a.severity ?? "medium"] ?? 2;
-  const bOrder = SEVERITY_ORDER[b.severity ?? "medium"] ?? 2;
+function byPriority(a: TaskEntry, b: TaskEntry): number {
+  const aOrder = PRIORITY_ORDER[a.priority ?? "medium"] ?? 2;
+  const bOrder = PRIORITY_ORDER[b.priority ?? "medium"] ?? 2;
   return aOrder - bOrder;
 }
 
-function partitionTasks(tasks: MemoryEntry[]): {
-  active: MemoryEntry[];
-  blocked: MemoryEntry[];
-  pending: MemoryEntry[];
+function partitionTasks(tasks: TaskEntry[]): {
+  active: TaskEntry[];
+  blocked: TaskEntry[];
+  pending: TaskEntry[];
 } {
-  const active: MemoryEntry[] = [];
-  const blocked: MemoryEntry[] = [];
-  const pending: MemoryEntry[] = [];
+  const active: TaskEntry[] = [];
+  const blocked: TaskEntry[] = [];
+  const pending: TaskEntry[] = [];
   for (const t of tasks) {
-    if (t.outcome === "in_progress") active.push(t);
-    else if (t.outcome === "blocked") blocked.push(t);
+    if (t.status === "in_progress") active.push(t);
+    else if (t.status === "blocked") blocked.push(t);
     else pending.push(t);
   }
   return { active, blocked, pending };
@@ -631,19 +641,19 @@ function partitionTasks(tasks: MemoryEntry[]): {
 
 function renderInitiativeSummary(group: TaskGroup): string {
   const { active, pending } = partitionTasks(group.tasks);
-  const nextEligible = [...pending].sort(bySeverity)[0];
-  const cat = nextEligible?.category ? ` -> ${nextEligible.category}` : "";
+  const nextEligible = [...pending].sort(byPriority)[0];
+  const ctx = nextEligible?.context ? ` -> ${nextEligible.context}` : "";
   const nextLabel = nextEligible
-    ? ` (next: ${nextEligible.content.slice(0, 30)}${nextEligible.content.length > 30 ? "..." : ""} [${nextEligible.severity ?? "medium"}])`
+    ? ` (next: ${nextEligible.title.slice(0, 30)}${nextEligible.title.length > 30 ? "..." : ""} [${nextEligible.priority ?? "medium"}])`
     : "";
-  return `[${group.initiative}] ${active.length} active, ${pending.length} pending${nextLabel}${cat}`;
+  return `[${group.initiative}] ${active.length} active, ${pending.length} pending${nextLabel}${ctx}`;
 }
 
 function renderCompactInitiative(group: TaskGroup, lines: string[], rendered: number): number {
   lines.push(`  ${renderInitiativeSummary(group)}`);
 
   const { active, blocked, pending } = partitionTasks(group.tasks);
-  const nextEligible = [...pending].sort(bySeverity)[0];
+  const nextEligible = [...pending].sort(byPriority)[0];
 
   for (const task of [...active, ...blocked]) {
     if (rendered >= MAX_TASKS) break;
@@ -696,17 +706,17 @@ function renderTaskGroups(groups: TaskGroup[]): string[] {
   return lines;
 }
 
-function formatTaskLine(task: MemoryEntry): string {
-  const marker = formatTaskMarker(task.outcome);
-  const severity = task.severity ? `[${task.severity}] ` : "";
+function formatTaskLine(task: TaskEntry): string {
+  const marker = formatTaskMarker(task.status);
+  const priority = task.priority ? `[${task.priority}] ` : "";
   const scope = task.scope !== "global" ? ` (${getBasename(task.scope)})` : "";
   const run = task.runId ? ` [run ${task.runId.slice(0, 8)}]` : "";
-  const cat = task.category ? ` \u2192 ${task.category}` : "";
-  return `${marker} ${severity}${task.content}${scope}${run}${cat}`;
+  const ctx = task.context ? ` \u2192 ${task.context}` : "";
+  return `${marker} ${priority}${task.title}${scope}${run}${ctx}`;
 }
 
-function formatTaskMarker(outcome: string | undefined): string {
-  switch (outcome) {
+function formatTaskMarker(status: string): string {
+  switch (status) {
     case "in_progress":
       return "[ACTIVE]";
     case "blocked":
@@ -795,7 +805,7 @@ function countEvents(grouped: GroupedEvents): number {
  * Check if this heartbeat has nothing to do.
  */
 export function isIdleHeartbeat(opts: PromptOptions): boolean {
-  const hasWork = buildWorkQueueSection(opts.memories) !== "";
+  const hasWork = buildWorkQueueSection(opts.tasks) !== "";
   return countEvents(opts.grouped) === 0 && opts.activeRuns.length === 0 && !hasWork;
 }
 

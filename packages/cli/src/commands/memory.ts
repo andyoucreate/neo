@@ -1,20 +1,20 @@
 import path from "node:path";
-import type { Embedder, MemoryEntry, MemoryType } from "@neotx/core";
+import type { Embedder, KnowledgeSubtype, MemoryEntry, MemoryType } from "@neotx/core";
 import { getSupervisorDir, LocalEmbedder, MemoryStore } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess, printTable } from "../output.js";
 
-const VALID_TYPES = ["fact", "procedure", "episode", "focus", "feedback", "task"] as const;
+const VALID_TYPES = ["knowledge", "warning", "focus"] as const;
+const VALID_SUBTYPES = ["fact", "procedure"] as const;
 
 interface ParsedArgs {
   value: string | undefined;
   type: string | undefined;
+  subtype: string | undefined;
   scope: string;
   source: string;
   expires: string | undefined;
   name: string;
-  outcome: string | undefined;
-  severity: string | undefined;
   category: string | undefined;
   tags: string | undefined;
   full: boolean;
@@ -74,9 +74,17 @@ async function handleWrite(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  const type = args.type ?? "fact";
+  const type = args.type ?? "knowledge";
   if (!VALID_TYPES.includes(type as MemoryType)) {
     printError(`Invalid type "${type}". Must be one of: ${VALID_TYPES.join(", ")}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Validate subtype for knowledge type
+  const subtype = args.subtype ?? (type === "knowledge" ? "fact" : undefined);
+  if (type === "knowledge" && subtype && !VALID_SUBTYPES.includes(subtype as KnowledgeSubtype)) {
+    printError(`Invalid subtype "${subtype}". Must be one of: ${VALID_SUBTYPES.join(", ")}`);
     process.exitCode = 1;
     return;
   }
@@ -101,9 +109,8 @@ async function handleWrite(args: ParsedArgs): Promise<void> {
       source: args.source,
       tags,
       expiresAt,
-      severity: args.severity,
-      category: args.category,
-      outcome: args.outcome,
+      ...(type === "knowledge" && subtype && { subtype: subtype as KnowledgeSubtype }),
+      ...(type === "warning" && args.category && { category: args.category }),
     });
     printSuccess(`Memory written: ${id}`);
   } finally {
@@ -127,11 +134,9 @@ function handleForget(args: ParsedArgs): void {
   }
 }
 
-const VALID_OUTCOMES = ["pending", "in_progress", "done", "blocked", "abandoned"] as const;
-
 function handleUpdate(args: ParsedArgs): void {
   if (!args.value) {
-    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
+    printError("Usage: neo memory update <id> <new content>");
     process.exitCode = 1;
     return;
   }
@@ -143,43 +148,27 @@ function handleUpdate(args: ParsedArgs): void {
   const idArg = argv[updateIdx + 1];
   const contentArg = argv[updateIdx + 2];
 
-  // Validate outcome if provided
-  if (args.outcome && !VALID_OUTCOMES.includes(args.outcome as (typeof VALID_OUTCOMES)[number])) {
-    printError(`Invalid outcome "${args.outcome}". Must be one of: ${VALID_OUTCOMES.join(", ")}`);
-    process.exitCode = 1;
-    return;
-  }
-
   // Determine if contentArg is actually content or a flag
   const isContentArgAFlag = contentArg?.startsWith("--");
   const hasContent = contentArg && !isContentArgAFlag;
 
-  // Need either content or --outcome
-  if (!hasContent && !args.outcome) {
-    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
+  // Need content
+  if (!hasContent) {
+    printError("Usage: neo memory update <id> <new content>");
     process.exitCode = 1;
     return;
   }
 
   // ID is required at this point — validated by args.value check above
   if (!idArg) {
-    printError('Usage: neo memory update <id> ["new content"] [--outcome <status>]');
+    printError("Usage: neo memory update <id> <new content>");
     process.exitCode = 1;
     return;
   }
 
   const store = openStore(args.name);
   try {
-    // Use updateFields when --outcome is provided
-    if (args.outcome) {
-      store.updateFields(idArg, {
-        ...(hasContent && { content: contentArg }),
-        outcome: args.outcome,
-      });
-    } else {
-      // contentArg is guaranteed to be defined when hasContent is true and no outcome
-      store.update(idArg, contentArg as string);
-    }
+    store.update(idArg, contentArg as string);
     printSuccess(`Memory updated: ${idArg}`);
   } finally {
     store.close();
@@ -319,7 +308,11 @@ export default defineCommand({
     },
     type: {
       type: "string",
-      description: "Memory type: fact, procedure, episode, focus, feedback, task",
+      description: "Memory type: knowledge, warning, focus",
+    },
+    subtype: {
+      type: "string",
+      description: "Knowledge subtype: fact, procedure (only for knowledge type)",
     },
     scope: {
       type: "string",
@@ -335,21 +328,13 @@ export default defineCommand({
       type: "string",
       description: "TTL for focus entries (e.g. 2h, 30m)",
     },
-    outcome: {
-      type: "string",
-      description: "Task outcome: pending, in_progress, done, blocked, abandoned",
-    },
-    severity: {
-      type: "string",
-      description: "Priority: critical, high, medium, low",
-    },
     category: {
       type: "string",
-      description: "Context reference (e.g. 'neo runs abc123' or 'cat notes/plan.md')",
+      description: "Warning category (e.g. input_validation, testing)",
     },
     tags: {
       type: "string",
-      description: "Comma-separated tags (e.g. 'initiative:auth,depends:mem_abc')",
+      description: "Comma-separated tags",
     },
     name: {
       type: "string",
@@ -371,12 +356,11 @@ export default defineCommand({
     const parsed: ParsedArgs = {
       value: args.value as string | undefined,
       type: args.type as string | undefined,
+      subtype: args.subtype as string | undefined,
       scope: args.scope as string,
       source: args.source as string,
       expires: args.expires as string | undefined,
       name: args.name as string,
-      outcome: args.outcome as string | undefined,
-      severity: args.severity as string | undefined,
       category: args.category as string | undefined,
       tags: args.tags as string | undefined,
       full: args.full as boolean,

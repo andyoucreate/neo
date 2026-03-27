@@ -159,6 +159,7 @@ export {
 } from "@/supervisor/index";
 export type {
   Embedder,
+  KnowledgeSubtype,
   MemoryEntry,
   MemoryQuery,
   MemoryStats,
@@ -166,7 +167,21 @@ export type {
   MemoryWriteInput,
 } from "@/supervisor/memory/index";
 // ─── Memory ───────────────────────────────────────────
-export { LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
+export { knowledgeSubtypeSchema, LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
+// ─── Task Store ──────────────────────────────────────
+export type {
+  TaskCreateInput,
+  TaskEntry,
+  TaskPriority,
+  TaskQuery,
+  TaskStatus,
+} from "@/supervisor/task-store";
+export {
+  TaskStore,
+  taskEntrySchema,
+  taskPrioritySchema,
+  taskStatusSchema,
+} from "@/supervisor/task-store";
 export * from "@/types";
 // ─── Webhook Config ────────────────────────────────────
 export type {
