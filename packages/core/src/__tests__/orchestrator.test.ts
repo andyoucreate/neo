@@ -50,6 +50,19 @@ vi.mock("@/isolation/clone", () => ({
   validateGitRef: () => undefined,
 }));
 
+vi.mock("@/isolation/git", () => ({
+  pushSessionBranch: () => Promise.resolve(undefined),
+  createBranch: () => Promise.resolve(undefined),
+  pushBranch: () => Promise.resolve(undefined),
+  fetchRemote: () => Promise.resolve(undefined),
+  deleteBranch: () => Promise.resolve(undefined),
+  getCurrentBranch: () => Promise.resolve("main"),
+  getBranchName: (_config: unknown, runId: string, branch?: string) =>
+    branch ?? `feat/run-${runId}`,
+  hasUncommittedChanges: () => Promise.resolve(false),
+  autoCommitChanges: () => Promise.resolve(false),
+}));
+
 // ─── Helpers ────────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_orchestrator_test__");
