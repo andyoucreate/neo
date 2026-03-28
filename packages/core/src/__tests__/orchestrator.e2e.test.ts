@@ -149,6 +149,7 @@ function makeConfig(repoPath: string): NeoConfig {
       autoDecide: false,
     },
     memory: { embeddings: true },
+    childSupervisors: [],
   };
 }
 
@@ -716,6 +717,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         autoDecide: false,
       },
       memory: { embeddings: true },
+      childSupervisors: [],
     };
   }
 

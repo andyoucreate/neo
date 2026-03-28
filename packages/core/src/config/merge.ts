@@ -35,6 +35,7 @@ export const defaultConfig: NeoConfig = {
     autoDecide: false,
   },
   memory: { embeddings: true },
+  childSupervisors: [],
 };
 
 // ─── Deep merge utility ────────────────────────────────────

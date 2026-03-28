@@ -9,6 +9,28 @@ export { parseChildSpawnCommand } from "./child-command-parser.js";
 // ─── Child spawner ──────────────────────────────────────
 export type { SpawnChildOptions, SpawnChildResult } from "./child-spawner.js";
 export { spawnChildSupervisor } from "./child-spawner.js";
+// ─── Child supervisor manager ───────────────────────────
+export type {
+  CheckHealthOptions,
+  ChildHealthStatus,
+  ChildSupervisorManagerOptions,
+} from "./child-supervisor-manager.js";
+export { ChildSupervisorManager } from "./child-supervisor-manager.js";
+// ─── Child supervisor protocol ──────────────────────────
+export type {
+  ChildHeartbeat,
+  ChildSupervisorState,
+  ChildSupervisorStatus,
+} from "./child-supervisor-protocol.js";
+export {
+  childHeartbeatSchema,
+  childSupervisorStateSchema,
+  childSupervisorStatusSchema,
+  readChildHeartbeat,
+  readChildState,
+  writeChildHeartbeat,
+  writeChildState,
+} from "./child-supervisor-protocol.js";
 // ─── Children file ─────────────────────────────────────
 export { readChildrenFile, writeChildrenFile } from "./children-file.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";

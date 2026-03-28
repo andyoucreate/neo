@@ -65,6 +65,7 @@ function createConfig(overrides?: Partial<GlobalConfig["supervisor"]>): GlobalCo
     },
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
     memory: { embeddings: true },
+    childSupervisors: [],
   };
 }
 

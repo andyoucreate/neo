@@ -19,6 +19,9 @@ export type {
 // ─── Concurrency ────────────────────────────────────────
 export { Semaphore } from "@/concurrency/semaphore";
 export type {
+  ChildSupervisorBudget,
+  ChildSupervisorConfig,
+  ChildSupervisorType,
   GlobalConfig,
   McpServerConfig,
   NeoConfig,
@@ -28,6 +31,9 @@ export type {
 export {
   addRepoToGlobalConfig,
   ConfigStore,
+  childSupervisorBudgetSchema,
+  childSupervisorConfigSchema,
+  childSupervisorTypeSchema,
   globalConfigSchema,
   listReposFromGlobalConfig,
   loadConfig,
@@ -77,6 +83,10 @@ export type { OrchestratorOptions } from "@/orchestrator";
 export { Orchestrator } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────
 export {
+  getChildSupervisorDir,
+  getChildSupervisorHeartbeatPath,
+  getChildSupervisorStatePath,
+  getChildSupervisorsDir,
   getDataDir,
   getFocusedSupervisorDir,
   getJournalsDir,

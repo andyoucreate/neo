@@ -316,7 +316,7 @@ childSupervisors:
     const config = await loadConfig(CONFIG_PATH);
 
     expect(config.childSupervisors).toHaveLength(1);
-    expect(config.childSupervisors[0].name).toBe("cleanup-neo");
+    expect(config.childSupervisors[0]?.name).toBe("cleanup-neo");
   });
 
   it("defaults to empty childSupervisors array", async () => {

@@ -8,6 +8,9 @@ import { getDataDir, toRepoSlug } from "@/paths";
 // ─── Re-export all schemas and types from config module ──
 
 export type {
+  ChildSupervisorBudget,
+  ChildSupervisorConfig,
+  ChildSupervisorType,
   GitStrategy,
   GlobalConfig,
   McpServerConfig,
@@ -20,6 +23,9 @@ export {
   budgetConfigSchema,
   ConfigStore,
   ConfigWatcher,
+  childSupervisorBudgetSchema,
+  childSupervisorConfigSchema,
+  childSupervisorTypeSchema,
   concurrencyConfigSchema,
   gitStrategySchema,
   globalConfigSchema,

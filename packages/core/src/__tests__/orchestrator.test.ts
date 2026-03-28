@@ -106,6 +106,7 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
       autoDecide: false,
     },
     memory: { embeddings: true },
+    childSupervisors: [],
     ...overrides,
   };
 }
