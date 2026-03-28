@@ -17,8 +17,9 @@ import { isProcessAlive } from "@/shared/process";
 import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
-import { parseChildCommand } from "./child-command-parser.js";
+import { parseChildCommand, parseChildSpawnCommand } from "./child-command-parser.js";
 import type { ChildRegistry } from "./child-registry.js";
+import { spawnChildSupervisor } from "./child-spawner.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { createFailureReport, writeFailureReport } from "./failure-report.js";
@@ -226,6 +227,10 @@ export interface HeartbeatLoopOptions {
   configWatcherDebounceMs?: number | undefined;
   /** Optional child registry for focused supervisor IPC integration */
   childRegistry?: ChildRegistry | undefined;
+  /** Path to child-supervisor-worker.js for spawning child processes */
+  workerPath?: string | undefined;
+  /** Name of this supervisor instance (for child spawn registration) */
+  supervisorName?: string | undefined;
 }
 
 /**
@@ -266,6 +271,8 @@ export class HeartbeatLoop {
   private readonly repoPath: string | undefined;
   private readonly configWatcherDebounceMs: number | undefined;
   private readonly childRegistry: ChildRegistry | undefined;
+  private readonly workerPath: string | undefined;
+  private readonly supervisorName: string | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -281,6 +288,8 @@ export class HeartbeatLoop {
     this.repoPath = options.repoPath;
     this.configWatcherDebounceMs = options.configWatcherDebounceMs;
     this.childRegistry = options.childRegistry;
+    this.workerPath = options.workerPath;
+    this.supervisorName = options.supervisorName;
   }
 
   /** Path to the inbox/events directory for markProcessed() calls */
@@ -582,6 +591,7 @@ export class HeartbeatLoop {
     // Process decision answers from inbox messages
     await this.processDecisionAnswers(rawEvents, decisionStore);
     await this.processChildCommands(rawEvents);
+    await this.processChildSpawnCommands(rawEvents);
 
     // Auto-answer expired decisions
     const expiredDecisions = await decisionStore.expire();
@@ -1217,6 +1227,48 @@ export class HeartbeatLoop {
         case "stop":
           this.childRegistry.send(command.supervisorId, { type: "stop" });
           break;
+      }
+    }
+  }
+
+  /**
+   * Process child:spawn commands from inbox messages.
+   * These come from `neo supervise --parent=X` CLI invocations.
+   */
+  private async processChildSpawnCommands(rawEvents: QueuedEvent[]): Promise<void> {
+    if (!this.childRegistry || !this.workerPath || !this.supervisorName) return;
+
+    for (const event of rawEvents) {
+      if (event.kind !== "message") continue;
+      const text = event.data.text ?? "";
+      const parsed = parseChildSpawnCommand(text);
+      if (!parsed) continue;
+
+      try {
+        const spawnOptions: Parameters<typeof spawnChildSupervisor>[0] = {
+          objective: parsed.objective,
+          acceptanceCriteria: parsed.acceptanceCriteria,
+          registry: this.childRegistry,
+          workerPath: this.workerPath,
+          parentName: this.supervisorName,
+          depth: 0,
+        };
+        if (parsed.maxCostUsd !== undefined) {
+          spawnOptions.maxCostUsd = parsed.maxCostUsd;
+        }
+        const result = await spawnChildSupervisor(spawnOptions);
+
+        await this.activityLog.log(
+          "dispatch",
+          `Child supervisor spawned from CLI: ${result.supervisorId}`,
+          {
+            supervisorId: result.supervisorId,
+            objective: parsed.objective,
+          },
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await this.activityLog.log("error", `Failed to spawn child supervisor: ${msg}`);
       }
     }
   }
