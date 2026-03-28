@@ -99,6 +99,7 @@ export class ConfigStore {
     // Validate and parse with defaults
     const parsed = neoConfigSchema.safeParse(raw);
     if (!parsed.success) {
+      // biome-ignore lint/suspicious/noConsole: config parsing errors must be visible to the user
       console.warn(`[neo] Failed to parse config at ${globalPath}:`, parsed.error.message);
       return null;
     }
@@ -124,6 +125,7 @@ export class ConfigStore {
     // Validate repo overrides (partial subset)
     const parsed = repoOverrideConfigSchema.safeParse(raw);
     if (!parsed.success) {
+      // biome-ignore lint/suspicious/noConsole: config parsing errors must be visible to the user
       console.warn(`[neo] Failed to parse config at ${repoConfigPath}:`, parsed.error.message);
       return null;
     }

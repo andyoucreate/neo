@@ -46,6 +46,7 @@ export class NeoEventEmitter {
         } catch (nestedErr) {
           // Swallow — prevent crash even if error handler throws
           // This is a last-resort safety net to prevent infinite error loops
+          // biome-ignore lint/suspicious/noConsole: last-resort error logging when emitter itself fails
           console.error(
             "[emitter] Error handler threw:",
             nestedErr instanceof Error ? nestedErr.message : String(nestedErr),

@@ -39,6 +39,7 @@ export class AgentRegistry {
         customConfigs = await loadAgentsFromDir(this.customDir);
       } catch (err) {
         // Custom dir doesn't exist — that's fine
+        // biome-ignore lint/suspicious/noConsole: debug logging for missing custom agents dir
         console.debug(
           `[registry] Custom agents dir not found: ${err instanceof Error ? err.message : String(err)}`,
         );
