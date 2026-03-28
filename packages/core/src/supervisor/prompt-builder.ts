@@ -2,6 +2,7 @@ import type { RepoConfig } from "@/config";
 import type { TaskEntry } from "@/supervisor/task-store";
 import { buildCommandsCompact, buildCommandsSection, NEO_COMMANDS } from "./commands-manifest.js";
 import type { Decision } from "./decisions.js";
+import type { Directive } from "./directive-store.js";
 import type { GroupedEvents } from "./event-queue.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import type { ActivityEntry, QueuedEvent } from "./schemas.js";
@@ -33,6 +34,8 @@ export interface PromptOptions {
    * Used by buildIdlePrompt to block scout dispatch when the user has unanswered decisions.
    */
   hasPendingDecisions?: boolean | undefined;
+  /** Active directives for idle time (sorted by priority) */
+  activeDirectives?: Directive[] | undefined;
 }
 
 export interface StandardPromptOptions extends PromptOptions {}
@@ -802,6 +805,32 @@ function countEvents(grouped: GroupedEvents): number {
 
 // ─── Idle prompt (minimal — no events, no runs, no tasks) ─
 
+// ─── Directives ─────────────────────────────────────────
+
+/**
+ * Build the active directives section for idle prompts.
+ * Directives are standing instructions that should execute during idle time.
+ */
+function buildDirectivesSection(directives: Directive[] | undefined): string {
+  if (!directives || directives.length === 0) {
+    return "";
+  }
+
+  const lines = directives.map((d) => {
+    const priority = d.priority > 0 ? ` [priority: ${d.priority}]` : "";
+    const expiry = d.expiresAt
+      ? ` (expires: ${new Date(d.expiresAt).toLocaleString()})`
+      : " (indefinite)";
+    const desc = d.description ? ` — ${d.description}` : "";
+    return `- **${d.action}**${priority}${expiry}${desc}`;
+  });
+
+  return `Active directives (${directives.length}):
+${lines.join("\n")}
+
+These are standing instructions for idle time. Execute the highest-priority directive that is feasible given current budget and repository state.`;
+}
+
 /**
  * Check if this heartbeat has nothing to do.
  */
@@ -881,6 +910,30 @@ ${repoList}
 <directive>
 Idle — but there are pending decisions awaiting user response.
 Run \`neo log discovery "idle — waiting on ${String(opts.pendingDecisions?.length ?? 0)} pending decision(s)"\` and yield.
+</directive>`;
+  }
+
+  // Check for active directives
+  const directivesSection = buildDirectivesSection(opts.activeDirectives);
+  if (directivesSection) {
+    return `${buildRoleSection(opts.heartbeatCount)}
+
+<context>
+No events. No active runs. No pending tasks.
+${budgetLine}
+
+${directivesSection}
+
+Repositories:
+${repoList}
+</context>
+
+<reference>
+${getCommandsSection(opts.heartbeatCount)}
+</reference>
+
+<directive>
+Idle — but you have active directives. Execute the highest-priority directive that is feasible, then yield. Log your action with \`neo log action\`.
 </directive>`;
   }
 

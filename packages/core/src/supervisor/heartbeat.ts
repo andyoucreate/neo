@@ -21,6 +21,7 @@ import { parseChildCommand, parseChildSpawnCommand } from "./child-command-parse
 import type { ChildRegistry } from "./child-registry.js";
 import { spawnChildSupervisor } from "./child-spawner.js";
 import { type Decision, DecisionStore } from "./decisions.js";
+import { type Directive, DirectiveStore } from "./directive-store.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { createFailureReport, writeFailureReport } from "./failure-report.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
@@ -161,11 +162,13 @@ interface EventContext {
   tasks: TaskEntry[];
   recentActions: ActivityEntry[];
   mcpServerNames: string[];
+  activeDirectives: Directive[];
 }
 
 interface PostSdkProcessingInput {
   rawEvents: QueuedEvent[];
   isConsolidation: boolean;
+  isCompaction: boolean;
   unconsolidated: LogBufferEntry[];
 }
 
@@ -231,6 +234,8 @@ export interface HeartbeatLoopOptions {
   workerPath?: string | undefined;
   /** Name of this supervisor instance (for child spawn registration) */
   supervisorName?: string | undefined;
+  /** Path to directives storage */
+  directivesPath?: string | undefined;
 }
 
 /**
@@ -273,6 +278,8 @@ export class HeartbeatLoop {
   private readonly childRegistry: ChildRegistry | undefined;
   private readonly workerPath: string | undefined;
   private readonly supervisorName: string | undefined;
+  private directiveStore: DirectiveStore | null = null;
+  private readonly directivesPath: string | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -290,6 +297,7 @@ export class HeartbeatLoop {
     this.childRegistry = options.childRegistry;
     this.workerPath = options.workerPath;
     this.supervisorName = options.supervisorName;
+    this.directivesPath = options.directivesPath;
   }
 
   /** Path to the inbox/events directory for markProcessed() calls */
@@ -326,6 +334,17 @@ export class HeartbeatLoop {
       this.decisionStore = new DecisionStore(path.join(this.supervisorDir, "decisions.jsonl"));
     }
     return this.decisionStore;
+  }
+
+  private getDirectiveStore(): DirectiveStore | null {
+    if (!this.directiveStore && this.directivesPath) {
+      try {
+        this.directiveStore = new DirectiveStore(this.directivesPath);
+      } catch {
+        // Directive store unavailable — continue without it
+      }
+    }
+    return this.directiveStore;
   }
 
   async start(): Promise<void> {
@@ -489,6 +508,7 @@ export class HeartbeatLoop {
       tasks: eventCtx.tasks,
       recentActions: eventCtx.recentActions,
       mcpServerNames: eventCtx.mcpServerNames,
+      activeDirectives: eventCtx.activeDirectives,
     });
     await this.activityLog.log(
       "heartbeat",
@@ -519,6 +539,7 @@ export class HeartbeatLoop {
     await this.handlePostSdkProcessing({
       rawEvents: eventCtx.rawEvents,
       isConsolidation: modeResult.isConsolidation,
+      isCompaction: modeResult.isCompaction,
       unconsolidated: modeResult.unconsolidated,
     });
 
@@ -610,7 +631,7 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Gather event context: drain queue, fetch active runs, memories, tasks, and recent actions.
+   * Gather event context: drain queue, fetch active runs, memories, tasks, recent actions, and active directives.
    */
   private async gatherEventContext(): Promise<EventContext> {
     const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
@@ -625,6 +646,10 @@ export class HeartbeatLoop {
     const tasks: TaskEntry[] = taskStore ? taskStore.getTasks() : [];
     const recentActions = await this.activityLog.tail(20);
 
+    // Fetch active idle directives
+    const directiveStore = this.getDirectiveStore();
+    const activeDirectives: Directive[] = directiveStore ? await directiveStore.active("idle") : [];
+
     return {
       grouped,
       rawEvents,
@@ -634,11 +659,12 @@ export class HeartbeatLoop {
       tasks,
       recentActions,
       mcpServerNames,
+      activeDirectives,
     };
   }
 
   /**
-   * Handle post-SDK processing: mark events as processed, consolidate log buffer.
+   * Handle post-SDK processing: mark events as processed, consolidate log buffer, clean up old directives.
    */
   private async handlePostSdkProcessing(input: PostSdkProcessingInput): Promise<void> {
     // Mark events as processed so they are not replayed on restart
@@ -654,6 +680,19 @@ export class HeartbeatLoop {
         await markConsolidated(this.supervisorDir, allIds);
       }
       await compactLogBuffer(this.supervisorDir);
+    }
+
+    // Clean up old expired directives during compaction
+    if (input.isCompaction) {
+      const directiveStore = this.getDirectiveStore();
+      if (directiveStore) {
+        const expired = await directiveStore.expireOld();
+        if (expired.length > 0) {
+          await this.activityLog.log("event", `Cleaned up ${expired.length} expired directive(s)`, {
+            expiredIds: expired,
+          });
+        }
+      }
     }
   }
 
@@ -844,6 +883,7 @@ export class HeartbeatLoop {
     tasks: TaskEntry[];
     recentActions: ActivityEntry[];
     mcpServerNames: string[];
+    activeDirectives: Directive[];
   }): Promise<{ prompt: string; modeLabel: string }> {
     const sharedOpts = {
       repos: this.config.repos,
@@ -868,6 +908,7 @@ export class HeartbeatLoop {
       answeredDecisions: opts.answeredDecisions,
       hasPendingDecisions: opts.hasPendingDecisions,
       autoDecide: this.config.supervisor.autoDecide,
+      activeDirectives: opts.activeDirectives,
     };
 
     if (opts.isCompaction) {
