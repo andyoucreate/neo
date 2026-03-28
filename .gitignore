@@ -47,3 +47,4 @@ coverage/
 **/__tmp_*__/
 
 # neo session clones are stored in /tmp/neo-sessions/ (configurable)
+.worktrees/
