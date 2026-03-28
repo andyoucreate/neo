@@ -918,6 +918,8 @@ export function SupervisorTui({ name }: { name: string }) {
       return;
     }
 
+    // Capture after guard - TypeScript doesn't narrow inside async closures
+    const childId = selectedChildId;
     let active = true;
 
     async function poll() {
