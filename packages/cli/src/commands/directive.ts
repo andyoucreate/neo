@@ -78,13 +78,20 @@ async function handleCreate(args: ParsedArgs): Promise<void> {
   }
 
   const store = openStore(args.name);
-  const id = await store.create({
+  const input: Parameters<typeof store.create>[0] = {
     trigger,
     action: args.value,
-    description: args.description,
-    priority: args.priority ? Number(args.priority) : undefined,
-    expiresAt,
-  });
+  };
+  if (args.description) {
+    input.description = args.description;
+  }
+  if (args.priority) {
+    input.priority = Number(args.priority);
+  }
+  if (expiresAt) {
+    input.expiresAt = expiresAt;
+  }
+  const id = await store.create(input);
 
   const expiryLabel = expiresAt ? formatExpiry(expiresAt) : "indefinitely";
   printSuccess(`Directive created: ${id}`);

@@ -162,13 +162,18 @@ describe("neo directive list", () => {
   });
 });
 
+function extractId(message: string): string {
+  const match = message.match(/dir_[a-f0-9-]+/);
+  if (!match) throw new Error(`No ID found in: ${message}`);
+  return match[0];
+}
+
 describe("neo directive delete", () => {
   it("deletes a directive", async () => {
     // Create a directive first
     await runDirectiveCommand("create", { value: "to delete" });
     const successCall = mockPrintSuccess.mock.calls[0]?.[0] as string;
-    const idMatch = successCall.match(/dir_[a-f0-9-]+/);
-    const id = idMatch?.[0];
+    const id = extractId(successCall);
 
     mockPrintSuccess.mockClear();
     await runDirectiveCommand("delete", { value: id });
@@ -196,8 +201,7 @@ describe("neo directive toggle", () => {
     // Create a directive first
     await runDirectiveCommand("create", { value: "to toggle" });
     const successCall = mockPrintSuccess.mock.calls[0]?.[0] as string;
-    const idMatch = successCall.match(/dir_[a-f0-9-]+/);
-    const id = idMatch?.[0];
+    const id = extractId(successCall);
 
     // Clear and toggle off
     mockPrintSuccess.mockClear();
@@ -209,8 +213,7 @@ describe("neo directive toggle", () => {
     // Create and disable
     await runDirectiveCommand("create", { value: "to toggle" });
     const successCall = mockPrintSuccess.mock.calls[0]?.[0] as string;
-    const idMatch = successCall.match(/dir_[a-f0-9-]+/);
-    const id = idMatch?.[0];
+    const id = extractId(successCall);
     await runDirectiveCommand("toggle", { value: id }); // off
 
     // Clear and toggle on
@@ -238,8 +241,7 @@ describe("neo directive show", () => {
   it("displays directive details without error", async () => {
     await runDirectiveCommand("create", { value: "detailed action", description: "Test desc" });
     const successCall = mockPrintSuccess.mock.calls[0]?.[0] as string;
-    const idMatch = successCall.match(/dir_[a-f0-9-]+/);
-    const id = idMatch?.[0];
+    const id = extractId(successCall);
 
     // Clear mocks and run show
     mockPrintError.mockClear();
