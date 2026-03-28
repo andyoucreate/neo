@@ -24,7 +24,7 @@ import {
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChildDetail } from "./components/child-detail.js";
 import type { ChildInputMode } from "./components/child-input.js";
 import { ChildInput } from "./components/child-input.js";
@@ -858,6 +858,16 @@ export function SupervisorTui({ name }: { name: string }) {
       });
   }, []);
 
+  // Refs to avoid stale closures inside poll without restarting the timer
+  const decisionIndexRef = useRef(decisionIndex);
+  const decisionsLengthRef = useRef(decisions.length);
+  useEffect(() => {
+    decisionIndexRef.current = decisionIndex;
+  }, [decisionIndex]);
+  useEffect(() => {
+    decisionsLengthRef.current = decisions.length;
+  }, [decisions.length]);
+
   // Poll root state, activity, decisions, and children
   useEffect(() => {
     let active = true;
@@ -874,18 +884,20 @@ export function SupervisorTui({ name }: { name: string }) {
       setState(newState);
       setEntries(newEntries);
       setDecisions(newDecisions);
+      // Clamp selectedChildIndex if children list shrinks
+      setSelectedChildIndex((i) => Math.min(i, Math.max(0, newChildren.length - 1)));
       setChildren(newChildren);
       setTasks(readTasks(name));
-      // Reset decision index if out of bounds
-      if (newDecisions.length > 0 && decisionIndex >= newDecisions.length) {
+      // Reset decision index if out of bounds (using ref to avoid dep)
+      if (newDecisions.length > 0 && decisionIndexRef.current >= newDecisions.length) {
         setDecisionIndex(0);
       }
       // Auto-switch to decisions mode when new decisions appear
-      if (newDecisions.length > 0 && decisions.length === 0) {
+      if (newDecisions.length > 0 && decisionsLengthRef.current === 0) {
         setFocusMode("decisions");
       }
       // Return to input mode when all decisions are resolved
-      if (newDecisions.length === 0 && decisions.length > 0) {
+      if (newDecisions.length === 0 && decisionsLengthRef.current > 0) {
         setFocusMode("input");
       }
     }
@@ -896,21 +908,21 @@ export function SupervisorTui({ name }: { name: string }) {
       active = false;
       clearInterval(interval);
     };
-  }, [name, decisionIndex, decisions.length]);
+  }, [name]);
 
-  // Poll child activity when selected child changes
+  // Poll child activity when selected child id changes
+  const selectedChildId = selectedChild?.supervisorId;
   useEffect(() => {
-    if (!selectedChild) {
+    if (!selectedChildId) {
       setChildActivity([]);
       return;
     }
 
     let active = true;
-    const id = selectedChild.supervisorId;
 
     async function poll() {
       if (!active) return;
-      const activity = await readChildActivity(id, MAX_CHILD_ACTIVITY);
+      const activity = await readChildActivity(selectedChildId, MAX_CHILD_ACTIVITY);
       if (!active) return;
       setChildActivity(activity);
     }
@@ -921,7 +933,7 @@ export function SupervisorTui({ name }: { name: string }) {
       active = false;
       clearInterval(interval);
     };
-  }, [selectedChild]);
+  }, [selectedChildId]);
 
   // Current decision being interacted with
   const currentDecision = decisions[decisionIndex] as Decision | undefined;
@@ -1003,7 +1015,9 @@ export function SupervisorTui({ name }: { name: string }) {
         return;
       }
       if (key.downArrow) {
-        setSelectedChildIndex((i) => Math.min(children.length - 1, i + 1));
+        if (children.length > 0) {
+          setSelectedChildIndex((i) => Math.min(children.length - 1, i + 1));
+        }
         return;
       }
       if (char === "i") {
