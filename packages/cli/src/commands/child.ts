@@ -74,12 +74,15 @@ const spawnCommand = defineCommand({
     }
 
     // Send spawn request to supervisor
-    await spawnChildFromCli({
+    const options: Parameters<typeof spawnChildFromCli>[0] = {
       parentName: supervisorName,
       objective,
       acceptanceCriteria: criteria,
-      maxCostUsd: budget,
-    });
+    };
+    if (budget !== undefined) {
+      options.maxCostUsd = budget;
+    }
+    await spawnChildFromCli(options);
   },
 });
 
