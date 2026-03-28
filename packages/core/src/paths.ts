@@ -120,3 +120,31 @@ export function getFocusedSupervisorDir(supervisorId: string): string {
 export function getFocusedSupervisorSessionPath(supervisorId: string): string {
   return path.join(getFocusedSupervisorDir(supervisorId), "session.json");
 }
+
+/**
+ * Directory for child supervisors of a parent: ~/.neo/supervisors/<parent>/children/
+ */
+export function getChildSupervisorsDir(parentName: string): string {
+  return path.join(getSupervisorDir(parentName), "children");
+}
+
+/**
+ * Directory for a specific child supervisor: ~/.neo/supervisors/<parent>/children/<childName>/
+ */
+export function getChildSupervisorDir(parentName: string, childName: string): string {
+  return path.join(getChildSupervisorsDir(parentName), childName);
+}
+
+/**
+ * State file for a child supervisor: ~/.neo/supervisors/<parent>/children/<childName>/state.json
+ */
+export function getChildSupervisorStatePath(parentName: string, childName: string): string {
+  return path.join(getChildSupervisorDir(parentName, childName), "state.json");
+}
+
+/**
+ * Heartbeat file for a child supervisor: ~/.neo/supervisors/<parent>/children/<childName>/heartbeat.json
+ */
+export function getChildSupervisorHeartbeatPath(parentName: string, childName: string): string {
+  return path.join(getChildSupervisorDir(parentName, childName), "heartbeat.json");
+}
