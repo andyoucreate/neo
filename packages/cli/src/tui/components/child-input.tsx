@@ -10,14 +10,12 @@ export function ChildInput({
   value,
   onChange,
   onSubmit,
-  onCancel,
 }: {
   handle: ChildHandle;
   mode: ChildInputMode;
   value: string;
   onChange: (v: string) => void;
   onSubmit: (v: string) => void;
-  onCancel: () => void;
 }) {
   const isBlocked = handle.status === "blocked";
 

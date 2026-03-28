@@ -1181,10 +1181,6 @@ export function SupervisorTui({ name }: { name: string }) {
                   value={childInputValue}
                   onChange={setChildInputValue}
                   onSubmit={handleChildInputSubmit}
-                  onCancel={() => {
-                    setChildInputMode("idle");
-                    setChildInputValue("");
-                  }}
                 />
               </>
             )}
