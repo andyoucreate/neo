@@ -169,7 +169,15 @@ function sendToParent(msg: Record<string, unknown>): void {
   }
 }
 
-main().catch((err) => {
-  console.error("[child-supervisor-worker] Fatal error:", err);
-  process.exit(1);
-});
+// Only run main() when executed directly (not when imported for testing)
+// Use process.argv[1] check for ESM entry point detection
+const isDirectExecution =
+  process.argv[1]?.endsWith("child-supervisor-worker.js") ||
+  process.argv[1]?.endsWith("child-supervisor-worker.ts");
+
+if (isDirectExecution) {
+  main().catch((err) => {
+    console.error("[child-supervisor-worker] Fatal error:", err);
+    process.exit(1);
+  });
+}
