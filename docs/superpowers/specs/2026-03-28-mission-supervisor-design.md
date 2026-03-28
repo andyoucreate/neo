@@ -2,7 +2,7 @@
 
 **Date:** 2026-03-28
 **Status:** Draft
-**Scope:** Hierarchical supervisor architecture — a root Supervisor (heartbeat mode) spawns focused child Supervisors that guarantee delivery of an objective end-to-end. Designed to be adapter-extensible for production contexts beyond the CLI.
+**Scope:** Hierarchical supervisor architecture — a root Supervisor (heartbeat mode) spawns focused child Supervisors that guarantee delivery of an objective end-to-end. Designed to be adapter-extensible for production contexts beyond the CLI, with full AI provider independence via `AIAdapter`.
 
 ---
 
@@ -245,6 +245,93 @@ Level escalation is triggered by consecutive failures, same as existing recovery
 
 ---
 
+## AI Adapters
+
+This is the second adapter layer — decoupling the orchestration logic from any specific AI provider.
+
+All AI calls in the supervisor loop go through an `AIAdapter` interface. The Claude Agent SDK is the default implementation, but any provider can be swapped in without touching orchestration code.
+
+### Interface
+
+```typescript
+interface AIAdapter {
+  /**
+   * Execute one turn of the supervisor conversation.
+   * Returns an async iterable of structured messages.
+   */
+  query(options: AIQueryOptions): AsyncIterable<SupervisorMessage>;
+
+  /**
+   * Provider-specific session management.
+   * Called by the supervisor loop to persist and restore conversation context.
+   */
+  getSessionHandle(): SessionHandle | undefined;
+  restoreSession(handle: SessionHandle): void;
+}
+
+interface AIQueryOptions {
+  prompt: string;
+  tools: ToolDefinition[];         // supervisor_complete, supervisor_blocked, Agent, etc.
+  sessionHandle?: SessionHandle;   // provider-specific session context
+  systemPrompt?: string;
+  model?: string;                  // override default model for this turn
+}
+
+/**
+ * Opaque session handle — each adapter stores what it needs.
+ * Persisted via SupervisorStore so it survives process restart.
+ */
+type SessionHandle =
+  | { provider: "claude"; sessionId: string }        // ~/.claude/projects/<id>.jsonl
+  | { provider: "openai"; threadId: string }          // Assistants API thread
+  | { provider: "gemini"; conversationId: string }    // Gemini session
+  | { provider: "ollama"; messages: MessageEntry[] }; // full history, reconstructed from store
+```
+
+### Provided adapters
+
+| Adapter | Package | Backend | Session strategy |
+|---------|---------|---------|-----------------|
+| `ClaudeAdapter` | `@neotx/core` (default) | Claude Agent SDK | Native `resume: sessionId` |
+| `OpenAIAdapter` | `@neotx/ai-openai` | OpenAI Responses API | `thread_id` (Assistants API) |
+| `GeminiAdapter` | `@neotx/ai-gemini` | Google Gemini | `conversationId` |
+| `OllamaAdapter` | `@neotx/ai-ollama` | Local models via Ollama | Full message history from `SupervisorStore` |
+
+### Session persistence strategy per provider
+
+**Claude (default):** The SDK natively persists sessions to `~/.claude/projects/<cwd>/<sessionId>.jsonl`. The `SessionHandle` only stores the `sessionId` string — the SDK handles the rest.
+
+**OpenAI:** Uses the Assistants API `thread_id`. The `OpenAIAdapter` creates a thread on first turn, stores the `threadId` in `SessionHandle`. On resume, it appends a new user message to the existing thread. Tool calls are mapped from OpenAI function-calling format to neo's `SupervisorMessage` format.
+
+**Gemini:** Uses Gemini's conversation history API. `GeminiAdapter` maps the conversation to Gemini's `Content[]` format and rebuilds it from `SupervisorStore` on resume.
+
+**Ollama (local models):** No native session support. The `OllamaAdapter` reconstructs the full message history from `SupervisorStore` on every turn. This means `SupervisorStore` is the single source of truth for conversation history — a `messages` array is stored in the `SessionHandle` and updated after each turn.
+
+### Why `SupervisorStore` is the source of truth
+
+For providers without native session persistence (Ollama, any future custom provider), the `SupervisorStore` holds the full conversation history. Even for Claude, the store keeps a provider-agnostic copy — enabling migration between providers without losing context.
+
+```
+Turn N (Claude)  → store: { provider: "claude", sessionId: "abc" }
+Switch to Ollama → OllamaAdapter reads message history from store → rebuilds context
+Turn N+1         → Ollama continues with full history
+```
+
+This makes provider migration possible mid-mission, though it's not the default flow.
+
+### Tool mapping
+
+Each adapter is responsible for translating neo's tool definitions to its provider's format:
+
+- Claude → Claude tool_use format (native, no mapping needed)
+- OpenAI → function calling schema (`parameters` → JSON Schema)
+- Gemini → function declarations format
+- Ollama → depends on model (llama3, mistral, etc.) — adapter handles capability detection
+
+Intercepted tools (`supervisor_complete`, `supervisor_blocked`) are caught **before** being forwarded to the provider. The adapter only sees domain tools (Agent, Read, Bash, etc.).
+
+---
+
 ## Storage Adapters
 
 This is the key to making neo usable beyond the CLI in production contexts.
@@ -323,8 +410,13 @@ The `depth` field is reserved. When the time comes:
 | `packages/agents/prompts/focused-supervisor.md` | New — focused supervisor system prompt |
 | `packages/core/src/supervisor/schemas.ts` | Modify — add unified SupervisorOptions schema |
 | `packages/core/src/paths.ts` | Modify — add `getSupervisorsDir()` path helper |
+| `packages/core/src/supervisor/ai-adapter.ts` | New — `AIAdapter` interface + `SessionHandle` type |
+| `packages/core/src/supervisor/adapters/claude.ts` | New — `ClaudeAdapter` (default, wraps Agent SDK) |
 | `packages/store-sqlite/` | New package — `SqliteSupervisorStore` (optional) |
 | `packages/store-postgres/` | New package — `PostgresSupervisorStore` (optional) |
+| `packages/ai-openai/` | New package — `OpenAIAdapter` (optional) |
+| `packages/ai-gemini/` | New package — `GeminiAdapter` (optional) |
+| `packages/ai-ollama/` | New package — `OllamaAdapter` (optional) |
 
 ---
 
@@ -335,6 +427,8 @@ The `depth` field is reserved. When the time comes:
 - Cross-repo supervisors (single repo per focused supervisor)
 - Supervisor priority / preemption
 - `store-postgres` package (interface defined, implementation deferred)
+- `ai-openai`, `ai-gemini`, `ai-ollama` packages (interfaces defined, implementations deferred)
+- Provider migration mid-mission (possible by design, not exposed as a feature yet)
 
 ---
 
@@ -345,6 +439,10 @@ The `depth` field is reserved. When the time comes:
 | Unified `Supervisor` + `mode` field | Avoids class hierarchy divergence. One concept, two behaviors. |
 | `acceptanceCriteria` set at dispatch time | Completion must be verifiable, not self-declared. Parent defines "done". |
 | `SupervisorStore` interface | Enables production use without changing orchestration logic. Zero-infra by default. |
+| `AIAdapter` interface | Full AI provider independence. Claude is the default, not a hard dependency. |
+| `SupervisorStore` as conversation history source of truth | Enables provider migration and powers providers without native session support (Ollama). |
+| `SessionHandle` as opaque union type | Each provider stores exactly what it needs — no leaky abstractions. |
+| Intercepted tools before adapter | `supervisor_complete` / `supervisor_blocked` are framework concerns, never reach the AI provider. |
 | IPC over webhooks for parent-child | Synchronous, zero-latency, no port coordination needed between siblings. |
 | `inject` message type | Parent can share cross-child context without polluting child conversation history. |
 | Reviewer verification before accepting completion | Prevents false completion — independent check against acceptance criteria. |
