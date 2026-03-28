@@ -166,12 +166,16 @@ async function handleChildMode(
 
   const { spawnChildFromCli } = await import("../child-mode.js");
 
-  await spawnChildFromCli({
+  const options: Parameters<typeof spawnChildFromCli>[0] = {
     parentName,
     objective,
     acceptanceCriteria: criteria,
-    maxCostUsd: budget,
-  });
+  };
+  if (budget !== undefined) {
+    options.maxCostUsd = budget;
+  }
+
+  await spawnChildFromCli(options);
 }
 
 async function handleMessage(name: string, text: string): Promise<void> {
