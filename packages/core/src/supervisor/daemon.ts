@@ -19,6 +19,8 @@ export interface SupervisorDaemonOptions {
   config: GlobalConfig;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
+  /** Path to child-supervisor-worker.js for spawning child processes */
+  workerPath?: string | undefined;
 }
 
 /**
@@ -30,6 +32,7 @@ export class SupervisorDaemon {
   private readonly config: GlobalConfig;
   private readonly dir: string;
   private readonly defaultInstructionsPath: string | undefined;
+  private readonly workerPath: string | undefined;
   private webhookServer: WebhookServer | null = null;
   private eventQueue: EventQueue | null = null;
   private heartbeatLoop: HeartbeatLoop | null = null;
@@ -43,6 +46,7 @@ export class SupervisorDaemon {
     this.config = options.config;
     this.dir = getSupervisorDir(options.name);
     this.defaultInstructionsPath = options.defaultInstructionsPath;
+    this.workerPath = options.workerPath;
   }
 
   async start(): Promise<void> {
@@ -188,6 +192,8 @@ export class SupervisorDaemon {
       eventsPath,
       defaultInstructionsPath: this.defaultInstructionsPath,
       childRegistry: this.childRegistry,
+      workerPath: this.workerPath,
+      supervisorName: this.name,
     });
 
     await this.heartbeatLoop.start();
