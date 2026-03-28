@@ -414,9 +414,10 @@ The `depth` field is reserved. When the time comes:
 | `packages/core/src/supervisor/adapters/claude.ts` | New — `ClaudeAdapter` (default, wraps Agent SDK) |
 | `packages/store-sqlite/` | New package — `SqliteSupervisorStore` (optional) |
 | `packages/store-postgres/` | New package — `PostgresSupervisorStore` (optional) |
-| `packages/ai-openai/` | New package — `OpenAIAdapter` (optional) |
-| `packages/ai-gemini/` | New package — `GeminiAdapter` (optional) |
-| `packages/ai-ollama/` | New package — `OllamaAdapter` (optional) |
+| `packages/core/src/supervisor/adapters/claude.ts` | New — `ClaudeAdapter` (only implementation for now) |
+| `packages/ai-openai/` | **Not implemented** — interface contract only |
+| `packages/ai-gemini/` | **Not implemented** — interface contract only |
+| `packages/ai-ollama/` | **Not implemented** — interface contract only |
 
 ---
 
@@ -427,8 +428,9 @@ The `depth` field is reserved. When the time comes:
 - Cross-repo supervisors (single repo per focused supervisor)
 - Supervisor priority / preemption
 - `store-postgres` package (interface defined, implementation deferred)
-- `ai-openai`, `ai-gemini`, `ai-ollama` packages (interfaces defined, implementations deferred)
+- `ai-openai`, `ai-gemini`, `ai-ollama` packages — interfaces defined in spec, **no code written**
 - Provider migration mid-mission (possible by design, not exposed as a feature yet)
+- `store-sqlite`, `store-postgres` packages — interfaces defined in spec, **no code written**
 
 ---
 
