@@ -1,5 +1,6 @@
 import type { RepoConfig } from "@/config";
 import type { TaskEntry } from "@/supervisor/task-store";
+import { buildCommandsCompact, buildCommandsSection, NEO_COMMANDS } from "./commands-manifest.js";
 import type { Decision } from "./decisions.js";
 import type { GroupedEvents } from "./event-queue.js";
 import type { MemoryEntry } from "./memory/entry.js";
@@ -70,68 +71,6 @@ const OPERATING_PRINCIPLES = `### Operating principles
 - Always review agent outputs (\`neo runs <runId>\`) before follow-up, according to SUPERVISOR.md agent contracts.
 - **Child supervisors**: for self-contained objectives requiring 3+ agent dispatches with intermediate decisions, use \`spawn_child_supervisor\` instead of direct dispatch. Every child MUST have a \`maxCostUsd\` cap and a corresponding task. React to child IPC events: \`progress\` → log, \`complete\` → verify evidence + mark done, \`blocked\` → answer or escalate, \`failed\` → re-spawn max 2×, then escalate.
 `;
-
-// ─── Commands reference (data — lives in <reference>) ───
-
-const COMMANDS = `### Dispatching agents
-\`\`\`bash
-neo run <agent> --prompt "..." --repo <path> --branch <name> [--priority critical|high|medium|low] [--meta '<json>']
-\`\`\`
-
-| Flag | Required | Description |
-|------|----------|-------------|
-| \`--prompt\` | always | Task description for the agent |
-| \`--repo\` | always | Target repository path |
-| \`--branch\` | always | Branch name for the isolated clone |
-| \`--priority\` | optional | \`critical\`, \`high\`, \`medium\`, \`low\` |
-| \`--meta\` | **always** | JSON with \`"label"\` for identification + \`"ticketId"\`, \`"stage"\`, etc. |
-
-All agents require \`--branch\`. Each agent session runs in an isolated clone on that branch.
-Always include \`--meta '{"label":"T1-auth-middleware","ticketId":"YC-42","stage":"develop"}'\` so you can identify runs later.
-
-### Monitoring & reading agent output
-\`\`\`bash
-neo runs --short                    # check recent runs
-neo runs --short --status running   # check active runs are alive
-neo runs <runId>                    # full run details + agent output (MUST READ on completion)
-neo cost --short [--all]            # check budget
-\`\`\`
-
-\`neo runs <runId>\` returns the agent's full output. **ALWAYS read it when a run completes** — it contains the agent's results that you need to decide next steps per SUPERVISOR.md routing rules.
-
-### Memory
-\`\`\`bash
-neo memory write --type knowledge --subtype fact --scope /path "Stable fact about repo"
-neo memory write --type knowledge --subtype procedure --scope /path "How to do X"
-neo memory write --type warning --scope /path "Recurring issue to watch for"
-neo memory write --type focus --expires 2h "Current working context"
-neo task create --scope /path --priority high --context "neo runs <id>" "Task description"
-neo task update <id> --status in_progress|done|blocked|abandoned
-neo memory forget <id>
-neo memory search "keyword"
-neo memory list --type fact
-\`\`\`
-
-### Decisions
-When you need human input on something that cannot be decided autonomously:
-\`\`\`bash
-neo decision create "<question>" --options "key1:label1,key2:label2:description" [--default <key>] [--expires-in 24h] [--context "..."]
-neo decision list                    # show pending decisions
-neo decision answer <id> <answer>    # answer a decision (usually done by human via TUI)
-\`\`\`
-The decision ID is returned by \`create\`. If no answer arrives before expiration, the \`--default\` answer is applied automatically (or the decision expires without resolution).
-
-### Reporting
-\`\`\`bash
-neo log <type> "<message>"   # visible in TUI only
-\`\`\``;
-
-const COMMANDS_COMPACT = `### Commands (reference)
-\`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
-\`neo runs [--short | <runId>]\` \u00b7 \`neo runs --short --status running\` \u00b7 \`neo cost --short\`
-\`neo memory write|update|forget|search|list\` \u00b7 \`neo log <type> "<msg>"\`
-\`neo config get <key>\` \u00b7 \`neo config set <key> <value> --global\` \u00b7 \`neo config list\`
-\`neo decision create "<question>" --options "..." [--default <key>]\` \u00b7 \`neo decision list\``;
 
 // ─── Instruction blocks ─────────────────────────────────
 
@@ -335,7 +274,9 @@ function buildRoleSection(heartbeatCount: number, label?: string): string {
 }
 
 function getCommandsSection(heartbeatCount: number): string {
-  return heartbeatCount <= 3 ? COMMANDS : COMMANDS_COMPACT;
+  return heartbeatCount <= 3
+    ? buildCommandsSection(NEO_COMMANDS)
+    : buildCommandsCompact(NEO_COMMANDS);
 }
 
 function buildReferenceSection(heartbeatCount: number): string {
