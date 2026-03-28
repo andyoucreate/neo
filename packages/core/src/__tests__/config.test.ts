@@ -303,3 +303,29 @@ repos:
     expect(config.supervisor.heartbeatTimeoutMs).toBe(300_000);
   });
 });
+
+describe("childSupervisors config", () => {
+  it("parses config with childSupervisors array", async () => {
+    await writeConfig(`
+childSupervisors:
+  - name: cleanup-neo
+    type: cleanup
+    repo: /path/to/neo
+`);
+
+    const config = await loadConfig(CONFIG_PATH);
+
+    expect(config.childSupervisors).toHaveLength(1);
+    expect(config.childSupervisors[0].name).toBe("cleanup-neo");
+  });
+
+  it("defaults to empty childSupervisors array", async () => {
+    await writeConfig(`
+repos:
+  - path: /my/repo
+`);
+
+    const config = await loadConfig(CONFIG_PATH);
+    expect(config.childSupervisors).toEqual([]);
+  });
+});

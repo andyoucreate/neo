@@ -24,6 +24,10 @@ export {
   supervisorConfigSchema,
 } from "./schema";
 
+// ─── Re-export child supervisor schemas ───────────────────
+
+export * from "./child-supervisor-schema";
+
 // ─── Re-export dot-notation utilities ────────────────────
 
 export { getConfigValue, setConfigValue } from "./dotNotation";

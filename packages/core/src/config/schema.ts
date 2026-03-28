@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { childSupervisorConfigSchema } from "./child-supervisor-schema.js";
 
 // ─── McpServerConfig schemas ─────────────────────────────
 
@@ -160,6 +161,8 @@ export const globalConfigSchema = z.object({
 
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
   claudeCodePath: z.string().optional(),
+
+  childSupervisors: z.array(childSupervisorConfigSchema).default([]),
 
   idempotency: z
     .object({
