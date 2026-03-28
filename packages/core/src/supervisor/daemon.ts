@@ -4,10 +4,16 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
-import { getSupervisorChildrenPath, getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
+import {
+  getChildSupervisorsDir,
+  getSupervisorChildrenPath,
+  getSupervisorDecisionsPath,
+  getSupervisorDir,
+} from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
 import { ChildRegistry } from "./child-registry.js";
+import { ChildSupervisorManager } from "./child-supervisor-manager.js";
 import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
@@ -39,6 +45,7 @@ export class SupervisorDaemon {
   private activityLog: ActivityLog | null = null;
   private decisionStore: DecisionStore | null = null;
   private childRegistry: ChildRegistry | null = null;
+  private childSupervisorManager: ChildSupervisorManager | null = null;
   private sessionId = "";
 
   constructor(options: SupervisorDaemonOptions) {
@@ -180,6 +187,35 @@ export class SupervisorDaemon {
       childrenFilePath: getSupervisorChildrenPath(this.name),
     });
 
+    // Initialize child supervisor manager
+    if (this.config.childSupervisors.length > 0) {
+      this.childSupervisorManager = new ChildSupervisorManager({
+        parentName: this.name,
+        childrenDir: getChildSupervisorsDir(this.name),
+      });
+
+      // Register and auto-start configured children
+      for (const childConfig of this.config.childSupervisors) {
+        await this.childSupervisorManager.register(childConfig);
+        if (childConfig.autoStart && childConfig.enabled) {
+          try {
+            await this.childSupervisorManager.spawn(childConfig.name);
+            await this.activityLog.log(
+              "dispatch",
+              `Child supervisor started: ${childConfig.name}`,
+              { childName: childConfig.name, type: childConfig.type },
+            );
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            await this.activityLog.log(
+              "error",
+              `Failed to start child supervisor ${childConfig.name}: ${msg}`,
+            );
+          }
+        }
+      }
+    }
+
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
     this.heartbeatLoop = new HeartbeatLoop({
@@ -205,6 +241,11 @@ export class SupervisorDaemon {
 
     if (this.webhookServer) {
       await this.webhookServer.stop();
+    }
+
+    // Stop all child supervisors
+    if (this.childSupervisorManager) {
+      await this.childSupervisorManager.stopAll();
     }
 
     // Update state
