@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChildCommand } from "./child-command-parser.js";
+import { parseChildCommand, parseChildSpawnCommand } from "./child-command-parser.js";
 
 describe("parseChildCommand", () => {
   it("parses child:inject", () => {
@@ -41,5 +41,37 @@ describe("parseChildCommand", () => {
 
   it("returns null for child:stop without supervisorId", () => {
     expect(parseChildCommand("child:stop")).toBeNull();
+  });
+});
+
+describe("parseChildSpawnCommand", () => {
+  it("parses valid spawn command", () => {
+    const input = 'child:spawn {"objective":"Do X","acceptanceCriteria":["Done"]}';
+    const result = parseChildSpawnCommand(input);
+    expect(result).toEqual({
+      objective: "Do X",
+      acceptanceCriteria: ["Done"],
+      maxCostUsd: undefined,
+    });
+  });
+
+  it("parses spawn with budget", () => {
+    const input = 'child:spawn {"objective":"Y","acceptanceCriteria":["A","B"],"maxCostUsd":5.5}';
+    const result = parseChildSpawnCommand(input);
+    expect(result?.maxCostUsd).toBe(5.5);
+  });
+
+  it("returns null for non-spawn commands", () => {
+    expect(parseChildSpawnCommand("child:inject foo bar")).toBeNull();
+    expect(parseChildSpawnCommand("random text")).toBeNull();
+  });
+
+  it("returns null for invalid JSON", () => {
+    expect(parseChildSpawnCommand("child:spawn {invalid}")).toBeNull();
+  });
+
+  it("returns null for missing required fields", () => {
+    expect(parseChildSpawnCommand('child:spawn {"objective":"X"}')).toBeNull();
+    expect(parseChildSpawnCommand('child:spawn {"acceptanceCriteria":["Y"]}')).toBeNull();
   });
 });

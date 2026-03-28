@@ -3,6 +3,12 @@ export type ChildCommand =
   | { type: "unblock"; supervisorId: string; answer: string }
   | { type: "stop"; supervisorId: string };
 
+export interface ChildSpawnCommand {
+  objective: string;
+  acceptanceCriteria: string[];
+  maxCostUsd?: number;
+}
+
 /**
  * Parse a TUI inbox message text into a child supervisor command.
  * Returns null if the text is not a child command.
@@ -39,4 +45,46 @@ export function parseChildCommand(text: string): ChildCommand | null {
   }
 
   return null;
+}
+
+/**
+ * Parse a child:spawn command from inbox message.
+ * Format: "child:spawn <JSON payload>"
+ */
+export function parseChildSpawnCommand(text: string): ChildSpawnCommand | null {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith("child:spawn ")) return null;
+
+  const jsonPart = trimmed.slice("child:spawn ".length).trim();
+
+  try {
+    const parsed = JSON.parse(jsonPart) as Record<string, unknown>;
+
+    if (typeof parsed.objective !== "string" || !parsed.objective) {
+      return null;
+    }
+
+    if (!Array.isArray(parsed.acceptanceCriteria) || parsed.acceptanceCriteria.length === 0) {
+      return null;
+    }
+
+    const criteria = parsed.acceptanceCriteria.filter((c): c is string => typeof c === "string");
+
+    if (criteria.length === 0) {
+      return null;
+    }
+
+    const result: ChildSpawnCommand = {
+      objective: parsed.objective,
+      acceptanceCriteria: criteria,
+    };
+
+    if (typeof parsed.maxCostUsd === "number") {
+      result.maxCostUsd = parsed.maxCostUsd;
+    }
+
+    return result;
+  } catch {
+    return null;
+  }
 }
