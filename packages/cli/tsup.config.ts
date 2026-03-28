@@ -5,6 +5,7 @@ export default defineConfig({
     index: "src/index.ts",
     "daemon/worker": "src/daemon/worker.ts",
     "daemon/supervisor-worker": "src/daemon/supervisor-worker.ts",
+    "daemon/child-supervisor-worker": "src/daemon/child-supervisor-worker.ts",
   },
   format: ["esm"],
   target: "es2022",
