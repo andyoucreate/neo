@@ -17,6 +17,7 @@ import { isProcessAlive } from "@/shared/process";
 import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
+import type { ChildRegistry } from "./child-registry.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { createFailureReport, writeFailureReport } from "./failure-report.js";
@@ -222,6 +223,8 @@ export interface HeartbeatLoopOptions {
   repoPath?: string | undefined;
   /** Debounce time in ms for config file changes (default: 500) */
   configWatcherDebounceMs?: number | undefined;
+  /** Optional child registry for focused supervisor IPC integration */
+  childRegistry?: ChildRegistry | undefined;
 }
 
 /**
@@ -261,6 +264,7 @@ export class HeartbeatLoop {
   private configStore: ConfigStore | null = null;
   private readonly repoPath: string | undefined;
   private readonly configWatcherDebounceMs: number | undefined;
+  private readonly childRegistry: ChildRegistry | undefined;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -275,6 +279,7 @@ export class HeartbeatLoop {
     this.onWebhookEvent = options.onWebhookEvent;
     this.repoPath = options.repoPath;
     this.configWatcherDebounceMs = options.configWatcherDebounceMs;
+    this.childRegistry = options.childRegistry;
   }
 
   /** Path to the inbox/events directory for markProcessed() calls */
@@ -367,6 +372,9 @@ export class HeartbeatLoop {
       this.configWatcher.stop();
       this.configWatcher = null;
     }
+
+    // Stop all child supervisors
+    this.childRegistry?.stopAll();
   }
 
   /**

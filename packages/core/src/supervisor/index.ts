@@ -104,6 +104,20 @@ export {
   terminateGracefully,
   waitForExit,
 } from "./shutdown.js";
+// ─── Supervisor tools ──────────────────────────────────
+export type {
+  CriteriaResult,
+  SupervisorBlockedInput,
+  SupervisorCompleteInput,
+  ToolDefinition,
+} from "./supervisor-tools.js";
+export {
+  criteriaResultSchema,
+  SUPERVISOR_BLOCKED_TOOL,
+  SUPERVISOR_COMPLETE_TOOL,
+  supervisorBlockedSchema,
+  supervisorCompleteSchema,
+} from "./supervisor-tools.js";
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
 // ─── Webhook events ──────────────────────────────────────

@@ -805,6 +805,8 @@ function formatEvent(event: QueuedEvent): string {
       return `Run completed: ${event.runId} (check with \`neo runs\`)`;
     case "internal":
       return `Internal event: ${event.eventKind}`;
+    case "child_supervisor":
+      return `Supervisor [${event.message.supervisorId}]: ${event.message.type}`;
   }
 }
 

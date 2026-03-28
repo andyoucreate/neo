@@ -7,6 +7,7 @@ import type { GlobalConfig } from "@/config";
 import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
+import { ChildRegistry } from "./child-registry.js";
 import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
@@ -34,6 +35,7 @@ export class SupervisorDaemon {
   private heartbeatLoop: HeartbeatLoop | null = null;
   private activityLog: ActivityLog | null = null;
   private decisionStore: DecisionStore | null = null;
+  private childRegistry: ChildRegistry | null = null;
   private sessionId = "";
 
   constructor(options: SupervisorDaemonOptions) {
@@ -162,6 +164,17 @@ export class SupervisorDaemon {
       `Supervisor "${this.name}" started on port ${this.config.supervisor.port}`,
     );
 
+    // Initialize child registry
+    this.childRegistry = new ChildRegistry({
+      onMessage: (message) => {
+        this.eventQueue?.push({
+          kind: "child_supervisor",
+          message,
+          timestamp: new Date().toISOString(),
+        });
+      },
+    });
+
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
     this.heartbeatLoop = new HeartbeatLoop({
@@ -173,6 +186,7 @@ export class SupervisorDaemon {
       activityLog: this.activityLog,
       eventsPath,
       defaultInstructionsPath: this.defaultInstructionsPath,
+      childRegistry: this.childRegistry,
     });
 
     await this.heartbeatLoop.start();
