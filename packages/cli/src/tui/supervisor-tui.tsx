@@ -922,7 +922,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
     async function poll() {
       if (!active) return;
-      const activity = await readChildActivity(selectedChildId, MAX_CHILD_ACTIVITY);
+      const activity = await readChildActivity(selectedChildId!, MAX_CHILD_ACTIVITY);
       if (!active) return;
       setChildActivity(activity);
     }
