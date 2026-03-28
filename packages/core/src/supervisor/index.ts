@@ -20,6 +20,9 @@ export {
   decisionOptionSchema,
   decisionSchema,
 } from "./decisions.js";
+// ─── Directives ─────────────────────────────────────────────
+export type { Directive, DirectiveCreateInput, DirectiveTrigger } from "./directive-store.js";
+export { DirectiveStore, parseDirectiveDuration } from "./directive-store.js";
 export type { DrainAndGroupResult, GroupedEvents, GroupedMessage } from "./event-queue.js";
 export { EventQueue } from "./event-queue.js";
 // ─── Failure reports ─────────────────────────────────────
