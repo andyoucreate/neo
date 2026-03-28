@@ -921,7 +921,7 @@ export function SupervisorTui({ name }: { name: string }) {
     let active = true;
 
     async function poll() {
-      if (!active) return;
+      if (!active || !selectedChildId) return;
       const activity = await readChildActivity(selectedChildId, MAX_CHILD_ACTIVITY);
       if (!active) return;
       setChildActivity(activity);

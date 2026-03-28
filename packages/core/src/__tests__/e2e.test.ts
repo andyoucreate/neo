@@ -52,6 +52,12 @@ vi.mock("@/isolation/clone", () => ({
   validateGitRef: () => undefined,
 }));
 
+vi.mock("@/isolation/git", () => ({
+  pushSessionBranch: () => Promise.resolve(undefined),
+  autoCommitChanges: () => Promise.resolve(false),
+  hasUncommittedChanges: () => Promise.resolve(false),
+}));
+
 // ─── Fixtures ─────────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_e2e__");
