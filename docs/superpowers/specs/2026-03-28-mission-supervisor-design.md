@@ -1,8 +1,8 @@
-# Mission Supervisor — Design Spec
+# Supervisor Architecture — Design Spec
 
 **Date:** 2026-03-28
 **Status:** Draft
-**Scope:** Hierarchical supervisor architecture — CEO dispatches MissionSupervisors that guarantee delivery of a mission end-to-end.
+**Scope:** Hierarchical supervisor architecture — a root Supervisor (heartbeat mode) spawns focused child Supervisors that guarantee delivery of an objective end-to-end. Designed to be adapter-extensible for production contexts beyond the CLI.
 
 ---
 
@@ -10,174 +10,301 @@
 
 The `Agent` tool is fire-and-forget. There is no supervision *during* execution — no trajectory correction, no stall detection, no retry with context. A task is dispatched and either succeeds or fails. Nobody is accountable for ensuring it completes.
 
-The result: complex multi-step missions fail silently, loop without progress, or stop mid-way with no recovery.
+The result: complex multi-step objectives fail silently, loop without progress, or stop mid-way with no recovery.
 
 ---
 
 ## Goal
 
-Introduce a `MissionSupervisor` — a child process with a **persistent SDK conversation** that loops on a single mission until it declares completion. The CEO supervisor dispatches missions to MissionSupervisors instead of directly to agents. MissionSupervisors own the full delivery cycle: spawning agents, monitoring progress, recovering from failures, and reporting back to the CEO.
+Introduce a unified `Supervisor` abstraction with two modes:
+
+- **`heartbeat`** — the root supervisor (what `SupervisorDaemon` is today). Infinite event loop, monitors children, dispatches objectives.
+- **`focused`** — spawned by a parent supervisor. Persistent SDK conversation looping on a single objective until it declares completion. Has its own agents. Reports back to parent.
+
+One abstraction, two modes. The difference is configuration, not class hierarchy.
 
 ---
 
 ## Architecture
 
 ```
-CEO Supervisor (process A)
-│  Existing HeartbeatLoop — dispatches missions, monitors children
-│  ChildSupervisorRegistry: Map<missionId, ChildHandle>
+Supervisor (mode: heartbeat) — process A
+│  Root event loop — receives events, dispatches objectives
+│  ChildRegistry: Map<supervisorId, ChildHandle>
 │
-├─[IPC]─▶ MissionSupervisor "feat/auth" (process B)
+├─[IPC]─▶ Supervisor (mode: focused) — process B
+│           objective: "implement feat/auth"
+│           acceptanceCriteria: ["PR open", "CI green", "tests pass"]
 │           Persistent SDK session (resume: sessionId)
-│           Loops every tickInterval until mission_complete
+│           Loops every tickInterval
 │           Spawns: developer, scout, reviewer agents
 │           Reports: progress | blocked | complete | failed
 │
-└─[IPC]─▶ MissionSupervisor "fix/perf" (process C)
-            Same structure, isolated context
+└─[IPC]─▶ Supervisor (mode: focused) — process C
+            objective: "fix perf regression in query builder"
+            acceptanceCriteria: ["p95 < 200ms", "no regression in other queries"]
+            Same structure, fully isolated context
 ```
 
-**Depth limit:** CEO → MissionSupervisor → agents (max depth = 1, by design for now). MissionSupervisors cannot spawn other MissionSupervisors.
+**Depth limit:** root → focused → agents (max depth = 1, enforced for now). The `depth` field is in the schema for future extensibility — a focused supervisor at depth 1 cannot spawn focused children.
 
 ---
 
 ## Components
 
-### 1. `MissionSupervisor` (new — `packages/core/src/supervisor/mission-supervisor.ts`)
-
-A lightweight child process that owns one mission.
+### 1. Unified `SupervisorOptions` schema
 
 ```typescript
-interface MissionSupervisorOptions {
-  missionId: string;
-  mission: string;           // The goal/plan in natural language
-  repoPath: string;          // Isolated git clone path
-  sessionId?: string;        // Resume previous session if provided
-  tickInterval: number;      // ms between SDK turns (default: 30_000)
-  depth: number;             // Always 0 for now — reserved for future recursive depth > 1
+interface SupervisorOptions {
+  supervisorId: string;
+  mode: "heartbeat" | "focused";
+
+  // focused mode only
+  objective?: string;              // The goal in natural language
+  acceptanceCriteria?: string[];   // Explicit, verifiable criteria — set at dispatch time
+  parentId?: string;               // ID of the parent supervisor
+  depth?: number;                  // 0 = root, 1 = focused child (reserved for depth > 1)
+  maxCostUsd?: number;             // Budget cap for this supervisor (enforced by parent)
+  tickInterval?: number;           // ms between SDK turns (default: 30_000)
+  sessionId?: string;              // Resume previous SDK session if provided
+
+  repoPath: string;
   config: GlobalConfig;
+  store: SupervisorStore;          // Adapter — see Storage Adapters section
 }
 ```
 
-**Loop behavior:**
-1. Build prompt: current mission state + recent agent activity + pending decisions
-2. Call `query({ prompt, resume: sessionId, allowedTools: ["Agent", "Read", "Bash", ...] })`
-3. Capture `session_id` from init message — persist to disk after first turn
-4. Stream messages — intercept `mission_complete` tool call
-5. If `mission_complete` → send IPC `{ type: "complete", missionId, summary }` → exit
-6. If `mission_blocked` → send IPC `{ type: "blocked", missionId, reason }` → wait for CEO response
-7. Otherwise → sleep `tickInterval` → go to 1
+The `acceptanceCriteria` array is defined **at dispatch time** by the parent — not at completion time by the child. The child knows from the start what "done" means. This is the single most important design decision for reliable completion detection.
 
-**Session persistence:** `~/.neo/missions/<missionId>/session.json` — survives process crash. On restart, `resume: sessionId` picks up the conversation exactly where it left off.
-
-### 2. `mission_complete` tool (new — intercepted by framework, not sent to Claude)
+### 2. Focused Supervisor loop
 
 ```typescript
-const missionCompleteToolSchema = z.object({
-  summary: z.string(),           // What was accomplished
-  evidence: z.array(z.string()), // PR URL, test output, CI status, etc.
-  branch: z.string().optional(), // Branch created if applicable
+// Pseudo-code for the focused supervisor loop
+async function focusedLoop(options: SupervisorOptions): Promise<void> {
+  let sessionId = options.sessionId ?? await store.getSessionId(options.supervisorId);
+
+  while (true) {
+    const prompt = buildFocusedPrompt({
+      objective: options.objective,
+      acceptanceCriteria: options.acceptanceCriteria,
+      history: await store.getRecentActivity(options.supervisorId),
+      pendingDecisions: await store.getPendingDecisions(options.supervisorId),
+    });
+
+    for await (const message of query({ prompt, resume: sessionId })) {
+      if (isInitMessage(message)) {
+        sessionId = message.session_id;
+        await store.saveSessionId(options.supervisorId, sessionId);
+      }
+      if (isToolUse(message, "supervisor_complete")) {
+        await verifyAndComplete(message.input, options);
+        return; // exits the process
+      }
+      if (isToolUse(message, "supervisor_blocked")) {
+        await reportBlocked(message.input, options);
+        await waitForUnblock(options); // pauses loop until parent responds
+      }
+    }
+
+    await checkBudget(options); // throws if maxCostUsd exceeded
+    await sleep(options.tickInterval ?? 30_000);
+  }
+}
+```
+
+**Session persistence:** stored via `SupervisorStore` adapter. Survives process crash — on restart, `resume: sessionId` continues the conversation with full history of what was already attempted.
+
+### 3. `supervisor_complete` tool (intercepted by framework)
+
+```typescript
+const supervisorCompleteSchema = z.object({
+  summary: z.string(),
+  evidence: z.array(z.string()),   // PR URL, test output, CI status — at least one required
+  branch: z.string().optional(),
+  criteriaResults: z.array(z.object({
+    criterion: z.string(),
+    met: z.boolean(),
+    evidence: z.string(),
+  })),
 });
 ```
 
-**Critical:** The completion condition must be **objectively verifiable**, not self-declared. The MissionSupervisor prompt explicitly requires evidence (CI green, PR open, acceptance criteria met) before calling `mission_complete`.
+**Completion is not self-declared.** Before accepting, the parent always spawns a `reviewer` agent that independently verifies each criterion. If any criterion fails, the parent sends `{ type: "unblock", answer: "verification failed: <reason>" }` — the child loop continues.
 
-### 3. `mission_blocked` tool (new)
+### 4. `supervisor_blocked` tool
 
 ```typescript
-const missionBlockedSchema = z.object({
-  reason: z.string(),      // Why the mission cannot proceed
-  question: z.string(),    // What the CEO needs to decide
-  context: z.string(),     // Relevant context for the decision
+const supervisorBlockedSchema = z.object({
+  reason: z.string(),
+  question: z.string(),
+  context: z.string(),
+  urgency: z.enum(["low", "high"]),  // high = parent should interrupt its own loop
 });
 ```
 
-When blocked, the MissionSupervisor pauses its loop and creates a `Decision` in the CEO's DecisionStore. When the CEO answers, it sends an IPC `{ type: "unblock", answer }` to resume.
+Creates a `Decision` in the parent's DecisionStore. The child loop pauses. When the parent answers, it sends `{ type: "unblock", answer }` via IPC.
 
-### 4. `ChildSupervisorRegistry` (new — `packages/core/src/supervisor/child-registry.ts`)
-
-Owned by the CEO's `HeartbeatLoop`. Tracks all active MissionSupervisors.
+### 5. `ChildRegistry` (replaces implicit tracking in HeartbeatLoop)
 
 ```typescript
 interface ChildHandle {
-  missionId: string;
-  mission: string;
+  supervisorId: string;
+  objective: string;
   process: ChildProcess;
-  sessionId?: string;      // Populated after first SDK turn
+  sessionId?: string;
+  depth: number;
   startedAt: string;
   lastProgressAt: string;
-  status: "running" | "blocked" | "complete" | "failed";
+  costUsd: number;
+  maxCostUsd?: number;
+  status: "running" | "blocked" | "complete" | "failed" | "stalled";
 }
 ```
 
 **IPC protocol (child → parent):**
 ```typescript
 type ChildToParentMessage =
-  | { type: "progress"; missionId: string; summary: string }
-  | { type: "complete"; missionId: string; summary: string; evidence: string[] }
-  | { type: "blocked"; missionId: string; reason: string; question: string }
-  | { type: "failed"; missionId: string; error: string };
+  | { type: "progress"; supervisorId: string; summary: string; costDelta: number }
+  | { type: "complete"; supervisorId: string; summary: string; evidence: string[] }
+  | { type: "blocked"; supervisorId: string; reason: string; question: string; urgency: "low" | "high" }
+  | { type: "failed"; supervisorId: string; error: string }
+  | { type: "session"; supervisorId: string; sessionId: string };  // first turn session capture
 ```
 
 **IPC protocol (parent → child):**
 ```typescript
 type ParentToChildMessage =
   | { type: "unblock"; answer: string }
-  | { type: "stop" };
+  | { type: "stop" }
+  | { type: "inject"; context: string };  // parent pushes cross-supervisor context when needed
 ```
 
-### 5. CEO `HeartbeatLoop` changes (modify existing)
-
-The CEO gains a new dispatch path: instead of `neo run <agent>`, it can `neo mission <goal>` which spawns a MissionSupervisor child process.
-
-The HeartbeatLoop:
-- Receives IPC messages from all children → pushes into EventQueue as `mission_*` events
-- On `mission_blocked` → creates a Decision, includes it in next heartbeat prompt
-- On `mission_complete` → logs, updates task store, notifies
-- On `mission_failed` → applies existing 3-level recovery logic
-- Detects stalled children (no `progress` for > stallTimeout) → kills and restarts
+The `inject` message is how the parent shares relevant cross-child context without polluting the child's own conversation. Example: "Mission B just modified auth.ts — be aware when you run tests."
 
 ---
 
-## IPC Transport
+## Observability
 
-Using Node.js native IPC (`child_process.fork` with `{ stdio: ['pipe', 'pipe', 'pipe', 'ipc'] }`).
+Without visibility into the tree, you're blind. `neo supervisors` must show the full live state:
 
-- Messages are JSON-serialized structs (typed above)
-- Child stdout/stderr piped to CEO activity log
-- If child crashes → CEO gets `'exit'` event → triggers recovery
+```
+neo supervisors
 
-**Why not webhooks?** IPC is synchronous, zero-latency, and requires no port coordination between siblings. Webhooks are for external events; IPC is for internal parent-child coordination.
+● root (heartbeat)  uptime: 2h14m  cost: $1.24
+  ├─ ● feat/auth    running   turn 12/∞   cost: $0.43   last: "opened PR #42"
+  ├─ ● fix/perf     blocked   turn 8/∞    cost: $0.21   waiting: "should I rewrite the index?"
+  └─ ✓ docs/update  complete  turn 5      cost: $0.09   "PR #41 merged, CI green"
+```
+
+Each child line is clickable/expandable to show the last N turns of its SDK conversation. This is implemented via the `SupervisorStore` — the CLI reads from whatever backend is configured.
+
+---
+
+## Budget Enforcement
+
+Budget operates at two levels:
+
+1. **Global budget** — existing `todayCostUsd` / `capUsd` in root supervisor config
+2. **Per-child budget** — `maxCostUsd` in `ChildHandle`. Enforced by the parent: on every `progress` message, parent accumulates `costDelta`. If `costUsd >= maxCostUsd`, parent sends `{ type: "stop" }` and marks child as `failed` with reason "budget exceeded".
+
+The child also self-checks via `checkBudget()` at each tick as a secondary guard.
 
 ---
 
 ## Stall Detection
 
-A MissionSupervisor is considered **stalled** if:
-- No IPC message received for `> config.missionStallTimeout` (default: 10 min)
-- OR the SDK session returns empty turns N times in a row (default: 3)
+A focused supervisor is **stalled** if:
+- No IPC message for `> config.stallTimeout` (default: 10 min)
+- OR SDK session returns empty/no-op turns ≥ 3 consecutive times
 
-On stall: CEO kills the child process, restarts it with `resume: sessionId` (the conversation is preserved — the supervisor continues with full context of what it already tried).
+On stall: parent marks child as `stalled`, kills process, restarts with `resume: sessionId` + injected context: "You appear to have stalled. Review what you've tried and take a different approach." The SDK session history ensures the child remembers all previous attempts.
 
 ---
 
-## Completion Verification
+## Prompt Isolation
 
-The MissionSupervisor prompt must enforce that `mission_complete` is only called when:
-1. All acceptance criteria from the original mission are met
-2. At least one piece of objective evidence is provided (PR URL, test output, etc.)
-3. CI is green (if applicable)
+Focused supervisors have **no visibility into sibling supervisors** by default. Their prompt contains only:
+- Their own objective and acceptance criteria
+- Their own agent activity history
+- Their own pending decisions
+- Any context explicitly injected by the parent via `inject` IPC message
 
-The CEO always spawns a `reviewer` agent to verify completion before accepting the signal. The reviewer checks: PR exists, CI green, acceptance criteria met. If verification fails, the CEO sends `{ type: "unblock", answer: "verification failed: <reason>" }` to restart the MissionSupervisor loop.
+This prevents cross-contamination of context between parallel objectives. The parent is the only entity with full visibility — it decides what to share and when.
 
 ---
 
 ## Failure Recovery
 
-Follows existing neo 3-level escalation:
-1. **Normal:** MissionSupervisor resumes session, retries with corrected context
-2. **Resume:** CEO restarts child with `resume: sessionId` + additional context injected
-3. **Fresh:** CEO starts new MissionSupervisor for same mission (new session, new clone)
+Follows existing neo 3-level escalation, applied per child:
+
+1. **Normal:** child resumes session, retries with corrected context (happens automatically via loop)
+2. **Resume:** parent restarts child process with `resume: sessionId` + injected diagnosis
+3. **Fresh:** parent starts new child for same objective (new session, new clone) — last resort
+
+Level escalation is triggered by consecutive failures, same as existing recovery logic.
+
+---
+
+## Storage Adapters
+
+This is the key to making neo usable beyond the CLI in production contexts.
+
+All persistence in the focused supervisor loop goes through a `SupervisorStore` interface — not directly to JSONL files. This enables swapping the backend without changing orchestration logic.
+
+```typescript
+interface SupervisorStore {
+  // Session
+  getSessionId(supervisorId: string): Promise<string | undefined>;
+  saveSessionId(supervisorId: string, sessionId: string): Promise<void>;
+
+  // Activity
+  appendActivity(supervisorId: string, entry: ActivityEntry): Promise<void>;
+  getRecentActivity(supervisorId: string, limit?: number): Promise<ActivityEntry[]>;
+
+  // Decisions
+  createDecision(supervisorId: string, input: DecisionInput): Promise<string>;
+  getPendingDecisions(supervisorId: string): Promise<Decision[]>;
+  answerDecision(decisionId: string, answer: string): Promise<void>;
+
+  // State
+  getState(supervisorId: string): Promise<SupervisorState | null>;
+  saveState(supervisorId: string, state: SupervisorState): Promise<void>;
+
+  // Cost tracking
+  recordCost(supervisorId: string, costUsd: number): Promise<void>;
+  getTotalCost(supervisorId: string): Promise<number>;
+}
+```
+
+**Provided adapters:**
+
+| Adapter | Backend | Use case |
+|---------|---------|----------|
+| `JsonlSupervisorStore` | JSONL files (existing) | CLI, zero-infra, default |
+| `SqliteSupervisorStore` | SQLite via `better-sqlite3` | Local production, single-machine |
+| `PostgresSupervisorStore` | PostgreSQL | Multi-machine, team deployment |
+
+**Why adapters matter:**
+
+The CLI use case (single developer, local machine) is covered by JSONL. But a team running neo as a shared service needs:
+- Multiple users dispatching supervisors concurrently
+- A web UI reading supervisor state from a DB
+- Audit logs that survive machine restarts
+- Supervisor state queryable via API
+
+The adapter pattern means the orchestration logic is identical — only the storage backend changes. `@neotx/core` exports the `SupervisorStore` interface. `@neotx/store-sqlite` and `@neotx/store-postgres` are optional packages, zero dependencies in the core.
+
+**Zero-infra constraint respected:** `JsonlSupervisorStore` is the default. Adapters are opt-in. Installing `@neotx/store-postgres` is an explicit choice, never forced.
+
+---
+
+## Depth > 1 Extensibility
+
+The `depth` field is reserved. When the time comes:
+- A supervisor at depth 1 with `allowFocusedChildren: true` can spawn depth 2 children
+- Budget propagation: `maxCostUsd` at depth N is bounded by the remaining budget of depth N-1
+- Decision propagation: a blocked depth 2 escalates to depth 1, which may re-escalate to depth 0
+- The `ChildRegistry` already tracks depth — the only code change needed is removing the depth guard
 
 ---
 
@@ -185,27 +312,40 @@ Follows existing neo 3-level escalation:
 
 | File | Change |
 |------|--------|
-| `packages/core/src/supervisor/mission-supervisor.ts` | New — MissionSupervisor class |
-| `packages/core/src/supervisor/child-registry.ts` | New — ChildSupervisorRegistry |
-| `packages/core/src/supervisor/mission-tools.ts` | New — `mission_complete` + `mission_blocked` tool schemas |
-| `packages/core/src/supervisor/heartbeat.ts` | Modify — integrate ChildSupervisorRegistry, handle IPC events |
-| `packages/core/src/supervisor/prompt-builder.ts` | Modify — add mission dispatch instructions to CEO prompt |
-| `packages/agents/prompts/mission-supervisor.md` | New — MissionSupervisor system prompt |
-| `packages/core/src/supervisor/schemas.ts` | Modify — add MissionSupervisor state schema |
-| `packages/core/src/paths.ts` | Modify — add `getMissionsDir()` path helper |
+| `packages/core/src/supervisor/focused-loop.ts` | New — focused supervisor loop |
+| `packages/core/src/supervisor/child-registry.ts` | New — ChildRegistry |
+| `packages/core/src/supervisor/supervisor-tools.ts` | New — `supervisor_complete` + `supervisor_blocked` schemas |
+| `packages/core/src/supervisor/store.ts` | New — `SupervisorStore` interface |
+| `packages/core/src/supervisor/stores/jsonl.ts` | New — `JsonlSupervisorStore` (default) |
+| `packages/core/src/supervisor/heartbeat.ts` | Modify — integrate ChildRegistry, handle IPC events |
+| `packages/core/src/supervisor/prompt-builder.ts` | Modify — add focused supervisor dispatch instructions to root prompt |
+| `packages/core/src/supervisor/daemon.ts` | Modify — pass `SupervisorStore` instance through |
+| `packages/agents/prompts/focused-supervisor.md` | New — focused supervisor system prompt |
+| `packages/core/src/supervisor/schemas.ts` | Modify — add unified SupervisorOptions schema |
+| `packages/core/src/paths.ts` | Modify — add `getSupervisorsDir()` path helper |
+| `packages/store-sqlite/` | New package — `SqliteSupervisorStore` (optional) |
+| `packages/store-postgres/` | New package — `PostgresSupervisorStore` (optional) |
 
 ---
 
 ## Out of Scope (for now)
 
-- MissionSupervisors spawning sub-MissionSupervisors (depth > 1)
-- Web UI for mission monitoring
-- Cross-repo missions (single repo per mission)
-- Mission priority/preemption
-- Budget per mission (global budget only for now)
+- Depth > 1 (reserved, not implemented)
+- Web UI (reads from store adapter — can be built separately)
+- Cross-repo supervisors (single repo per focused supervisor)
+- Supervisor priority / preemption
+- `store-postgres` package (interface defined, implementation deferred)
 
 ---
 
-## Open Question
+## Key Design Decisions
 
-**Depth > 1 extensibility:** The design uses `depth` field in `MissionSupervisorOptions` (default: 0). When depth > 0, `mission_complete` propagates up the chain. This field is reserved but not implemented — it's the hook for future recursive depth.
+| Decision | Rationale |
+|----------|-----------|
+| Unified `Supervisor` + `mode` field | Avoids class hierarchy divergence. One concept, two behaviors. |
+| `acceptanceCriteria` set at dispatch time | Completion must be verifiable, not self-declared. Parent defines "done". |
+| `SupervisorStore` interface | Enables production use without changing orchestration logic. Zero-infra by default. |
+| IPC over webhooks for parent-child | Synchronous, zero-latency, no port coordination needed between siblings. |
+| `inject` message type | Parent can share cross-child context without polluting child conversation history. |
+| Reviewer verification before accepting completion | Prevents false completion — independent check against acceptance criteria. |
+| `depth` field reserved | Depth > 1 is one config change away, not an architectural rewrite. |
