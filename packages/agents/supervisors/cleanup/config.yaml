@@ -1,0 +1,33 @@
+# Default configuration for the cleanup supervisor type.
+# Users can override these values in ~/.neo/config.yml
+
+name: cleanup
+type: cleanup
+objective: |
+  Keep the codebase clean and maintainable by running periodic maintenance tasks:
+  - Lint fixes (pnpm lint:fix)
+  - Test suite validation (pnpm test)
+  - Dead code detection
+  - Dependency updates (when safe)
+
+acceptanceCriteria:
+  - No lint errors after fixes
+  - All tests pass after changes
+  - Changes committed with clear messages
+  - No breaking changes introduced
+
+schedule:
+  # Run maintenance tasks when the repo is idle
+  idleAfterMs: 300000 # 5 minutes of no activity
+  maxTasksPerDay: 10
+
+budget:
+  dailyCapUsd: 10
+  maxCostPerTaskUsd: 1
+
+priority:
+  # Task priority order (first = highest priority)
+  - lint
+  - test
+  - deadCode
+  - deps
