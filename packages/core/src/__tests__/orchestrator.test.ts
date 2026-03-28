@@ -50,6 +50,18 @@ vi.mock("@/isolation/clone", () => ({
   validateGitRef: () => undefined,
 }));
 
+vi.mock("@/isolation/git", () => ({
+  pushSessionBranch: () => Promise.resolve(undefined),
+  hasUncommittedChanges: () => Promise.resolve(false),
+  autoCommitChanges: () => Promise.resolve(false),
+  getBranchName: (config: { branchPrefix?: string }, runId: string, branch?: string) => {
+    if (branch) return branch;
+    const prefix = config.branchPrefix ?? "feat";
+    const sanitized = runId.toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    return `${prefix}/run-${sanitized}`;
+  },
+}));
+
 // ─── Helpers ────────────────────────────────────────────
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_orchestrator_test__");
