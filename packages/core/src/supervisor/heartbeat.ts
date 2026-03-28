@@ -17,6 +17,7 @@ import { isProcessAlive } from "@/shared/process";
 import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
+import { parseChildCommand } from "./child-command-parser.js";
 import type { ChildRegistry } from "./child-registry.js";
 import { type Decision, DecisionStore } from "./decisions.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
@@ -580,6 +581,7 @@ export class HeartbeatLoop {
 
     // Process decision answers from inbox messages
     await this.processDecisionAnswers(rawEvents, decisionStore);
+    await this.processChildCommands(rawEvents);
 
     // Auto-answer expired decisions
     const expiredDecisions = await decisionStore.expire();
@@ -1185,6 +1187,37 @@ export class HeartbeatLoop {
       const parsed = parseDecisionAnswerEvent(event);
       if (!parsed) continue;
       await this.applyDecisionAnswer(parsed.decisionId, parsed.answer, store);
+    }
+  }
+
+  /**
+   * Process child:* commands from inbox messages.
+   * Routes inject/unblock/stop to the ChildRegistry via IPC.
+   * These messages are consumed here and not forwarded to the AI prompt.
+   */
+  private async processChildCommands(rawEvents: QueuedEvent[]): Promise<void> {
+    if (!this.childRegistry) return;
+    for (const event of rawEvents) {
+      if (event.kind !== "message") continue;
+      const command = parseChildCommand(event.data.text ?? "");
+      if (!command) continue;
+      switch (command.type) {
+        case "inject":
+          this.childRegistry.send(command.supervisorId, {
+            type: "inject",
+            context: command.context,
+          });
+          break;
+        case "unblock":
+          this.childRegistry.send(command.supervisorId, {
+            type: "unblock",
+            answer: command.answer,
+          });
+          break;
+        case "stop":
+          this.childRegistry.send(command.supervisorId, { type: "stop" });
+          break;
+      }
     }
   }
 

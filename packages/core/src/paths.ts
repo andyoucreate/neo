@@ -93,6 +93,14 @@ export function getSupervisorDecisionsPath(name: string): string {
 }
 
 /**
+ * Path to the children registry file: ~/.neo/supervisors/<name>/children.json
+ * Written by ChildRegistry, read by the TUI to display focused child supervisors.
+ */
+export function getSupervisorChildrenPath(name: string): string {
+  return path.join(getSupervisorDir(name), "children.json");
+}
+
+/**
  * Directory for all focused supervisor instances: ~/.neo/supervisors/focused/
  */
 export function getFocusedSupervisorsDir(): string {
