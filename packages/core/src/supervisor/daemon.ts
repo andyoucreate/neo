@@ -4,7 +4,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
-import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
+import { getSupervisorChildrenPath, getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
 import { ChildRegistry } from "./child-registry.js";
@@ -173,6 +173,7 @@ export class SupervisorDaemon {
           timestamp: new Date().toISOString(),
         });
       },
+      childrenFilePath: getSupervisorChildrenPath(this.name),
     });
 
     // Start heartbeat loop (blocks until stopped)

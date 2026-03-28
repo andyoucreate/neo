@@ -1,9 +1,12 @@
 import type { ChildProcess } from "node:child_process";
+import { writeChildrenFile } from "./children-file.js";
 import type { ChildHandle, ChildToParentMessage, ParentToChildMessage } from "./schemas.js";
 
 export interface ChildRegistryOptions {
   onMessage: (message: ChildToParentMessage) => void;
   stallTimeoutMs?: number;
+  /** If provided, children.json is written here after every mutation. */
+  childrenFilePath?: string;
 }
 
 /**
@@ -17,23 +20,23 @@ export class ChildRegistry {
   private readonly stallTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly onMessage: (message: ChildToParentMessage) => void;
   private readonly stallTimeoutMs: number;
+  private readonly childrenFilePath: string | undefined;
 
   constructor(options: ChildRegistryOptions) {
     this.onMessage = options.onMessage;
     this.stallTimeoutMs = options.stallTimeoutMs ?? 10 * 60 * 1000;
+    this.childrenFilePath = options.childrenFilePath;
   }
 
   /**
    * Register a child handle.
-   * @param handle - The child supervisor handle
-   * @param stopCallback - Called when budget is exceeded or stall detected
-   * @param childProcess - The actual child process (optional, for IPC send)
    */
   register(handle: ChildHandle, stopCallback?: () => void, childProcess?: ChildProcess): void {
     this.handles.set(handle.supervisorId, { ...handle });
     if (stopCallback) this.stopCallbacks.set(handle.supervisorId, stopCallback);
     if (childProcess) this.processes.set(handle.supervisorId, childProcess);
     this.resetStallTimer(handle.supervisorId);
+    this.persistChildren();
   }
 
   get(supervisorId: string): ChildHandle | undefined {
@@ -94,6 +97,7 @@ export class ChildRegistry {
       }
     }
 
+    this.persistChildren();
     this.onMessage(message);
   }
 
@@ -105,6 +109,7 @@ export class ChildRegistry {
     this.processes.delete(supervisorId);
     this.stopCallbacks.delete(supervisorId);
     this.clearStallTimer(supervisorId);
+    this.persistChildren();
   }
 
   /**
@@ -126,12 +131,19 @@ export class ChildRegistry {
     this.clearStallTimer(supervisorId);
     const stopCb = this.stopCallbacks.get(supervisorId);
     if (stopCb) stopCb();
-    // Forward a failed message so the caller knows
+    this.persistChildren();
     this.onMessage({
       type: "failed",
       supervisorId,
       error: "Budget exceeded",
     });
+  }
+
+  private persistChildren(): void {
+    if (!this.childrenFilePath) return;
+    const handles = this.list();
+    // fire-and-forget — TUI polling is tolerant of brief inconsistency
+    writeChildrenFile(this.childrenFilePath, handles).catch(() => {});
   }
 
   private resetStallTimer(supervisorId: string): void {
@@ -140,6 +152,7 @@ export class ChildRegistry {
       const handle = this.handles.get(supervisorId);
       if (handle?.status === "running") {
         handle.status = "stalled";
+        this.persistChildren();
         this.onMessage({
           type: "failed",
           supervisorId,
