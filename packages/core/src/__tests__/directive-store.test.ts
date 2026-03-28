@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { DirectiveStore } from "../supervisor/directive-store.js";
+import { DirectiveStore, parseDirectiveDuration } from "../supervisor/directive-store.js";
 
 const TEST_DIR = "/tmp/neo-directive-store-test";
 const TEST_FILE = path.join(TEST_DIR, "directives.jsonl");
@@ -211,5 +211,84 @@ describe("DirectiveStore", () => {
       expect(all).toHaveLength(1);
       expect(all[0]?.action).toBe("recent");
     });
+  });
+});
+
+describe("parseDirectiveDuration", () => {
+  it("parses 'for X hours' format", () => {
+    const now = Date.now();
+    const result = parseDirectiveDuration("for 2 hours");
+    expect(result).toBeDefined();
+    const diff = new Date(result!).getTime() - now;
+    // Allow 1 second tolerance
+    expect(diff).toBeGreaterThan(2 * 60 * 60 * 1000 - 1000);
+    expect(diff).toBeLessThan(2 * 60 * 60 * 1000 + 1000);
+  });
+
+  it("parses 'for X minutes' format", () => {
+    const now = Date.now();
+    const result = parseDirectiveDuration("for 30 minutes");
+    expect(result).toBeDefined();
+    const diff = new Date(result!).getTime() - now;
+    expect(diff).toBeGreaterThan(30 * 60 * 1000 - 1000);
+    expect(diff).toBeLessThan(30 * 60 * 1000 + 1000);
+  });
+
+  it("parses 'until midnight' format", () => {
+    const result = parseDirectiveDuration("until midnight");
+    expect(result).toBeDefined();
+
+    const midnight = new Date();
+    midnight.setHours(23, 59, 59, 999);
+    // Result should be before or at midnight
+    expect(new Date(result!).getTime()).toBeLessThanOrEqual(midnight.getTime() + 1000);
+  });
+
+  it("parses 'until HH:MM' format", () => {
+    const result = parseDirectiveDuration("until 18:00");
+    expect(result).toBeDefined();
+
+    const parsed = new Date(result!);
+    expect(parsed.getHours()).toBe(18);
+    expect(parsed.getMinutes()).toBe(0);
+  });
+
+  it("parses shorthand '2h' format", () => {
+    const now = Date.now();
+    const result = parseDirectiveDuration("2h");
+    expect(result).toBeDefined();
+    const diff = new Date(result!).getTime() - now;
+    expect(diff).toBeGreaterThan(2 * 60 * 60 * 1000 - 1000);
+  });
+
+  it("parses shorthand '30m' format", () => {
+    const now = Date.now();
+    const result = parseDirectiveDuration("30m");
+    expect(result).toBeDefined();
+    const diff = new Date(result!).getTime() - now;
+    expect(diff).toBeGreaterThan(30 * 60 * 1000 - 1000);
+  });
+
+  it("parses shorthand '7d' format", () => {
+    const now = Date.now();
+    const result = parseDirectiveDuration("7d");
+    expect(result).toBeDefined();
+    const diff = new Date(result!).getTime() - now;
+    expect(diff).toBeGreaterThan(7 * 24 * 60 * 60 * 1000 - 1000);
+  });
+
+  it("returns undefined for 'indefinitely'", () => {
+    const result = parseDirectiveDuration("indefinitely");
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined for empty string", () => {
+    const result = parseDirectiveDuration("");
+    expect(result).toBeUndefined();
+  });
+
+  it("returns undefined for invalid format", () => {
+    const result = parseDirectiveDuration("invalid");
+    expect(result).toBeUndefined();
   });
 });

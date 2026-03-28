@@ -32,6 +32,99 @@ export interface DirectiveCreateInput {
   expiresAt?: string;
 }
 
+// ─── Time Parsing ────────────────────────────────────────
+
+/**
+ * Parse a human-readable duration string into an ISO timestamp.
+ *
+ * Supported formats:
+ * - "for X hours" / "for X minutes" / "for X days"
+ * - "until midnight"
+ * - "until HH:MM"
+ * - "2h" / "30m" / "7d" (shorthand)
+ * - "indefinitely" / "" → returns undefined (no expiry)
+ *
+ * @returns ISO timestamp string or undefined for indefinite
+ */
+export function parseDirectiveDuration(input: string): string | undefined {
+  const trimmed = input.trim().toLowerCase();
+
+  // Indefinite
+  if (!trimmed || trimmed === "indefinitely" || trimmed === "forever") {
+    return undefined;
+  }
+
+  const now = new Date();
+
+  // Shorthand: 2h, 30m, 7d
+  const shorthandMatch = trimmed.match(/^(\d+)(h|m|d)$/);
+  if (shorthandMatch) {
+    const value = Number(shorthandMatch[1]);
+    const unit = shorthandMatch[2];
+    let ms = 0;
+    switch (unit) {
+      case "h":
+        ms = value * 60 * 60 * 1000;
+        break;
+      case "m":
+        ms = value * 60 * 1000;
+        break;
+      case "d":
+        ms = value * 24 * 60 * 60 * 1000;
+        break;
+    }
+    return new Date(now.getTime() + ms).toISOString();
+  }
+
+  // "for X hours/minutes/days"
+  const forMatch = trimmed.match(/^for\s+(\d+)\s+(hour|minute|day|hr|min)s?$/);
+  if (forMatch) {
+    const value = Number(forMatch[1]);
+    const unit = forMatch[2];
+    let ms = 0;
+    switch (unit) {
+      case "hour":
+      case "hr":
+        ms = value * 60 * 60 * 1000;
+        break;
+      case "minute":
+      case "min":
+        ms = value * 60 * 1000;
+        break;
+      case "day":
+        ms = value * 24 * 60 * 60 * 1000;
+        break;
+    }
+    return new Date(now.getTime() + ms).toISOString();
+  }
+
+  // "until midnight"
+  if (trimmed === "until midnight") {
+    const midnight = new Date(now);
+    midnight.setHours(23, 59, 59, 999);
+    return midnight.toISOString();
+  }
+
+  // "until HH:MM"
+  const untilTimeMatch = trimmed.match(/^until\s+(\d{1,2}):(\d{2})$/);
+  if (untilTimeMatch) {
+    const hours = Number(untilTimeMatch[1]);
+    const minutes = Number(untilTimeMatch[2]);
+    const target = new Date(now);
+    target.setHours(hours, minutes, 0, 0);
+
+    // If the time has already passed today, set for tomorrow
+    if (target.getTime() <= now.getTime()) {
+      target.setDate(target.getDate() + 1);
+    }
+
+    return target.toISOString();
+  }
+
+  // Unrecognized format
+  return undefined;
+}
+
 // ─── DirectiveStore ──────────────────────────────────────
 
 /**
