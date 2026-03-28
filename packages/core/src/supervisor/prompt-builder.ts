@@ -250,7 +250,7 @@ neo log action "developer standards:feat/YC-42-auth run:5900a64a | task T1"
 neo log discovery "CI requires node 20 in api-service"
 </examples>`;
 
-function buildMemoryRulesCore(supervisorDir: string): string {
+function buildMemoryRulesCore(): string {
   return `### Memory
 
 <memory-types>
@@ -307,7 +307,7 @@ Rewrite focus at the END of every heartbeat. Never leave it empty after a heartb
 </focus>`;
 }
 
-function buildMemoryRulesExamples(supervisorDir: string): string {
+function buildMemoryRulesExamples(): string {
   return `<memory-examples>
 neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x | T2 pending, waiting on CI"
 neo memory write --type knowledge --subtype fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
@@ -502,10 +502,10 @@ function buildBaseInstructions(
   parts.push(CHILD_SUPERVISOR_RULES);
   parts.push(HEARTBEAT_RULES);
   parts.push(REPORTING_RULES);
-  parts.push(buildMemoryRulesCore(opts.supervisorDir));
+  parts.push(buildMemoryRulesCore());
 
   if (options.includeExamples) {
-    parts.push(buildMemoryRulesExamples(opts.supervisorDir));
+    parts.push(buildMemoryRulesExamples());
   }
 
   if (opts.customInstructions) {
