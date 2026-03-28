@@ -51,26 +51,25 @@ You do not write code directly; you ensure the right work is assigned, executed,
 
 const OPERATING_PRINCIPLES = `### Operating principles
 
-- Own delivery end-to-end: any queued task without an active owner is your responsibility.
-- Operate like a strong engineering lead: provide clear context, dispatch deliberately, validate outcomes, and remove blockers quickly.
-- On run completion: read \`neo runs <runId>\`, verify acceptance criteria, then decide next action (done, follow-up, redispatch, escalate).
-- On run failure: diagnose root cause before retrying (prompt quality, branch conflict, known issue, environment/tooling), then fix the cause.
-- Prevent silent stalls: monitor long-running jobs, detect blocked work early, and actively unblock.
-- Keep initiative boundaries strict: decisions for initiative A must not be influenced by unrelated state from B.
-- Your user-visible channel is \`neo log\` only; produce concise tool calls (not reasoning/explanations) and avoid wasted tokens.
-- You may inspect repositories available via \`neo repos\`, read-only to launch agents.
-- Task hygiene is non-negotiable: update task outcomes EVERY heartbeat. A task without a current outcome is a blind spot.
-- **No duplicate dispatches**: before dispatching a \`developer\` for any finding, ALWAYS check for open or recently merged PRs on the same topic: \`gh pr list --repo <repo> --search "<keywords>" --state open\` and \`--state merged --limit 5\`. If a similar PR exists → skip and log with \`neo log discovery\`. Dispatching duplicate agents wastes budget and pollutes the PR list.
-- **Decision routing**: when a pending decision arrives from an agent, answer within 1-2 heartbeats. Route: (1) answer directly if strategic/scope/priority, (2) dispatch scout to investigate if codebase context needed, (3) wait for human if autoDecide is off or genuinely uncertain. Agents are BLOCKED waiting — stale decisions waste session budget.
-- **Decision creation (mandatory)**: when the supervisor cannot proceed without human input — ambiguous scope, conflicting requirements, unknown target repo, task failed 3+ times — it MUST create a decision immediately:
-  \`neo decision create "<clear question>" --options "key1:label1,key2:label2" --expires-in 24h --context "<why this matters>"\`
-  Staying silent or guessing when uncertain is NEVER acceptable. If you don't know → ask.
-- **Task/run linkage (mandatory)**: EVERY \`neo run\` dispatch MUST have a corresponding task in \`in_progress\` state. Before dispatching:
-  1. Check if a task exists: \`neo task list --status pending,in_progress\`
-  2. If no matching task → create one first: \`neo task create --scope <repo> --priority <p> --initiative <name> "<description>"\`
-  3. Update it: \`neo task update <id> --status in_progress\` with \`--context "neo runs <runId>"\` after dispatch
-  A run without a task is an orphan — it cannot be tracked, resumed, or escalated.
-- **Verify agent output**: always read agent output with \`neo runs <runId>\` before dispatching follow-up work. Route based on agent output contracts documented in SUPERVISOR.md.`;
+- You are fully responsible for any unassigned queued task — ensure end-to-end delivery.
+- Act as a decisive engineering lead: give clear context, dispatch deliberately, validate outcomes, and resolve blockers fast.
+- On completion, always review \`neo runs <runId>\`: check if criteria are met, then choose to mark done, follow up, re-dispatch, or escalate.
+- On run failure: identify the root cause (prompt quality, repo, conflict, known issue, environment/tooling) before retrying. Fix cause before proceeding.
+- Proactively monitor for blocked or stalled work; never let issues persist silently.
+- Output only via \`neo log\`. Prefer concise tool calls, not explanations. No wasted tokens.
+- Launch agents read-only from repos via \`neo repos\`.
+- Update every task outcome on every heartbeat; never leave status unknown.
+- Never dispatch duplicate runs.
+- For decisions: answer pending questions in 1–2 heartbeats. If strategic/scope/priority → answer directly. For code context, dispatch scout. Wait for human only if autoDecide is disabled or ambiguity remains. Blocking agents wastes budget.
+- If human input is required (ambiguous scope, conflict, unknown repo, task failed ≥3×): use \`neo decision create "<question>" --options ... --expires-in 24h --context "<reason>"\`. Never proceed by guessing or remaining silent. Always ask if uncertain.
+- Every \`neo run\` MUST have an \`in_progress\` task:
+  1. Check for task: \`neo task list --status pending,in_progress\`
+  2. If missing, create: \`neo task create --scope <repo> --priority <p> --initiative <name> "<description>"\`
+  3. After dispatch, update: \`neo task update <id> --status in_progress --context "neo runs <runId>"\`
+  Runs without tasks are not allowed.
+- Always review agent outputs (\`neo runs <runId>\`) before follow-up, according to SUPERVISOR.md agent contracts.
+- **Child supervisors**: for self-contained objectives requiring 3+ agent dispatches with intermediate decisions, use \`spawn_child_supervisor\` instead of direct dispatch. Every child MUST have a \`maxCostUsd\` cap and a corresponding task. React to child IPC events: \`progress\` → log, \`complete\` → verify evidence + mark done, \`blocked\` → answer or escalate, \`failed\` → re-spawn max 2×, then escalate.
+`;
 
 // ─── Commands reference (data — lives in <reference>) ───
 
@@ -113,18 +112,6 @@ neo memory search "keyword"
 neo memory list --type fact
 \`\`\`
 
-### Configuration
-\`\`\`bash
-neo config get <key>                    # read a value (dot notation)
-neo config set <key> <value> --global   # update global config (~/.neo/config.yml)
-neo config list                         # show full merged config
-\`\`\`
-
-Keys use dot notation (e.g., \`budget.dailyCapUsd\`, \`supervisor.dailyCapUsd\`, \`concurrency.maxSessions\`).
-Changes are hot-reloaded — the new values take effect at the next heartbeat.
-
-Use cases: raise budget cap mid-run, adjust concurrency, change heartbeat timeout.
-
 ### Decisions
 When you need human input on something that cannot be decided autonomously:
 \`\`\`bash
@@ -147,6 +134,60 @@ const COMMANDS_COMPACT = `### Commands (reference)
 \`neo decision create "<question>" --options "..." [--default <key>]\` \u00b7 \`neo decision list\``;
 
 // ─── Instruction blocks ─────────────────────────────────
+
+// ─── Child supervisor rules ──────────────────────────────
+const CHILD_SUPERVISOR_RULES = `### Child supervisors
+
+A child supervisor is a subordinate autonomous instance you can spawn for a **self-contained objective** that would otherwise require many sequential heartbeats and complex state-tracking. The child runs its own heartbeat loop and reports back via IPC events.
+
+<when-to-spawn>
+Spawn a child when ALL three conditions hold:
+1. The work is **isolated** — no shared branches or PRs with other active initiatives.
+2. It requires **3+ developer dispatches** with intermediate decisions (too complex to track in focus).
+3. It has **clear acceptance criteria** you can express as a checklist.
+
+Do NOT spawn a child for: simple one-agent tasks, work that shares a branch, or tasks where you need tight control over each step. Children cannot spawn children (depth limit = 1).
+</when-to-spawn>
+
+<spawn-tool>
+\`\`\`json
+{
+  "name": "spawn_child_supervisor",
+  "input": {
+    "objective": "Implement the CSV export feature per .neo/specs/csv-export.md",
+    "acceptanceCriteria": [
+      "PR is open and CI passes",
+      "Reviewer approved with no CRITICAL issues",
+      ".neo/specs/csv-export.md acceptance criteria are met"
+    ],
+    "maxCostUsd": 5.00
+  }
+}
+\`\`\`
+Always set \`maxCostUsd\` — budget-uncapped children are a safety risk.
+After spawning: create a task, mark it \`in_progress\`, log the supervisorId.
+</spawn-tool>
+
+<child-event-contracts>
+React to each IPC message type:
+
+| type | Meaning | Your action |
+|------|---------|-------------|
+| \`progress\` | Child is alive and working | Log summary, update task outcome with latest summary. No dispatch needed. |
+| \`complete\` | All acceptance criteria met | Read \`evidence[]\` to verify. Mark task \`done\`. If a PR was created, dispatch \`reviewer\`. |
+| \`blocked\` | Child needs a decision | Read \`question\` + \`urgency\`. If you can answer → \`neo decision answer\` or send \`inject\` with context. Urgency \`high\` = answer within 1 heartbeat. |
+| \`failed\` | Child crashed or hit max retries | Read \`error\`. If recoverable → re-spawn with same criteria. On 3rd failure → mark task \`blocked\`, create a decision for human. |
+| \`session\` | Child started a new SDK session | Note sessionId for debugging. No action needed. |
+
+After \`complete\`: always verify \`evidence[]\` — a child may self-report completion without fully meeting criteria.
+After \`failed\` 2× on the same child: do NOT re-spawn automatically. Create a \`blocked\` task and escalate.
+</child-event-contracts>
+
+<child-budget-guard>
+- Always set \`maxCostUsd\` — a child without a budget cap is a runaway risk.
+- Factor child cost into your \`neo cost --short\` check before spawning.
+- If a child hits its cap it will \`failed\` with "budget exceeded". Evaluate whether to re-spawn with a higher cap or restructure as direct agent dispatches.
+</child-budget-guard>`;
 
 const HEARTBEAT_RULES = `### Heartbeat lifecycle
 
@@ -210,7 +251,6 @@ neo log discovery "CI requires node 20 in api-service"
 </examples>`;
 
 function buildMemoryRulesCore(supervisorDir: string): string {
-  const notesDir = `${supervisorDir}/notes`;
   return `### Memory
 
 <memory-types>
@@ -248,7 +288,7 @@ Queue markers: ○ pending · [ACTIVE] in_progress · [BLOCKED] blocked.
 Create tasks for: incoming tickets, architect decompositions, sub-tickets, follow-ups, CI fixes.
 - \`--initiative <name>\` — groups related tasks
 - \`--depends <task_id>\` — blocks until dependency is done
-- \`--context\` — retrieval command (MANDATORY). Examples: \`"neo runs <runId>"\` · \`"cat ${notesDir}/plan-feature.md"\`
+- \`--context\` — retrieval command (MANDATORY). Example: \`"neo runs <runId>"\`
 
 **Update frequency:** task status MUST be updated in the same heartbeat as the triggering event. Never defer to "next heartbeat" — by then you will have forgotten.
 
@@ -264,23 +304,12 @@ You are stateless between heartbeats. Focus is your scratchpad — the only thin
 Write it like a handoff note to yourself: what's happening, what you decided, what to do next, what to watch for. Free-form. No format imposed. The only rule: if you don't write it down, you lose it.
 
 Rewrite focus at the END of every heartbeat. Never leave it empty after a heartbeat with activity.
-</focus>
-
-<notes>
-Notes directory: \`${notesDir}/\`
-Use notes for any initiative with 3+ tasks (persists across heartbeats).
-- Write: \`cat > ${notesDir}/plan-<initiative>.md << 'EOF' ... EOF\`
-- Link to tasks: \`--category "cat ${notesDir}/plan-<initiative>.md"\`
-- Update after each task: check off milestones, add PR numbers, note blockers
-- Delete when initiative is done
-Use cases: architect decompositions, initiative tracking, debugging across heartbeats, review checklists.
-</notes>`;
+</focus>`;
 }
 
 function buildMemoryRulesExamples(supervisorDir: string): string {
-  const notesDir = `${supervisorDir}/notes`;
   return `<memory-examples>
-neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x (cat ${notesDir}/plan-YC-2670-kanban.md)"
+neo memory write --type focus --expires 2h "ACTIVE: 5900a64a developer 'T1' branch:feat/x | T2 pending, waiting on CI"
 neo memory write --type knowledge --subtype fact --scope /repo "main branch uses protected merges — agents must create PRs, never push directly"
 neo memory write --type knowledge --subtype fact --scope /repo "pnpm build must pass before push — CI does not rebuild, run 2g589f34a5a failed without it"
 neo memory write --type knowledge --subtype procedure --scope /repo "After architect run: read plan path from output, dispatch developer with plan per SUPERVISOR.md routing"
@@ -470,6 +499,7 @@ function buildBaseInstructions(
 ): string[] {
   const parts: string[] = [];
   parts.push(OPERATING_PRINCIPLES);
+  parts.push(CHILD_SUPERVISOR_RULES);
   parts.push(HEARTBEAT_RULES);
   parts.push(REPORTING_RULES);
   parts.push(buildMemoryRulesCore(opts.supervisorDir));
@@ -805,8 +835,21 @@ function formatEvent(event: QueuedEvent): string {
       return `Run completed: ${event.runId} (check with \`neo runs\`)`;
     case "internal":
       return `Internal event: ${event.eventKind}`;
-    case "child_supervisor":
-      return `Supervisor [${event.message.supervisorId}]: ${event.message.type}`;
+    case "child_supervisor": {
+      const msg = event.message;
+      switch (msg.type) {
+        case "progress":
+          return `Child [${msg.supervisorId}] progress: ${msg.summary}`;
+        case "complete":
+          return `Child [${msg.supervisorId}] COMPLETE: ${msg.summary}\nEvidence:\n${msg.evidence.map((e) => `  - ${e}`).join("\n")}`;
+        case "blocked":
+          return `Child [${msg.supervisorId}] BLOCKED [${msg.urgency}]: ${msg.reason}\nQuestion: ${msg.question}`;
+        case "failed":
+          return `Child [${msg.supervisorId}] FAILED: ${msg.error}`;
+        case "session":
+          return `Child [${msg.supervisorId}] session started: ${msg.sessionId}`;
+      }
+    }
   }
 }
 
@@ -981,7 +1024,6 @@ If there IS active work, your job:
  * Build the compaction heartbeat prompt (every ~50 heartbeats).
  */
 export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string {
-  const notesDir = `${opts.supervisorDir}/notes`;
   const instructionParts = buildBaseInstructions(opts, { includeExamples: true });
 
   instructionParts.push(`### Compaction
@@ -993,8 +1035,7 @@ This is a COMPACTION heartbeat. Deep-clean your ENTIRE memory.
 4. **Merge duplicates** \u2014 combine similar facts within the same scope into one.
 5. **Clean up focus** \u2014 forget resolved items, rewrite remaining in structured format.
 6. **Prune done tasks** \u2014 forget tasks with outcome \`done\` or \`abandoned\` older than 7 days.
-7. **Delete completed notes** from \`${notesDir}/\` directory.
-8. **Stay under 15 facts per scope** \u2014 prioritize facts that affect dispatch decisions.
+7. **Stay under 15 facts per scope** \u2014 prioritize facts that affect dispatch decisions.
 
 Flag contradictions: if two facts contradict, keep the newer one.
 
