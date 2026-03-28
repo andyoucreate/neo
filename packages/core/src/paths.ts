@@ -91,3 +91,24 @@ export function getSupervisorLockPath(name: string): string {
 export function getSupervisorDecisionsPath(name: string): string {
   return path.join(getSupervisorDir(name), "decisions.jsonl");
 }
+
+/**
+ * Directory for all focused supervisor instances: ~/.neo/supervisors/focused/
+ */
+export function getFocusedSupervisorsDir(): string {
+  return path.join(getSupervisorsDir(), "focused");
+}
+
+/**
+ * Directory for a specific focused supervisor: ~/.neo/supervisors/focused/<id>/
+ */
+export function getFocusedSupervisorDir(supervisorId: string): string {
+  return path.join(getFocusedSupervisorsDir(), supervisorId);
+}
+
+/**
+ * Session file for a focused supervisor: ~/.neo/supervisors/focused/<id>/session.json
+ */
+export function getFocusedSupervisorSessionPath(supervisorId: string): string {
+  return path.join(getFocusedSupervisorDir(supervisorId), "session.json");
+}
