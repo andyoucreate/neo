@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   ActivityEntry,
+  ChildHandle,
   Decision,
   InboxMessage,
   SupervisorDaemonState,
@@ -10,21 +11,29 @@ import type {
 } from "@neotx/core";
 import {
   DecisionStore,
+  getFocusedSupervisorDir,
   getSupervisorActivityPath,
+  getSupervisorChildrenPath,
   getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorStatePath,
   loadGlobalConfig,
+  readChildrenFile,
   TaskStore,
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import { useCallback, useEffect, useState } from "react";
+import { ChildDetail } from "./components/child-detail.js";
+import type { ChildInputMode } from "./components/child-input.js";
+import { ChildInput } from "./components/child-input.js";
+import { ChildList } from "./components/child-list.js";
 
 // ─── Constants ───────────────────────────────────────────
 
 const MAX_VISIBLE_ENTRIES = 24;
+const MAX_CHILD_ACTIVITY = 12;
 const POLL_INTERVAL_MS = 1_500;
 const ANIMATION_TICK_MS = 400;
 
@@ -195,11 +204,15 @@ function HeaderBar({
   name,
   frame,
   clock,
+  columnFocus,
+  childCount,
 }: {
   state: SupervisorDaemonState | null;
   name: string;
   frame: number;
   clock: string;
+  columnFocus: "left" | "right";
+  childCount: number;
 }) {
   if (!state) {
     return (
@@ -229,6 +242,15 @@ function HeaderBar({
       <Box justifyContent="space-between">
         <Logo />
         <Box gap={2}>
+          {childCount > 0 && (
+            <Box paddingX={1} gap={1}>
+              <Text dimColor>focus:</Text>
+              <Text color="#c084fc" bold>
+                {columnFocus === "left" ? "ROOT" : "CHILDREN"}
+              </Text>
+              <Text dimColor>(tab to switch)</Text>
+            </Box>
+          )}
           <LiveIndicator frame={frame} isRunning={isRunning} />
           <Box paddingX={1}>
             <Text dimColor>{clock}</Text>
@@ -570,9 +592,7 @@ const ACTIVITY_TYPES = new Set([
   "message",
 ]);
 
-function ActivityPanel({ entries, termHeight }: { entries: ActivityEntry[]; termHeight: number }) {
-  // Reserve lines for header (5), budget (1), separator (1), input (2), footer (1) = 10
-  const maxVisible = Math.max(5, Math.min(MAX_VISIBLE_ENTRIES, termHeight - 10));
+function ActivityPanel({ entries, maxVisible }: { entries: ActivityEntry[]; maxVisible: number }) {
   const filtered = entries.filter((e) => ACTIVITY_TYPES.has(e.type));
   const visible = filtered.slice(-maxVisible);
 
@@ -644,30 +664,6 @@ function InputPanel({
   );
 }
 
-function Footer({ hasDecisions }: { hasDecisions: boolean }) {
-  return (
-    <Box paddingX={2} gap={1} justifyContent="center">
-      <Text dimColor>
-        <Text bold>esc</Text> quit
-      </Text>
-      <Text dimColor>·</Text>
-      <Text dimColor>
-        <Text bold>enter</Text> send
-      </Text>
-      {hasDecisions && (
-        <>
-          <Text dimColor>·</Text>
-          <Text dimColor>
-            <Text bold>tab</Text> decisions
-          </Text>
-        </>
-      )}
-      <Text dimColor>·</Text>
-      <Text dimColor>daemon keeps running</Text>
-    </Box>
-  );
-}
-
 // ─── Data Fetching ───────────────────────────────────────
 
 async function readState(name: string): Promise<SupervisorDaemonState | null> {
@@ -675,7 +671,6 @@ async function readState(name: string): Promise<SupervisorDaemonState | null> {
     const raw = await readFile(getSupervisorStatePath(name), "utf-8");
     return JSON.parse(raw) as SupervisorDaemonState;
   } catch (err) {
-    // State file not found or malformed — supervisor not running or corrupted state
     console.debug(
       `[tui] Failed to read supervisor state for ${name}: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -693,7 +688,6 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
       try {
         entries.push(JSON.parse(line) as ActivityEntry);
       } catch (err) {
-        // Skip malformed JSONL line
         console.debug(
           `[tui] Skipping malformed activity line: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -701,10 +695,32 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
     }
     return entries;
   } catch (err) {
-    // Activity file not found or unreadable
     console.debug(
       `[tui] Failed to read activity for ${name}: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return [];
+  }
+}
+
+async function readChildActivity(
+  supervisorId: string,
+  maxEntries: number,
+): Promise<ActivityEntry[]> {
+  const activityPath = path.join(getFocusedSupervisorDir(supervisorId), "activity.jsonl");
+  try {
+    const content = await readFile(activityPath, "utf-8");
+    const lines = content.trim().split("\n").filter(Boolean);
+    const lastLines = lines.slice(-maxEntries);
+    const entries: ActivityEntry[] = [];
+    for (const line of lastLines) {
+      try {
+        entries.push(JSON.parse(line) as ActivityEntry);
+      } catch {
+        /* skip malformed line */
+      }
+    }
+    return entries;
+  } catch {
     return [];
   }
 }
@@ -715,9 +731,8 @@ function readTasks(name: string): TaskEntry[] {
     const store = new TaskStore(path.join(dir, "tasks.sqlite"));
     const tasks = store.getTasks();
     store.close();
-    return tasks.slice(0, 20); // limit to 20 tasks
+    return tasks.slice(0, 20);
   } catch (err) {
-    // Task store not found or corrupted
     console.debug(
       `[tui] Failed to read tasks for ${name}: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -730,7 +745,6 @@ async function readDecisions(name: string): Promise<Decision[]> {
     const store = new DecisionStore(getSupervisorDecisionsPath(name));
     return await store.pending();
   } catch (err) {
-    // Decision store not found or corrupted
     console.debug(
       `[tui] Failed to read decisions for ${name}: ${err instanceof Error ? err.message : String(err)}`,
     );
@@ -758,7 +772,6 @@ async function appendToJsonl(filePath: string, data: unknown): Promise<boolean> 
 
 /**
  * Writes a message to the supervisor's inbox.jsonl file.
- * Creates the directory if it doesn't exist and handles write errors gracefully.
  */
 async function writeToInbox(name: string, message: InboxMessage): Promise<boolean> {
   const inboxPath = getSupervisorInboxPath(name);
@@ -769,7 +782,6 @@ async function answerDecision(name: string, id: string, answer: string): Promise
   const store = new DecisionStore(getSupervisorDecisionsPath(name));
   await store.answer(id, answer);
 
-  // Wake up the supervisor heartbeat by appending to inbox.jsonl
   const inboxMessage: InboxMessage = {
     id: randomUUID(),
     from: "tui",
@@ -786,7 +798,6 @@ async function sendMessage(name: string, text: string): Promise<void> {
   const message: InboxMessage = { id, from: "tui", text, timestamp };
   await writeToInbox(name, message);
 
-  // Write to activity.jsonl so the message appears in the TUI conversation
   const activityEntry: ActivityEntry = { id, type: "message", summary: text, timestamp };
   const activityPath = getSupervisorActivityPath(name);
   await appendToJsonl(activityPath, activityEntry);
@@ -800,6 +811,7 @@ export function SupervisorTui({ name }: { name: string }) {
   const frame = useAnimationFrame();
   const clock = useClock();
 
+  // Root supervisor state
   const [state, setState] = useState<SupervisorDaemonState | null>(null);
   const [entries, setEntries] = useState<ActivityEntry[]>([]);
   const [tasks, setTasks] = useState<TaskEntry[]>([]);
@@ -814,6 +826,17 @@ export function SupervisorTui({ name }: { name: string }) {
   const [optionIndex, setOptionIndex] = useState(0);
   const [decisionAnswer, setDecisionAnswer] = useState("");
   const [focusMode, setFocusMode] = useState<"input" | "decisions">("input");
+
+  // Child supervisor state
+  const [children, setChildren] = useState<ChildHandle[]>([]);
+  const [selectedChildIndex, setSelectedChildIndex] = useState(0);
+  const [childActivity, setChildActivity] = useState<ActivityEntry[]>([]);
+  const [columnFocus, setColumnFocus] = useState<"left" | "right">("left");
+  const [childInputMode, setChildInputMode] = useState<ChildInputMode>("idle");
+  const [childInputValue, setChildInputValue] = useState("");
+
+  const hasChildren = children.length > 0;
+  const selectedChild = children[selectedChildIndex] as ChildHandle | undefined;
 
   // Track terminal resize
   useEffect(() => {
@@ -835,21 +858,23 @@ export function SupervisorTui({ name }: { name: string }) {
       });
   }, []);
 
-  // Poll state, activity, and decisions
+  // Poll root state, activity, decisions, and children
   useEffect(() => {
     let active = true;
 
     async function poll() {
       if (!active) return;
-      const [newState, newEntries, newDecisions] = await Promise.all([
+      const [newState, newEntries, newDecisions, newChildren] = await Promise.all([
         readState(name),
         readActivity(name, MAX_VISIBLE_ENTRIES),
         readDecisions(name),
+        readChildrenFile(getSupervisorChildrenPath(name)).catch(() => [] as ChildHandle[]),
       ]);
       if (!active) return;
       setState(newState);
       setEntries(newEntries);
       setDecisions(newDecisions);
+      setChildren(newChildren);
       setTasks(readTasks(name));
       // Reset decision index if out of bounds
       if (newDecisions.length > 0 && decisionIndex >= newDecisions.length) {
@@ -873,6 +898,31 @@ export function SupervisorTui({ name }: { name: string }) {
     };
   }, [name, decisionIndex, decisions.length]);
 
+  // Poll child activity when selected child changes
+  useEffect(() => {
+    if (!selectedChild) {
+      setChildActivity([]);
+      return;
+    }
+
+    let active = true;
+    const id = selectedChild.supervisorId;
+
+    async function poll() {
+      if (!active) return;
+      const activity = await readChildActivity(id, MAX_CHILD_ACTIVITY);
+      if (!active) return;
+      setChildActivity(activity);
+    }
+
+    poll();
+    const interval = setInterval(poll, POLL_INTERVAL_MS);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [selectedChild]);
+
   // Current decision being interacted with
   const currentDecision = decisions[decisionIndex] as Decision | undefined;
   const currentHasOptions = (currentDecision?.options?.length ?? 0) > 0;
@@ -887,7 +937,6 @@ export function SupervisorTui({ name }: { name: string }) {
         setDecisionAnswer("");
         setOptionIndex(0);
       } catch (err) {
-        // Decision may have been answered already or store locked
         console.debug(
           `[tui] Failed to answer decision ${currentDecision.id}: ${err instanceof Error ? err.message : String(err)}`,
         );
@@ -919,15 +968,100 @@ export function SupervisorTui({ name }: { name: string }) {
     [currentDecision, optionIndex, submitDecisionAnswer],
   );
 
-  useInput((_char, key) => {
-    if (key.tab && decisions.length > 0) {
-      setFocusMode((m) => (m === "input" ? "decisions" : "input"));
-      setOptionIndex(0);
+  const handleChildInputSubmit = useCallback(
+    async (value: string) => {
+      if (!selectedChild) return;
+      const id = selectedChild.supervisorId;
+      let text: string | null = null;
+      if (childInputMode === "inject" && value.trim()) {
+        text = `child:inject ${id} ${value.trim()}`;
+      } else if (childInputMode === "unblock" && value.trim()) {
+        text = `child:unblock ${id} ${value.trim()}`;
+      } else if (childInputMode === "kill" && value.trim().toLowerCase() === "stop") {
+        text = `child:stop ${id}`;
+      }
+      if (text) {
+        const message: InboxMessage = {
+          id: randomUUID(),
+          from: "tui",
+          text,
+          timestamp: new Date().toISOString(),
+        };
+        await writeToInbox(name, message);
+        setLastSent(text.slice(0, 40));
+      }
+      setChildInputMode("idle");
+      setChildInputValue("");
+    },
+    [name, selectedChild, childInputMode],
+  );
+
+  const handleRightColumnKey = useCallback(
+    (char: string, key: { upArrow: boolean; downArrow: boolean }) => {
+      if (key.upArrow) {
+        setSelectedChildIndex((i) => Math.max(0, i - 1));
+        return;
+      }
+      if (key.downArrow) {
+        setSelectedChildIndex((i) => Math.min(children.length - 1, i + 1));
+        return;
+      }
+      if (char === "i") {
+        setChildInputMode("inject");
+        return;
+      }
+      if (char === "u" && selectedChild?.status === "blocked") {
+        setChildInputMode("unblock");
+        return;
+      }
+      if (char === "k") {
+        setChildInputMode("kill");
+      }
+    },
+    [children.length, selectedChild],
+  );
+
+  const handleDecisionKey = useCallback(
+    (key: {
+      upArrow: boolean;
+      downArrow: boolean;
+      return: boolean;
+      leftArrow: boolean;
+      rightArrow: boolean;
+    }) => {
+      if (currentHasOptions && handleOptionNav(key)) return;
+      if (decisions.length > 1) {
+        if (key.leftArrow) {
+          setDecisionIndex((i) => Math.max(0, i - 1));
+          setOptionIndex(0);
+        } else if (key.rightArrow) {
+          setDecisionIndex((i) => Math.min(decisions.length - 1, i + 1));
+          setOptionIndex(0);
+        }
+      }
+    },
+    [currentHasOptions, handleOptionNav, decisions.length],
+  );
+
+  useInput((char, key) => {
+    if (key.tab) {
+      if (hasChildren && focusMode !== "decisions") {
+        setColumnFocus((c) => (c === "left" ? "right" : "left"));
+        setOptionIndex(0);
+      } else if (decisions.length > 0) {
+        setFocusMode((m) => (m === "input" ? "decisions" : "input"));
+        setOptionIndex(0);
+      }
       return;
     }
 
     if (key.escape) {
-      if (focusMode === "decisions") {
+      if (childInputMode !== "idle") {
+        setChildInputMode("idle");
+        setChildInputValue("");
+      } else if (columnFocus === "right") {
+        setColumnFocus("left");
+      } else if (focusMode === "decisions") {
         setFocusMode("input");
       } else {
         exit();
@@ -935,19 +1069,13 @@ export function SupervisorTui({ name }: { name: string }) {
       return;
     }
 
-    if (focusMode !== "decisions" || decisions.length === 0) return;
+    if (columnFocus === "right" && childInputMode === "idle") {
+      handleRightColumnKey(char, key);
+      return;
+    }
 
-    if (currentHasOptions && handleOptionNav(key)) return;
-
-    // ←→ to switch between decisions when multiple
-    if (decisions.length > 1) {
-      if (key.leftArrow) {
-        setDecisionIndex((i) => Math.max(0, i - 1));
-        setOptionIndex(0);
-      } else if (key.rightArrow) {
-        setDecisionIndex((i) => Math.min(decisions.length - 1, i + 1));
-        setOptionIndex(0);
-      }
+    if (focusMode === "decisions" && decisions.length > 0 && columnFocus === "left") {
+      handleDecisionKey(key);
     }
   });
 
@@ -963,7 +1091,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
   const costHistory = extractCostHistory(entries);
 
-  // Calculate height adjustments for panels
+  // Calculate height adjustments for left column panels
   const activeTaskCount = tasks.filter(
     (t) => t.status !== "done" && t.status !== "abandoned",
   ).length;
@@ -975,9 +1103,14 @@ export function SupervisorTui({ name }: { name: string }) {
         ? 1
         : 0;
 
+  const leftActivityMaxVisible = Math.max(
+    5,
+    Math.min(MAX_VISIBLE_ENTRIES, termHeight - 10 - taskPanelLines - decisionPanelLines),
+  );
+
   // Bottom panel: either decision input or chat input
   const bottomPanel =
-    focusMode === "decisions" && currentDecision ? (
+    focusMode === "decisions" && currentDecision && columnFocus === "left" ? (
       <DecisionInputPanel
         decision={currentDecision}
         optionIndex={optionIndex}
@@ -990,29 +1123,91 @@ export function SupervisorTui({ name }: { name: string }) {
         frame={frame}
       />
     ) : (
-      <>
-        <InputPanel
-          value={input}
-          onChange={setInput}
-          onSubmit={handleSubmit}
-          lastSent={lastSent}
-          focus={focusMode === "input"}
-        />
-        <Footer hasDecisions={decisions.length > 0} />
-      </>
+      <InputPanel
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        lastSent={lastSent}
+        focus={columnFocus === "left" && focusMode === "input"}
+      />
     );
 
   return (
     <Box flexDirection="column">
-      <HeaderBar state={state} name={name} frame={frame} clock={clock} />
-      <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
-      {focusMode !== "decisions" && <DecisionBanner decisions={decisions} frame={frame} />}
-      <TaskPanel tasks={tasks} />
-      <ActivityPanel
-        entries={entries}
-        termHeight={termHeight - taskPanelLines - decisionPanelLines}
+      <HeaderBar
+        state={state}
+        name={name}
+        frame={frame}
+        clock={clock}
+        columnFocus={columnFocus}
+        childCount={children.length}
       />
-      {bottomPanel}
+      <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
+      <Box flexDirection="row" flexGrow={1}>
+        {/* Left column */}
+        <Box
+          flexDirection="column"
+          flexGrow={1}
+          flexBasis={hasChildren ? "50%" : "100%"}
+          borderStyle={hasChildren && columnFocus === "left" ? "single" : undefined}
+          borderColor="#c084fc"
+        >
+          {focusMode !== "decisions" && <DecisionBanner decisions={decisions} frame={frame} />}
+          <TaskPanel tasks={tasks} />
+          <ActivityPanel entries={entries} maxVisible={leftActivityMaxVisible} />
+          {bottomPanel}
+        </Box>
+
+        {/* Right column — only when children exist */}
+        {hasChildren && (
+          <Box
+            flexDirection="column"
+            flexGrow={1}
+            flexBasis="50%"
+            borderStyle={columnFocus === "right" ? "single" : undefined}
+            borderColor="#c084fc"
+          >
+            <ChildList handles={children} selectedIndex={selectedChildIndex} />
+            {selectedChild && (
+              <>
+                <ChildDetail
+                  handle={selectedChild}
+                  activity={childActivity}
+                  maxActivityLines={MAX_CHILD_ACTIVITY}
+                />
+                <ChildInput
+                  handle={selectedChild}
+                  mode={childInputMode}
+                  value={childInputValue}
+                  onChange={setChildInputValue}
+                  onSubmit={handleChildInputSubmit}
+                  onCancel={() => {
+                    setChildInputMode("idle");
+                    setChildInputValue("");
+                  }}
+                />
+              </>
+            )}
+          </Box>
+        )}
+      </Box>
+
+      {/* Footer */}
+      <Box paddingX={2} gap={1} justifyContent="center">
+        <Text dimColor>
+          <Text bold>esc</Text> quit
+        </Text>
+        {hasChildren && (
+          <>
+            <Text dimColor>·</Text>
+            <Text dimColor>
+              <Text bold>tab</Text> switch panel
+            </Text>
+          </>
+        )}
+        <Text dimColor>·</Text>
+        <Text dimColor>daemon keeps running</Text>
+      </Box>
     </Box>
   );
 }

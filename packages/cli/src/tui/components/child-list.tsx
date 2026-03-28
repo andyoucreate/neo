@@ -61,13 +61,13 @@ function ChildRow({ handle, isSelected }: { handle: ChildHandle; isSelected: boo
 }
 
 export function ChildList({
-  children,
+  handles,
   selectedIndex,
 }: {
-  children: ChildHandle[];
+  handles: ChildHandle[];
   selectedIndex: number;
 }) {
-  if (children.length === 0) {
+  if (handles.length === 0) {
     return (
       <Box paddingX={2}>
         <Text dimColor>No focused supervisors running</Text>
@@ -82,10 +82,10 @@ export function ChildList({
         <Text dimColor bold>
           CHILDREN
         </Text>
-        <Text dimColor>({children.length})</Text>
+        <Text dimColor>({handles.length})</Text>
         <Text dimColor>{"─".repeat(20)}</Text>
       </Box>
-      {children.map((handle, idx) => (
+      {handles.map((handle, idx) => (
         <ChildRow key={handle.supervisorId} handle={handle} isSelected={idx === selectedIndex} />
       ))}
     </Box>
