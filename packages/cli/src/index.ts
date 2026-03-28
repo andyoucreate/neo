@@ -21,6 +21,7 @@ const main = defineCommand({
     agents: () => import("./commands/agents.js").then((m) => m.default),
     supervise: () => import("./commands/supervise.js").then((m) => m.default),
     supervisor: () => import("./commands/supervisor/index.js").then((m) => m.default),
+    child: () => import("./commands/child.js").then((m) => m.default),
     memory: () => import("./commands/memory.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     guide: () => import("./commands/guide.js").then((m) => m.default),

@@ -217,6 +217,18 @@ export const NEO_COMMANDS: CommandSection[] = [
     ],
   },
   {
+    title: "Child Supervisors",
+    commands: [
+      {
+        name: "neo child spawn",
+        syntax:
+          'neo child spawn --objective "..." --criteria "..." [--budget <usd>] [--supervisor <name>]',
+        description: "Spawn a child supervisor for a self-contained objective",
+        compactSyntax: 'neo child spawn --objective "..." --criteria "..." [--budget <usd>]',
+      },
+    ],
+  },
+  {
     title: "Reporting",
     commands: [
       {
@@ -362,6 +374,18 @@ export function buildCommandsCompact(commands: CommandSection[]): string {
       .join(" \u00b7 ");
     if (compactDecisions) {
       lines.push(compactDecisions);
+    }
+  }
+
+  // Group 6: Child Supervisors
+  const childSection = commands.find((s) => s.title === "Child Supervisors");
+  if (childSection) {
+    const compactChild = childSection.commands
+      .filter((c) => c.compactSyntax)
+      .map((c) => `\`${c.compactSyntax}\``)
+      .join(" \u00b7 ");
+    if (compactChild) {
+      lines.push(compactChild);
     }
   }
 
