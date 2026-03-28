@@ -1,5 +1,7 @@
 // ─── Components ──────────────────────────────────────────
 export { ActivityLog } from "./activity-log.js";
+// ─── Children file ─────────────────────────────────────
+export { readChildrenFile, writeChildrenFile } from "./children-file.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 // ─── Decisions ─────────────────────────────────────────────
@@ -68,14 +70,18 @@ export {
 } from "./prompt-builder.js";
 export { StatusReader } from "./StatusReader.js";
 // ─── Status ─────────────────────────────────────────────
+// ─── Child schemas ─────────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
   ActivityTypeFilter,
+  ChildHandle,
+  ChildToParentMessage,
   FailureReport,
   InboxMessage,
   InternalEventKind,
   LogBufferEntry,
+  ParentToChildMessage,
   QueuedEvent,
   SupervisorDaemonState,
   SupervisorStatus,

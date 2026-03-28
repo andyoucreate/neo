@@ -78,12 +78,14 @@ export { Orchestrator } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────
 export {
   getDataDir,
+  getFocusedSupervisorDir,
   getJournalsDir,
   getRepoRunsDir,
   getRunDispatchPath,
   getRunLogPath,
   getRunsDir,
   getSupervisorActivityPath,
+  getSupervisorChildrenPath,
   getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorEventsPath,
@@ -123,9 +125,11 @@ export type { SupervisorState } from "@/supervisor";
 // ─── Supervisor (legacy) ──────────────────────────────
 export { supervisorStateSchema } from "@/supervisor";
 // ─── Decisions ─────────────────────────────────────────
+// ─── Supervisor children ───────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
+  ChildHandle,
   Decision,
   DecisionInput,
   DecisionOption,
@@ -149,6 +153,7 @@ export {
   EventQueue,
   HeartbeatLoop,
   inboxMessageSchema,
+  readChildrenFile,
   readLogBuffer,
   StatusReader,
   SupervisorDaemon,
