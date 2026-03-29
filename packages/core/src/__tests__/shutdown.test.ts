@@ -241,19 +241,19 @@ describe("ShutdownManager", () => {
     expect(run.status).toBe("failed");
   });
 
-  it("does not mark runs owned by other processes", async () => {
+  it("does not mark runs owned by other ALIVE processes", async () => {
     const runsDir = path.join(TMP_DIR, "runs");
     const repoDir = path.join(runsDir, "test-repo");
     await mkdir(repoDir, { recursive: true });
 
-    // Create a running run owned by a different process
+    // Create a running run owned by an alive process (e.g., init/systemd PID 1)
     const runFile = path.join(repoDir, "other-run.json");
     await writeFile(
       runFile,
       JSON.stringify({
         runId: "other-run",
         status: "running",
-        pid: 99999, // Different PID
+        pid: 1, // PID 1 is always alive (init/systemd)
         updatedAt: new Date().toISOString(),
       }),
       "utf-8",
@@ -267,7 +267,37 @@ describe("ShutdownManager", () => {
     const { readFile } = await import("node:fs/promises");
     const content = await readFile(runFile, "utf-8");
     const run = JSON.parse(content);
-    expect(run.status).toBe("running"); // Should not be changed
+    expect(run.status).toBe("running"); // Should not be changed — process is alive
+  });
+
+  it("marks ghost runs from dead processes as failed with blockedReason", async () => {
+    const runsDir = path.join(TMP_DIR, "runs");
+    const repoDir = path.join(runsDir, "test-repo");
+    await mkdir(repoDir, { recursive: true });
+
+    // Create a running run owned by a dead process (very high PID unlikely to exist)
+    const runFile = path.join(repoDir, "ghost-run.json");
+    await writeFile(
+      runFile,
+      JSON.stringify({
+        runId: "ghost-run",
+        status: "running",
+        pid: 999999999, // Dead PID
+        updatedAt: new Date().toISOString(),
+      }),
+      "utf-8",
+    );
+
+    const manager = new ShutdownManager({ timeoutMs: 100 });
+    manager.setRunsDir(runsDir);
+
+    await manager.shutdown();
+
+    const { readFile } = await import("node:fs/promises");
+    const content = await readFile(runFile, "utf-8");
+    const run = JSON.parse(content);
+    expect(run.status).toBe("failed");
+    expect(run.blockedReason).toBe("supervisor crashed");
   });
 
   it("terminates child processes during shutdown", async () => {
