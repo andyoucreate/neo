@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
@@ -57,24 +57,9 @@ export class SupervisorDaemon {
     // Create supervisor directory
     await mkdir(this.dir, { recursive: true });
 
-    // Check lockfile for duplicate daemons
+    // Acquire lockfile atomically using O_EXCL to prevent TOCTOU race
     const lockPath = path.join(this.dir, "daemon.lock");
-    if (existsSync(lockPath)) {
-      const lockPid = await this.readLockPid(lockPath);
-      if (lockPid && isProcessAlive(lockPid)) {
-        throw new Error(
-          `Supervisor "${this.name}" already running (PID ${lockPid}). Use --kill first.`,
-        );
-      }
-      // Stale lock — clean up
-      await rm(lockPath, { force: true });
-    }
-
-    // Write lockfile atomically
-    const tempLock = `${lockPath}.${process.pid}`;
-    await writeFile(tempLock, String(process.pid), "utf-8");
-    const { rename } = await import("node:fs/promises");
-    await rename(tempLock, lockPath);
+    await this.acquireLock(lockPath);
 
     // Recover session ID from previous state or generate new one
     const existingState = await this.readState();
@@ -262,7 +247,80 @@ export class SupervisorDaemon {
 
   private async writeState(state: SupervisorDaemonState): Promise<void> {
     const statePath = path.join(this.dir, "state.json");
-    await writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
+    const content = JSON.stringify(state, null, 2);
+
+    // Write atomically: temp file then rename to prevent corruption on crash
+    const tempPath = `${statePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, content, "utf-8");
+    await rename(tempPath, statePath);
+  }
+
+  /**
+   * Atomically acquire a lockfile using O_EXCL flag.
+   * Handles stale locks by checking if the owning process is still alive.
+   *
+   * Note: A small race window exists between stale lock removal and retry.
+   * Another process could grab the lock during this window, which is acceptable
+   * because we detect and report it on the retry attempt. This is a best-effort
+   * pattern — a true CAS (compare-and-swap) would require platform-specific APIs.
+   */
+  private async acquireLock(lockPath: string): Promise<void> {
+    const tryAcquire = async (): Promise<boolean> => {
+      let handle: Awaited<ReturnType<typeof open>> | null = null;
+      try {
+        handle = await open(
+          lockPath,
+          constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+          0o644,
+        );
+        await handle.write(String(process.pid), 0, "utf-8");
+        await handle.close();
+        handle = null;
+        return true;
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "EEXIST") {
+          return false;
+        }
+        throw err;
+      } finally {
+        // Ensure handle is closed even if an error occurs during write
+        if (handle) {
+          await handle.close().catch(() => {});
+        }
+      }
+    };
+
+    // First attempt
+    if (await tryAcquire()) {
+      return;
+    }
+
+    // Lock exists — check if it's stale
+    const lockPid = await this.readLockPid(lockPath);
+    if (lockPid && isProcessAlive(lockPid)) {
+      throw new Error(
+        `Supervisor "${this.name}" already running (PID ${lockPid}). Use --kill first.`,
+      );
+    }
+
+    // Stale lock — remove and retry.
+    // NOTE: There is an inherent race window between rm() and tryAcquire() where
+    // another process could create the lock. This is accepted as best-effort behavior:
+    // - The window is small (typically < 1ms on local filesystem)
+    // - A true compare-and-swap would require OS-specific syscalls (flock, lockf)
+    // - If another process wins the race, we detect it and report cleanly below
+    await rm(lockPath, { force: true });
+
+    // Retry lock acquisition
+    if (await tryAcquire()) {
+      return;
+    }
+
+    // Another process grabbed the lock during our retry
+    const retryPid = await this.readLockPid(lockPath);
+    throw new Error(
+      `Supervisor "${this.name}" already running (PID ${retryPid ?? "unknown"}). Use --kill first.`,
+    );
   }
 
   private async readLockPid(lockPath: string): Promise<number | null> {

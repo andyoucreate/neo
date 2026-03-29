@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
@@ -130,15 +130,40 @@ export function parseDirectiveDuration(input: string): string | undefined {
 /**
  * JSONL-based store for persistent directives.
  * Each line is a complete directive record (append-only with periodic compaction).
+ * Uses an in-memory mutex to serialize write operations.
  */
 export class DirectiveStore {
   private readonly filePath: string;
+  /** Promise-based mutex to serialize write operations */
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(filePath: string) {
     this.filePath = filePath;
     const dir = path.dirname(filePath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
+    }
+  }
+
+  /**
+   * Acquire the write lock and execute a callback.
+   * Serializes all write operations to prevent race conditions.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Chain onto the existing lock
+    const release = this.writeLock;
+    let releaseLock: () => void = () => {};
+    this.writeLock = new Promise((r) => {
+      releaseLock = r;
+    });
+
+    try {
+      // Wait for previous operation to complete
+      await release;
+      return await fn();
+    } finally {
+      // Release the lock for the next operation
+      releaseLock();
     }
   }
 
@@ -199,39 +224,45 @@ export class DirectiveStore {
   // ─── Update ────────────────────────────────────────────
 
   async toggle(id: string, enabled: boolean): Promise<void> {
-    const all = await this.readAll();
-    const directive = all.get(id);
-    if (!directive) {
-      throw new Error(`Directive not found: ${id}`);
-    }
+    await this.withWriteLock(async () => {
+      const all = await this.readAll();
+      const directive = all.get(id);
+      if (!directive) {
+        throw new Error(`Directive not found: ${id}`);
+      }
 
-    directive.enabled = enabled;
-    all.set(id, directive);
-    await this.writeAll(all);
+      directive.enabled = enabled;
+      all.set(id, directive);
+      await this.writeAll(all);
+    });
   }
 
   async markTriggered(id: string): Promise<void> {
-    const all = await this.readAll();
-    const directive = all.get(id);
-    if (!directive) {
-      throw new Error(`Directive not found: ${id}`);
-    }
+    await this.withWriteLock(async () => {
+      const all = await this.readAll();
+      const directive = all.get(id);
+      if (!directive) {
+        throw new Error(`Directive not found: ${id}`);
+      }
 
-    directive.lastTriggeredAt = new Date().toISOString();
-    all.set(id, directive);
-    await this.writeAll(all);
+      directive.lastTriggeredAt = new Date().toISOString();
+      all.set(id, directive);
+      await this.writeAll(all);
+    });
   }
 
   // ─── Delete ────────────────────────────────────────────
 
   async delete(id: string): Promise<void> {
-    const all = await this.readAll();
-    if (!all.has(id)) {
-      throw new Error(`Directive not found: ${id}`);
-    }
+    await this.withWriteLock(async () => {
+      const all = await this.readAll();
+      if (!all.has(id)) {
+        throw new Error(`Directive not found: ${id}`);
+      }
 
-    all.delete(id);
-    await this.writeAll(all);
+      all.delete(id);
+      await this.writeAll(all);
+    });
   }
 
   /**
@@ -239,22 +270,24 @@ export class DirectiveStore {
    * Returns IDs of removed directives.
    */
   async expireOld(): Promise<string[]> {
-    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const all = await this.readAll();
-    const removed: string[] = [];
+    return this.withWriteLock(async () => {
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const all = await this.readAll();
+      const removed: string[] = [];
 
-    for (const [id, directive] of all) {
-      if (directive.expiresAt && directive.expiresAt < cutoff) {
-        all.delete(id);
-        removed.push(id);
+      for (const [id, directive] of all) {
+        if (directive.expiresAt && directive.expiresAt < cutoff) {
+          all.delete(id);
+          removed.push(id);
+        }
       }
-    }
 
-    if (removed.length > 0) {
-      await this.writeAll(all);
-    }
+      if (removed.length > 0) {
+        await this.writeAll(all);
+      }
 
-    return removed;
+      return removed;
+    });
   }
 
   // ─── Internal ──────────────────────────────────────────
@@ -290,7 +323,12 @@ export class DirectiveStore {
     const lines = Array.from(map.values())
       .map((d) => JSON.stringify(d))
       .join("\n");
-    await writeFile(this.filePath, lines ? `${lines}\n` : "", "utf-8");
+    const content = lines ? `${lines}\n` : "";
+
+    // Write atomically: temp file then rename to prevent corruption on crash
+    const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, content, "utf-8");
+    await rename(tempPath, this.filePath);
   }
 
   private async append(directive: Directive): Promise<void> {
