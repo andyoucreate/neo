@@ -153,9 +153,11 @@ export class EventQueue {
     for (const p of [inboxPath, eventsPath]) {
       try {
         await writeFile(p, "", { flag: "a" });
-      } catch {
+      } catch (err) {
         // Non-critical: file creation may fail due to permissions or missing parent directory.
         // watchJsonlFile will handle this gracefully by skipping the watch.
+        // biome-ignore lint/suspicious/noConsole: Log file creation failures for debugging
+        console.debug(`[neo] Failed to ensure file exists ${p}:`, err);
       }
     }
     this.watchJsonlFile(inboxPath, "message");
@@ -227,8 +229,10 @@ export class EventQueue {
       });
 
       this.watchers.push(watcher);
-    } catch {
+    } catch (err) {
       // Non-critical: file may not exist yet — watcher will be set up when file is created
+      // biome-ignore lint/suspicious/noConsole: Log watcher setup failures for debugging
+      console.debug(`[neo] Failed to watch file ${filePath}:`, err);
     }
   }
 
@@ -238,8 +242,10 @@ export class EventQueue {
   private cleanupWatcher(watcher: FSWatcher): void {
     try {
       watcher.close();
-    } catch {
+    } catch (err) {
       // Ignore errors during close — watcher may already be closed
+      // biome-ignore lint/suspicious/noConsole: Log watcher cleanup failures for debugging
+      console.debug("[neo] Error closing watcher:", err);
     }
     const index = this.watchers.indexOf(watcher);
     if (index !== -1) {
@@ -359,9 +365,11 @@ export class EventQueue {
         await writeFile(filePath, updated.join("\n"), "utf-8");
         this.fileOffsets.set(filePath, updated.join("\n").length);
       }
-    } catch {
+    } catch (err) {
       // Non-critical: marking as processed may fail but events are already handled.
       // Worst case: duplicate processing on restart (idempotent operations).
+      // biome-ignore lint/suspicious/noConsole: Log mark processed failures for debugging
+      console.debug(`[neo] Failed to mark events processed in ${filePath}:`, err);
     }
   }
 }
