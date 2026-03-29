@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import type { Embedder } from "./embedder.js";
 import type {
   MemoryEntry,
   MemoryQuery,
@@ -14,13 +13,12 @@ import type {
 const esmRequire = createRequire(import.meta.url);
 
 // ─── MemoryStore ─────────────────────────────────────────
+// Vector search removed (ADR-cleanup). FTS5 is sufficient.
 
 export class MemoryStore {
   private db: import("better-sqlite3").Database;
-  private embedder: Embedder | null;
-  private hasVec: boolean;
 
-  constructor(dbPath: string, embedder?: Embedder | null) {
+  constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
     if (!existsSync(dir)) {
       mkdirSync(dir, { recursive: true });
@@ -31,9 +29,6 @@ export class MemoryStore {
     this.db = new Database(dbPath);
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("foreign_keys = ON");
-
-    this.embedder = embedder ?? null;
-    this.hasVec = false;
 
     this.initSchema();
   }
@@ -91,24 +86,6 @@ export class MemoryStore {
         INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
       END;
     `);
-
-    // sqlite-vec for vector search (optional — may not be installed)
-    if (this.embedder) {
-      try {
-        const sqliteVec = esmRequire("sqlite-vec");
-        sqliteVec.load(this.db);
-        this.db.exec(`
-          CREATE VIRTUAL TABLE IF NOT EXISTS memories_vec USING vec0(
-            memory_id TEXT,
-            embedding float[${this.embedder.dimensions}]
-          );
-        `);
-        this.hasVec = true;
-      } catch {
-        // sqlite-vec not available — fall back to FTS
-        this.hasVec = false;
-      }
-    }
   }
 
   /**
@@ -256,23 +233,6 @@ export class MemoryStore {
         input.subtype ?? null,
       );
 
-    // Embed and store vector
-    if (this.embedder && this.hasVec) {
-      try {
-        const [vector] = await this.embedder.embed([input.content]);
-        const rowid = this.db.prepare("SELECT rowid FROM memories WHERE id = ?").get(id) as
-          | { rowid: number }
-          | undefined;
-        if (rowid && vector) {
-          this.db
-            .prepare("INSERT INTO memories_vec (rowid, memory_id, embedding) VALUES (?, ?, ?)")
-            .run(rowid.rowid, id, new Float32Array(vector));
-        }
-      } catch {
-        // Embedding failed — entry still saved without vector
-      }
-    }
-
     return id;
   }
 
@@ -280,17 +240,6 @@ export class MemoryStore {
 
   update(id: string, content: string): void {
     this.db.prepare("UPDATE memories SET content = ? WHERE id = ?").run(content, id);
-
-    // Re-embedding happens lazily on next search if needed
-    // For now, remove stale vector
-    if (this.hasVec) {
-      const row = this.db.prepare("SELECT rowid FROM memories WHERE id = ?").get(id) as
-        | { rowid: number }
-        | undefined;
-      if (row) {
-        this.db.prepare("DELETE FROM memories_vec WHERE rowid = ?").run(row.rowid);
-      }
-    }
   }
 
   // ─── Update fields ───────────────────────────────────
@@ -318,12 +267,6 @@ export class MemoryStore {
   // ─── Forget ──────────────────────────────────────────
 
   forget(id: string): void {
-    const row = this.db.prepare("SELECT rowid FROM memories WHERE id = ?").get(id) as
-      | { rowid: number }
-      | undefined;
-    if (row && this.hasVec) {
-      this.db.prepare("DELETE FROM memories_vec WHERE rowid = ?").run(row.rowid);
-    }
     this.db.prepare("DELETE FROM memories WHERE id = ?").run(id);
   }
 
@@ -383,53 +326,10 @@ export class MemoryStore {
     return rows.map(rowToEntry);
   }
 
-  // ─── Search (async — semantic or FTS) ────────────────
+  // ─── Search (FTS5 full-text search) ────────────────
 
   async search(text: string, opts: MemoryQuery = {}): Promise<SearchResult[]> {
-    // Try vector search first
-    if (this.embedder && this.hasVec) {
-      try {
-        const [queryVec] = await this.embedder.embed([text]);
-        const limit = opts.limit ?? 20;
-
-        // Build scope/type filter for post-filtering
-        const candidates = this.db
-          .prepare(
-            `SELECT m.*, v.distance
-           FROM memories_vec v
-           JOIN memories m ON m.rowid = v.rowid
-           WHERE v.embedding MATCH ?
-           ORDER BY v.distance
-           LIMIT ?`,
-          )
-          .all(new Float32Array(queryVec as number[]), limit * 3) as (RawMemoryRow & {
-          distance: number;
-        })[];
-
-        // Post-filter by scope and type
-        const filtered = candidates.filter((row) => {
-          if (opts.scope && row.scope !== opts.scope && row.scope !== "global") return false;
-          if (
-            opts.types &&
-            opts.types.length > 0 &&
-            !opts.types.includes(row.type as MemoryEntry["type"])
-          )
-            return false;
-          return true;
-        });
-
-        return filtered.slice(0, limit).map((row) => ({
-          ...rowToEntry(row),
-          // Convert distance to similarity score (1 - distance for cosine)
-          // Clamp to [0, 1] to handle edge cases
-          score: Math.max(0, Math.min(1, 1 - row.distance)),
-        }));
-      } catch {
-        // Fall through to FTS
-      }
-    }
-
-    // Fallback: FTS5 full-text search
+    // FTS5 full-text search
     const limit = opts.limit ?? 20;
     const ftsQuery = text
       .split(/\s+/)

@@ -59,20 +59,15 @@ export type {
 } from "./memory/index.js";
 // ─── Memory store ──────────────────────────────────────
 export {
-  cosineSimilarity,
   formatMemoriesForPrompt,
-  LocalEmbedder,
   MemoryStore,
   memoryEntrySchema,
   memoryTypeSchema,
   memoryWriteInputSchema,
 } from "./memory/index.js";
-// ─── Notifications ───────────────────────────────────────
-export { notify, notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 export type {
   ConsolidationPromptOptions,
   PromptOptions,
-  StandardPromptOptions,
 } from "./prompt-builder.js";
 // ─── Prompt builder ─────────────────────────────────────
 export {

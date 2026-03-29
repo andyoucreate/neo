@@ -1,6 +1,5 @@
 import type { RepoConfig } from "@/config";
 import type { TaskEntry } from "@/supervisor/task-store";
-import { buildCommandsCompact, buildCommandsSection, NEO_COMMANDS } from "./commands-manifest.js";
 import type { Decision } from "./decisions.js";
 import type { Directive } from "./directive-store.js";
 import type { GroupedEvents } from "./event-queue.js";
@@ -37,8 +36,6 @@ export interface PromptOptions {
   /** Active directives for idle time (sorted by priority) */
   activeDirectives?: Directive[] | undefined;
 }
-
-export interface StandardPromptOptions extends PromptOptions {}
 
 export interface ConsolidationPromptOptions extends PromptOptions {
   /** ISO timestamp of last consolidation — used to filter run history */
@@ -276,10 +273,93 @@ function buildRoleSection(heartbeatCount: number, label?: string): string {
   return `<role>\n${ROLE}\nHeartbeat #${heartbeatCount}${suffix}\n</role>`;
 }
 
+// ─── Commands reference (inline, single source of truth: see GUIDE.md) ──
+// Compact form used after first 3 heartbeats to save tokens.
+
+const COMMANDS_FULL = `### Commands
+
+\`\`\`bash
+neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'
+\`\`\`
+
+| Flag | Required | Description |
+|------|----------|-------------|
+| \`--prompt\` | always | Task description for the agent |
+| \`--repo\` | always | Target repository path |
+| \`--branch\` | always | Branch name for the isolated clone |
+| \`--priority\` | optional | \`critical\`, \`high\`, \`medium\`, \`low\` |
+| \`--meta\` | **always** | JSON with \`"label"\` for identification + \`"ticketId"\`, \`"stage"\`, etc. |
+
+All agents require \`--branch\`. Each agent session runs in an isolated clone on that branch.
+
+### Monitoring & reading agent output
+\`\`\`bash
+neo runs --short                        # check recent runs
+neo runs --short --status running       # check active runs are alive
+neo runs <runId>                        # full run details + agent output (MUST READ on completion)
+neo cost --short [--all]                # check budget
+\`\`\`
+
+\`neo runs <runId>\` returns the agent's full output. **ALWAYS read it when a run completes**.
+
+### Memory
+\`\`\`bash
+neo memory write --type knowledge --subtype fact --scope /path "Stable fact about repo"
+neo memory write --type knowledge --subtype procedure --scope /path "How to do X"
+neo memory write --type warning --scope /path "Recurring issue to watch for"
+neo memory write --type focus --expires 2h "Current working context"
+neo task create --scope /path --priority high --context "neo runs <id>" "Task description"
+neo task update <id> --status in_progress|done|blocked|abandoned
+neo memory forget <id>
+neo memory search "keyword"
+neo memory list --type fact
+\`\`\`
+
+### Decisions
+When you need human input on something that cannot be decided autonomously:
+\`\`\`bash
+neo decision create "<question>" --options "key1:label1,key2:label2:description" [--default <key>] [--expires-in 24h] [--context "..."]
+neo decision list                       # show pending decisions
+neo decision answer <id> <answer>       # answer a decision (usually done by human via TUI)
+\`\`\`
+
+### Config
+\`\`\`bash
+neo config get <key>
+neo config set <key> <value> --global
+neo config list
+\`\`\`
+
+### Child Supervisors
+\`\`\`bash
+neo child spawn --objective "..." --criteria "..." [--budget <usd>] [--supervisor <name>]
+\`\`\`
+
+### Directives
+Standing instructions for idle time:
+\`\`\`bash
+neo directive create "<action>" [--trigger idle] [--duration "2h" | "until midnight"] [--priority 5]
+neo directive list                      # list all directives
+neo directive toggle <id>               # enable/disable a directive
+neo directive delete <id>               # delete a directive
+\`\`\`
+
+### Reporting
+\`\`\`bash
+neo log <type> "<message>"              # visible in TUI only
+\`\`\``;
+
+const COMMANDS_COMPACT = `### Commands (reference)
+\`neo run <agent> --prompt "..." --repo <path> --branch <name> --meta '{"label":"T1-auth",...}'\`
+\`neo runs [--short | <runId>]\` · \`neo runs --short --status running\` · \`neo cost --short\`
+\`neo memory write|update|forget|search|list\` · \`neo log <type> "<msg>"\`
+\`neo config get <key>\` · \`neo config set <key> <value> --global\` · \`neo config list\`
+\`neo decision create "<question>" --options "..."\` · \`neo decision list\`
+\`neo child spawn --objective "..." --criteria "..." [--budget <usd>]\`
+\`neo directive create "<action>" [--duration "2h"]\` · \`neo directive list\``;
+
 function getCommandsSection(heartbeatCount: number): string {
-  return heartbeatCount <= 3
-    ? buildCommandsSection(NEO_COMMANDS)
-    : buildCommandsCompact(NEO_COMMANDS);
+  return heartbeatCount <= 3 ? COMMANDS_FULL : COMMANDS_COMPACT;
 }
 
 function buildReferenceSection(heartbeatCount: number): string {
@@ -844,7 +924,7 @@ export function isIdleHeartbeat(opts: PromptOptions): boolean {
  * Used when there are no events, no active runs, and no pending tasks.
  * If there are pending decisions, surfaces them. Otherwise, yields.
  */
-export function buildIdlePrompt(opts: StandardPromptOptions): string {
+export function buildIdlePrompt(opts: PromptOptions): string {
   const budgetLine = `Budget: $${opts.budgetStatus.todayUsd.toFixed(2)} / $${opts.budgetStatus.capUsd.toFixed(2)} (${opts.budgetStatus.remainingPct.toFixed(0)}% remaining)`;
   const hasRepos = opts.repos.length > 0;
   const hasBudget = opts.budgetStatus.remainingPct > 10;
@@ -963,7 +1043,7 @@ Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any ot
  *   <reference>    — Command documentation
  *   <instructions> — Principles \u2192 lifecycle \u2192 reporting \u2192 memory \u2192 directive
  */
-export function buildStandardPrompt(opts: StandardPromptOptions): string {
+export function buildStandardPrompt(opts: PromptOptions): string {
   const instructionParts = buildBaseInstructions(opts, { includeExamples: false });
   const hasEvents = countEvents(opts.grouped) > 0;
 
