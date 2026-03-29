@@ -310,12 +310,25 @@ export class HeartbeatLoop {
     return this._eventsPath;
   }
 
+  /** Track store initialization failures for health reporting */
+  private storeInitErrors: Map<string, string> = new Map();
+
   private getMemoryStore(): MemoryStore | null {
     if (!this.memoryStore && this.memoryDbPath) {
       try {
         this.memoryStore = new MemoryStore(this.memoryDbPath);
-      } catch {
-        // Memory store unavailable — continue without it
+        this.storeInitErrors.delete("memory");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.storeInitErrors.set("memory", msg);
+        this.activityLog
+          .log("warning", `MemoryStore initialization failed: ${msg}`, {
+            store: "memory",
+            error: msg,
+          })
+          .catch(() => {
+            // Best-effort logging — don't let logging failure cascade
+          });
       }
     }
     return this.memoryStore;
@@ -327,8 +340,18 @@ export class HeartbeatLoop {
     if (!this.taskStore && this.memoryDbPath) {
       try {
         this.taskStore = new TaskStore(this.memoryDbPath);
-      } catch {
-        // Task store unavailable — continue without it
+        this.storeInitErrors.delete("task");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.storeInitErrors.set("task", msg);
+        this.activityLog
+          .log("warning", `TaskStore initialization failed: ${msg}`, {
+            store: "task",
+            error: msg,
+          })
+          .catch(() => {
+            // Best-effort logging — don't let logging failure cascade
+          });
       }
     }
     return this.taskStore;
@@ -345,11 +368,50 @@ export class HeartbeatLoop {
     if (!this.directiveStore && this.directivesPath) {
       try {
         this.directiveStore = new DirectiveStore(this.directivesPath);
-      } catch {
-        // Directive store unavailable — continue without it
+        this.storeInitErrors.delete("directive");
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.storeInitErrors.set("directive", msg);
+        this.activityLog
+          .log("warning", `DirectiveStore initialization failed: ${msg}`, {
+            store: "directive",
+            error: msg,
+          })
+          .catch(() => {
+            // Best-effort logging — don't let logging failure cascade
+          });
       }
     }
     return this.directiveStore;
+  }
+
+  /**
+   * Returns the health status of all stores.
+   * Useful for diagnostics and monitoring degraded mode.
+   */
+  getStoreHealth(): {
+    memory: { available: boolean; error: string | undefined };
+    task: { available: boolean; error: string | undefined };
+    directive: { available: boolean; error: string | undefined };
+    decision: { available: boolean };
+  } {
+    return {
+      memory: {
+        available: this.memoryStore !== null,
+        error: this.storeInitErrors.get("memory"),
+      },
+      task: {
+        available: this.taskStore !== null,
+        error: this.storeInitErrors.get("task"),
+      },
+      directive: {
+        available: this.directiveStore !== null,
+        error: this.storeInitErrors.get("directive"),
+      },
+      decision: {
+        available: this.decisionStore !== null,
+      },
+    };
   }
 
   async start(): Promise<void> {
