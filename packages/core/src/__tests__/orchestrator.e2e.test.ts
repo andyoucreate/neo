@@ -513,10 +513,11 @@ describe("orchestrator E2E: concurrent run handling", () => {
       });
     });
 
-    orchestrator.on("session:start", () => {
-      statusSnapshots.push({
-        activeSessions: orchestrator.status.activeSessions.length,
-        queueDepth: orchestrator.status.queueDepth,
+      orchestrator.on("session:complete", () => {
+        completeCount++;
+        if (completeCount === 2) {
+          resolve();
+        }
       });
     });
 

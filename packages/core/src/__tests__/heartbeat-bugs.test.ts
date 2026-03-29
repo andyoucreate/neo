@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { isRunActive, STALE_GRACE_PERIOD_MS } from "@/supervisor/heartbeat";
 import { activityEntrySchema } from "@/supervisor/schemas";
+import { heartbeatFailureEventSchema } from "@/supervisor/webhookEvents";
 import type { PersistedRun } from "@/types";
 
 // ─── Helpers ───────────────────────────────────────────
@@ -240,6 +241,100 @@ describe("activityEntrySchema warning type", () => {
 
     const result = activityEntrySchema.safeParse(invalidEntry);
     expect(result.success).toBe(false);
+  });
+});
+
+// ─── HeartbeatFailureEvent (T4: Error boundary) ─────────────────
+
+describe("heartbeatFailureEventSchema", () => {
+  it("validates a properly structured heartbeat failure event", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: new Date().toISOString(),
+      error: "adapter.query() failed: Connection refused",
+      consecutiveFailures: 1,
+    };
+
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("heartbeat_failure");
+      expect(result.data.consecutiveFailures).toBe(1);
+    }
+  });
+
+  it("rejects error messages longer than 1000 characters", () => {
+    const longError = "x".repeat(1001);
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: new Date().toISOString(),
+      error: longError,
+      consecutiveFailures: 1,
+    };
+
+    // Schema should reject errors longer than 1000 chars
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("requires consecutiveFailures to be at least 1", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: new Date().toISOString(),
+      error: "Some error",
+      consecutiveFailures: 0,
+    };
+
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("includes heartbeatId for traceability", () => {
+    const heartbeatId = "hb-unique-123";
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId,
+      timestamp: new Date().toISOString(),
+      error: "Test error",
+      consecutiveFailures: 2,
+    };
+
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.heartbeatId).toBe(heartbeatId);
+    }
+  });
+
+  it("accepts error messages from various failure scenarios", () => {
+    const errorMessages = [
+      "adapter.query() failed: Connection refused",
+      "SDK timeout exceeded",
+      "ECONNRESET: Connection reset by peer",
+      "AbortError: The operation was aborted",
+      "Rate limit exceeded: 429 Too Many Requests",
+    ];
+
+    for (const error of errorMessages) {
+      const event = {
+        type: "heartbeat_failure",
+        supervisorId: "sup-123",
+        heartbeatId: "hb-456",
+        timestamp: new Date().toISOString(),
+        error,
+        consecutiveFailures: 1,
+      };
+
+      const result = heartbeatFailureEventSchema.safeParse(event);
+      expect(result.success, `Error message "${error}" should be valid`).toBe(true);
+    }
   });
 });
 

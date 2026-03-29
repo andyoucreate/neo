@@ -54,6 +54,19 @@ export const runCompletedEventSchema = z.object({
 
 export type RunCompletedEvent = z.infer<typeof runCompletedEventSchema>;
 
+// ─── Heartbeat failure event ─────────────────────────────
+
+export const heartbeatFailureEventSchema = z.object({
+  type: z.literal("heartbeat_failure"),
+  supervisorId: z.string(),
+  heartbeatId: z.string(),
+  timestamp: z.string().datetime(),
+  error: z.string().max(1000),
+  consecutiveFailures: z.number().int().min(1),
+});
+
+export type HeartbeatFailureEvent = z.infer<typeof heartbeatFailureEventSchema>;
+
 // ─── Supervisor stopped event ────────────────────────────
 
 export const supervisorStoppedEventSchema = z.object({
@@ -70,6 +83,7 @@ export type SupervisorStoppedEvent = z.infer<typeof supervisorStoppedEventSchema
 export const supervisorWebhookEventSchema = z.discriminatedUnion("type", [
   supervisorStartedEventSchema,
   heartbeatEventSchema,
+  heartbeatFailureEventSchema,
   runDispatchedEventSchema,
   runCompletedEventSchema,
   supervisorStoppedEventSchema,

@@ -44,7 +44,9 @@ import {
 } from "./schemas.js";
 import {
   type HeartbeatEvent,
+  type HeartbeatFailureEvent,
   heartbeatEventSchema,
+  heartbeatFailureEventSchema,
   type RunCompletedEvent,
   type RunDispatchedEvent,
   runCompletedEventSchema,
@@ -456,126 +458,147 @@ export class HeartbeatLoop {
   private async runHeartbeat(): Promise<void> {
     const startTime = Date.now();
     const heartbeatId = randomUUID();
-    const state = await this.readState();
-    const today = new Date().toISOString().slice(0, 10);
 
-    // Check budget and return early if exceeded
-    const budgetCheck = await this.checkBudgetExceeded(state, today);
-    if (budgetCheck.exceeded) return;
+    try {
+      const state = await this.readState();
+      const today = new Date().toISOString().slice(0, 10);
 
-    // Gather event context
-    const eventCtx = await this.gatherEventContext();
+      // Check budget and return early if exceeded
+      const budgetCheck = await this.checkBudgetExceeded(state, today);
+      if (budgetCheck.exceeded) return;
 
-    // Process decision answers and expiry
-    const { pendingDecisions, answeredDecisions, hasExpiredDecisions, hasPendingDecisions } =
-      await this.processDecisions(eventCtx.rawEvents, state?.lastHeartbeat);
+      // Gather event context
+      const eventCtx = await this.gatherEventContext();
 
-    // Check for pending consolidation entries
-    const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
-    const hasPendingConsolidation = unconsolidatedEntries.length > 0;
+      // Process decision answers and expiry
+      const { pendingDecisions, answeredDecisions, hasExpiredDecisions, hasPendingDecisions } =
+        await this.processDecisions(eventCtx.rawEvents, state?.lastHeartbeat);
 
-    // Handle skip logic for idle/active-work scenarios
-    const skipResult = await this.handleSkipLogic({
-      state,
-      totalEventCount: eventCtx.totalEventCount,
-      activeRuns: eventCtx.activeRuns,
-      hasPendingConsolidation,
-      hasExpiredDecisions,
-    });
-    if (skipResult.shouldSkip) return;
-    if (skipResult.resetCounters) {
-      await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
-    }
+      // Check for pending consolidation entries
+      const unconsolidatedEntries = await readUnconsolidated(this.supervisorDir);
+      const hasPendingConsolidation = unconsolidatedEntries.length > 0;
 
-    // Determine heartbeat mode
-    const modeResult = await this.determineHeartbeatMode(state);
+      // Handle skip logic for idle/active-work scenarios
+      const skipResult = await this.handleSkipLogic({
+        state,
+        totalEventCount: eventCtx.totalEventCount,
+        activeRuns: eventCtx.activeRuns,
+        hasPendingConsolidation,
+        hasExpiredDecisions,
+      });
+      if (skipResult.shouldSkip) return;
+      if (skipResult.resetCounters) {
+        await this.updateState({ idleSkipCount: 0, activeWorkSkipCount: 0 });
+      }
 
-    // Build prompt and log start
-    const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
-      grouped: eventCtx.grouped,
-      todayCost: budgetCheck.todayCost,
-      heartbeatCount: modeResult.heartbeatCount,
-      unconsolidated: modeResult.unconsolidated,
-      isCompaction: modeResult.isCompaction,
-      isConsolidation: modeResult.isConsolidation,
-      activeRuns: eventCtx.activeRuns,
-      pendingDecisions,
-      answeredDecisions,
-      hasPendingDecisions,
-      lastHeartbeat: state?.lastHeartbeat,
-      lastConsolidationTimestamp: modeResult.lastConsolidationTs,
-      memories: eventCtx.memories,
-      tasks: eventCtx.tasks,
-      recentActions: eventCtx.recentActions,
-      mcpServerNames: eventCtx.mcpServerNames,
-      activeDirectives: eventCtx.activeDirectives,
-    });
-    await this.activityLog.log(
-      "heartbeat",
-      `Heartbeat #${modeResult.heartbeatCount} starting (${modeLabel})`,
-      {
-        heartbeatId,
-        eventCount: eventCtx.totalEventCount,
-        messages: eventCtx.grouped.messages.length,
-        webhooks: eventCtx.grouped.webhooks.length,
-        runCompletions: eventCtx.grouped.runCompletions.length,
+      // Determine heartbeat mode
+      const modeResult = await this.determineHeartbeatMode(state);
+
+      // Build prompt and log start
+      const { prompt, modeLabel } = await this.buildHeartbeatModePrompt({
+        grouped: eventCtx.grouped,
+        todayCost: budgetCheck.todayCost,
+        heartbeatCount: modeResult.heartbeatCount,
+        unconsolidated: modeResult.unconsolidated,
+        isCompaction: modeResult.isCompaction,
         isConsolidation: modeResult.isConsolidation,
-      },
-    );
-
-    // Call SDK with timeout + shutdown abort
-    const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
-
-    // Warn if SDK stream completed without any turns — indicates silent timeout
-    if (turnCount === 0) {
+        activeRuns: eventCtx.activeRuns,
+        pendingDecisions,
+        answeredDecisions,
+        hasPendingDecisions,
+        lastHeartbeat: state?.lastHeartbeat,
+        lastConsolidationTimestamp: modeResult.lastConsolidationTs,
+        memories: eventCtx.memories,
+        tasks: eventCtx.tasks,
+        recentActions: eventCtx.recentActions,
+        mcpServerNames: eventCtx.mcpServerNames,
+        activeDirectives: eventCtx.activeDirectives,
+      });
       await this.activityLog.log(
-        "warning",
-        `Heartbeat #${modeResult.heartbeatCount} completed with turnCount=0. SDK stream may have timed out before any turns completed.`,
-        { heartbeatId },
+        "heartbeat",
+        `Heartbeat #${modeResult.heartbeatCount} starting (${modeLabel})`,
+        {
+          heartbeatId,
+          eventCount: eventCtx.totalEventCount,
+          messages: eventCtx.grouped.messages.length,
+          webhooks: eventCtx.grouped.webhooks.length,
+          runCompletions: eventCtx.grouped.runCompletions.length,
+          isConsolidation: modeResult.isConsolidation,
+        },
       );
-    }
 
-    // Handle post-SDK processing
-    await this.handlePostSdkProcessing({
-      rawEvents: eventCtx.rawEvents,
-      isConsolidation: modeResult.isConsolidation,
-      isCompaction: modeResult.isCompaction,
-      unconsolidated: modeResult.unconsolidated,
-    });
+      // Call SDK with timeout + shutdown abort
+      const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
 
-    // Build and apply state update
-    const durationMs = Date.now() - startTime;
-    const { stateUpdate } = this.buildStateUpdate({
-      state,
-      today,
-      todayCost: budgetCheck.todayCost,
-      costUsd,
-      heartbeatCount: modeResult.heartbeatCount,
-      isConsolidation: modeResult.isConsolidation,
-      isCompaction: modeResult.isCompaction,
-    });
-    await this.updateState(stateUpdate);
+      // Warn if SDK stream completed without any turns — indicates silent timeout
+      if (turnCount === 0) {
+        await this.activityLog.log(
+          "warning",
+          `Heartbeat #${modeResult.heartbeatCount} completed with turnCount=0. SDK stream may have timed out before any turns completed.`,
+          { heartbeatId },
+        );
+      }
 
-    await this.activityLog.log(
-      "heartbeat",
-      `Heartbeat #${modeResult.heartbeatCount + 1} complete (${modeLabel})`,
-      {
-        heartbeatId,
-        costUsd,
-        durationMs,
-        turnCount,
+      // Handle post-SDK processing
+      await this.handlePostSdkProcessing({
+        rawEvents: eventCtx.rawEvents,
         isConsolidation: modeResult.isConsolidation,
-      },
-    );
+        isCompaction: modeResult.isCompaction,
+        unconsolidated: modeResult.unconsolidated,
+      });
 
-    // Emit completion webhook events
-    await this.emitCompletionEvents({
-      heartbeatCount: modeResult.heartbeatCount,
-      activeRuns: eventCtx.activeRuns,
-      todayCost: budgetCheck.todayCost,
-      costUsd,
-      rawEvents: eventCtx.rawEvents,
-    });
+      // Build and apply state update
+      const durationMs = Date.now() - startTime;
+      const { stateUpdate } = this.buildStateUpdate({
+        state,
+        today,
+        todayCost: budgetCheck.todayCost,
+        costUsd,
+        heartbeatCount: modeResult.heartbeatCount,
+        isConsolidation: modeResult.isConsolidation,
+        isCompaction: modeResult.isCompaction,
+      });
+      await this.updateState(stateUpdate);
+
+      await this.activityLog.log(
+        "heartbeat",
+        `Heartbeat #${modeResult.heartbeatCount + 1} complete (${modeLabel})`,
+        {
+          heartbeatId,
+          costUsd,
+          durationMs,
+          turnCount,
+          isConsolidation: modeResult.isConsolidation,
+        },
+      );
+
+      // Emit completion webhook events
+      await this.emitCompletionEvents({
+        heartbeatCount: modeResult.heartbeatCount,
+        activeRuns: eventCtx.activeRuns,
+        todayCost: budgetCheck.todayCost,
+        costUsd,
+        rawEvents: eventCtx.rawEvents,
+      });
+    } catch (error) {
+      // Global error boundary: emit heartbeat:failure event and re-throw
+      // This ensures the daemon's outer catch handles circuit-breaker logic
+      // while also providing visibility via webhook events
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Emit failure event before re-throwing (best-effort, don't let emission failure mask original error)
+      try {
+        await this.emitHeartbeatFailure({
+          heartbeatId,
+          error: errorMsg,
+          consecutiveFailures: this.consecutiveFailures + 1,
+        });
+      } catch {
+        // Emission failed — log and continue to re-throw original error
+      }
+
+      throw error;
+    }
   }
 
   /**
@@ -1434,6 +1457,9 @@ export class HeartbeatLoop {
         case "heartbeat":
           heartbeatEventSchema.parse(event);
           break;
+        case "heartbeat_failure":
+          heartbeatFailureEventSchema.parse(event);
+          break;
         case "run_dispatched":
           runDispatchedEventSchema.parse(event);
           break;
@@ -1555,6 +1581,23 @@ export class HeartbeatLoop {
         // Best-effort: failure report errors should never crash daemon
       }
     }
+  }
+
+  /** Emit HeartbeatFailureEvent when runHeartbeat encounters an uncaught error */
+  private async emitHeartbeatFailure(opts: {
+    heartbeatId: string;
+    error: string;
+    consecutiveFailures: number;
+  }): Promise<void> {
+    const event: HeartbeatFailureEvent = {
+      type: "heartbeat_failure",
+      supervisorId: this.sessionId,
+      heartbeatId: opts.heartbeatId,
+      timestamp: new Date().toISOString(),
+      error: opts.error.slice(0, 1000), // Truncate to schema max
+      consecutiveFailures: opts.consecutiveFailures,
+    };
+    await this.emitWebhookEvent(event);
   }
 }
 
