@@ -607,14 +607,29 @@ describe("orchestrator E2E: concurrent run handling", () => {
 
     const allEvents: Array<{ type: string; runId: string }> = [];
 
+    // Promise that resolves when we've collected all 4 expected events
+    // This handles Node 22 vs Node 24 event loop timing differences
+    let resolveAllEventsCollected: () => void;
+    const allEventsCollected = new Promise<void>((resolve) => {
+      resolveAllEventsCollected = resolve;
+    });
+
+    function checkComplete() {
+      if (allEvents.length >= 4) {
+        resolveAllEventsCollected();
+      }
+    }
+
     // Attach listeners BEFORE any async operations to avoid race conditions
     // on Node 24 where event emission timing may differ
     orchestrator.on("session:start", (e) => {
       allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
+      checkComplete();
     });
 
     orchestrator.on("session:complete", (e) => {
       allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
+      checkComplete();
     });
 
     await orchestrator.start();
@@ -636,8 +651,14 @@ describe("orchestrator E2E: concurrent run handling", () => {
       }),
     ]);
 
-    // Allow microtask queue to flush for any pending event callbacks
-    await new Promise((resolve) => setImmediate(resolve));
+    // Wait for all 4 events to be collected (handles Node 22 event loop timing)
+    // Timeout after 5s to fail fast if events are truly missing
+    await Promise.race([
+      allEventsCollected,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Only collected ${allEvents.length}/4 events`)), 5000),
+      ),
+    ]);
 
     // Should have 4 events (2 starts + 2 completes)
     expect(allEvents).toHaveLength(4);
