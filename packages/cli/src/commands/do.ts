@@ -38,8 +38,13 @@ export default defineCommand({
 
     if (!running) {
       if (args.detach) {
-        const pid = await startDaemonDetached(name);
-        printSuccess(`Supervisor "${name}" started (PID ${pid})`);
+        const result = await startDaemonDetached(name);
+        if (result.error) {
+          printError(`Failed to start supervisor daemon: ${result.error}`);
+          process.exitCode = 1;
+          return;
+        }
+        printSuccess(`Supervisor "${name}" started (PID ${result.pid})`);
         // Wait briefly for daemon to initialize
         await new Promise((r) => setTimeout(r, 1500));
         running = await isDaemonRunning(name);

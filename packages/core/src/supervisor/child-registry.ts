@@ -143,7 +143,12 @@ export class ChildRegistry {
     if (!this.childrenFilePath) return;
     const handles = this.list();
     // fire-and-forget — TUI polling is tolerant of brief inconsistency
-    writeChildrenFile(this.childrenFilePath, handles).catch(() => {});
+    writeChildrenFile(this.childrenFilePath, handles).catch((err) => {
+      // biome-ignore lint/suspicious/noConsole: Debug logging for persistence failures
+      console.debug(
+        `[ChildRegistry] persistChildren failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    });
   }
 
   private resetStallTimer(supervisorId: string): void {

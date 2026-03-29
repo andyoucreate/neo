@@ -48,6 +48,11 @@ async function main(): Promise<void> {
     logStream.write(`${new Date().toISOString()} ${msg}\n`);
   }
 
+  // CRITICAL: Immediate log entry right after stream creation
+  // This ensures a trace exists even if the process crashes before any other code runs.
+  // Without this, spawn failures leave no evidence in the log file.
+  writeLog(`[worker] Process started (PID ${process.pid}), initializing...`);
+
   process.stdout.write = logStream.write.bind(logStream);
   process.stderr.write = logStream.write.bind(logStream);
 
@@ -68,7 +73,7 @@ async function main(): Promise<void> {
     });
   }
 
-  writeLog(`[worker] Starting run ${runId} (PID ${process.pid})`);
+  writeLog(`[worker] Starting run ${runId}`);
 
   const dispatchPath = getRunDispatchPath(repoSlug, runId);
   const runPath = path.join(getRepoRunsDir(repoSlug), `${runId}.json`);

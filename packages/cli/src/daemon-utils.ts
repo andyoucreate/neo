@@ -35,11 +35,24 @@ export async function isDaemonRunning(name: string): Promise<SupervisorDaemonSta
   return state;
 }
 
+export interface DaemonSpawnResult {
+  pid: number;
+  error?: undefined;
+}
+
+export interface DaemonSpawnError {
+  pid: 0;
+  error: string;
+}
+
 /**
  * Start a supervisor daemon in detached mode.
- * Returns the child process PID.
+ * Returns a Promise that resolves with the PID after spawn confirmation,
+ * or rejects with an error if spawn fails.
  */
-export async function startDaemonDetached(name: string): Promise<number> {
+export async function startDaemonDetached(
+  name: string,
+): Promise<DaemonSpawnResult | DaemonSpawnError> {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const workerPath = path.join(__dirname, "daemon", "supervisor-worker.js");
   const packageRoot = path.resolve(__dirname, "..");
@@ -48,14 +61,50 @@ export async function startDaemonDetached(name: string): Promise<number> {
   await mkdir(logDir, { recursive: true });
   const logFd = openSync(path.join(logDir, "daemon.log"), "a");
 
-  const child = spawn(process.execPath, [workerPath, name], {
-    detached: true,
-    stdio: ["ignore", logFd, logFd],
-    cwd: packageRoot,
-    env: process.env,
-  });
-  child.unref();
-  closeSync(logFd);
+  return new Promise((resolve) => {
+    let resolved = false;
+    let fdClosed = false;
+    const safeResolve = (result: DaemonSpawnResult | DaemonSpawnError) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      if (!fdClosed) {
+        fdClosed = true;
+        closeSync(logFd);
+      }
+      resolve(result);
+    };
 
-  return child.pid ?? 0;
+    const child = spawn(process.execPath, [workerPath, name], {
+      detached: true,
+      stdio: ["ignore", logFd, logFd],
+      cwd: packageRoot,
+      env: process.env,
+    });
+
+    // Capture spawn errors before unref() - these would otherwise be silently discarded
+    child.on("error", (err) => {
+      safeResolve({ pid: 0, error: err.message });
+    });
+
+    // Wait for 'spawn' event to confirm process started successfully
+    child.on("spawn", () => {
+      child.unref();
+      if (child.pid) {
+        safeResolve({ pid: child.pid });
+      } else {
+        safeResolve({ pid: 0, error: "Spawn succeeded but no PID assigned" });
+      }
+    });
+
+    // Safety timeout in case neither event fires (shouldn't happen)
+    const timer = setTimeout(() => {
+      child.unref();
+      if (child.pid) {
+        safeResolve({ pid: child.pid });
+      } else {
+        safeResolve({ pid: 0, error: "Spawn timeout - no PID available" });
+      }
+    }, 1000);
+  });
 }
