@@ -210,6 +210,7 @@ export class MemoryStore {
       }
 
       // Log the error with context so users know migration failed
+      // biome-ignore lint/suspicious/noConsole: Intentional error logging for migration failures
       console.error(
         "[neo] Memory schema migration failed. The database may be in an inconsistent state.",
         "\n  Error:",
