@@ -229,6 +229,37 @@ export const NEO_COMMANDS: CommandSection[] = [
     ],
   },
   {
+    title: "Directives",
+    preamble: "Standing instructions for idle time:",
+    commands: [
+      {
+        name: "neo directive create",
+        syntax:
+          'neo directive create "<action>" [--trigger idle] [--duration "2h" | "until midnight"] [--priority 5]',
+        description: "Create a persistent directive",
+        compactSyntax: 'neo directive create "<action>" [--duration "2h"]',
+      },
+      {
+        name: "neo directive list",
+        syntax: "neo directive list",
+        description: "list all directives",
+        compactSyntax: "neo directive list",
+      },
+      {
+        name: "neo directive toggle",
+        syntax: "neo directive toggle <id>",
+        description: "enable/disable a directive",
+      },
+      {
+        name: "neo directive delete",
+        syntax: "neo directive delete <id>",
+        description: "delete a directive",
+      },
+    ],
+    sectionNotes:
+      "Directives execute during idle time, sorted by priority. Use for recurring tasks like exploration or maintenance.",
+  },
+  {
     title: "Reporting",
     commands: [
       {
@@ -386,6 +417,18 @@ export function buildCommandsCompact(commands: CommandSection[]): string {
       .join(" \u00b7 ");
     if (compactChild) {
       lines.push(compactChild);
+    }
+  }
+
+  // Group 7: Directives
+  const directiveSection = commands.find((s) => s.title === "Directives");
+  if (directiveSection) {
+    const compactDirectives = directiveSection.commands
+      .filter((c) => c.compactSyntax)
+      .map((c) => `\`${c.compactSyntax}\``)
+      .join(" · ");
+    if (compactDirectives) {
+      lines.push(compactDirectives);
     }
   }
 

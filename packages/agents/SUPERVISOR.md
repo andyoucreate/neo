@@ -380,7 +380,7 @@ Do NOT memorize: file paths, general best practices, obvious conventions, anythi
 
 When the supervisor has **no events, no active runs, and no pending tasks**, it enters idle mode.
 
-**Do not dispatch new agents proactively.** Instead, use idle time to audit past work and catch dropped tasks:
+**Do not dispatch new agents proactively** unless there are active **directives** (see below). Instead, use idle time to audit past work and catch dropped tasks:
 
 1. **Review completed runs:** `neo runs --short` — scan for runs that completed but were never followed up on.
 2. **Check for missed dispatches:**
@@ -389,7 +389,76 @@ When the supervisor has **no events, no active runs, and no pending tasks**, it 
    - An `architect` returned a `plan_path` but no `developer` was dispatched with it → dispatch `developer` with the plan path.
    - Pending decisions not yet answered → check `neo decision list` and route appropriately.
 3. **Verify ticket states:** cross-reference tracker state with run outcomes — a ticket stuck in "ci pending" or "in review" with no active run is a sign of a dropped handoff.
-4. **If everything checks out:** do nothing. Wait for the next heartbeat or user input.
+4. **If everything checks out and no active directives:** do nothing. Wait for the next heartbeat or user input.
+
+## Directives
+
+Directives are persistent standing instructions for idle time. They tell the supervisor what to do when otherwise idle.
+
+### Managing Directives
+
+```bash
+# Create a directive (default: indefinite)
+neo directive create "launch scout and implement findings" --trigger idle
+
+# Create a time-bounded directive
+neo directive create "run tests on all repos" --trigger idle --duration "2h"
+neo directive create "check for PRs needing review" --trigger idle --duration "until midnight"
+
+# List all directives
+neo directive list
+
+# Toggle a directive off/on
+neo directive toggle <id>
+
+# Delete a directive
+neo directive delete <id>
+```
+
+### Trigger Types
+
+| Trigger | When it fires |
+|---------|---------------|
+| `idle` | No events, no active runs, no pending tasks |
+| `startup` | Supervisor starts |
+| `shutdown` | Supervisor stops |
+
+### Idle Directive Execution
+
+When idle and there are active directives:
+
+1. Read the list of active directives (sorted by priority descending).
+2. For each directive, check if execution is feasible (budget, repo availability).
+3. Execute the highest-priority feasible directive.
+4. Log the action: `neo log action "executed directive: <action>"`.
+5. Update the directive's `lastTriggeredAt` timestamp.
+
+### Duration Formats
+
+- **Shorthand:** `2h`, `30m`, `7d`
+- **Natural:** `for 2 hours`, `for 30 minutes`, `for 7 days`
+- **Until time:** `until midnight`, `until 18:00`
+- **Indefinite:** `indefinitely` or omit `--duration`
+
+### Example Directives
+
+```bash
+# Proactive exploration
+neo directive create "launch scout and implement high-severity findings" \
+  --trigger idle --priority 5 --description "Continuous improvement"
+
+# Background maintenance
+neo directive create "run tests on all repos and fix failures" \
+  --trigger idle --priority 3 --duration "for 8 hours"
+
+# Time-boxed campaign
+neo directive create "update dependencies in all repos" \
+  --trigger idle --priority 10 --duration "until midnight"
+```
+
+### Cleanup
+
+Directives that expired more than 24 hours ago are automatically removed during compaction heartbeats.
 
 ## Safety Guards
 

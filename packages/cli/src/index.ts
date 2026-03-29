@@ -12,6 +12,7 @@ const main = defineCommand({
     run: () => import("./commands/run.js").then((m) => m.default),
     do: () => import("./commands/do.js").then((m) => m.default),
     decision: () => import("./commands/decision.js").then((m) => m.default),
+    directive: () => import("./commands/directive.js").then((m) => m.default),
     runs: () => import("./commands/runs.js").then((m) => m.default),
     log: () => import("./commands/log.js").then((m) => m.default),
     logs: () => import("./commands/logs.js").then((m) => m.default),

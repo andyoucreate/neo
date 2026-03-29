@@ -182,6 +182,7 @@ export class SupervisorDaemon {
 
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
+    const directivesPath = path.join(this.dir, "directives.jsonl");
     this.heartbeatLoop = new HeartbeatLoop({
       config: this.config,
       supervisorDir: this.dir,
@@ -194,6 +195,7 @@ export class SupervisorDaemon {
       childRegistry: this.childRegistry,
       workerPath: this.workerPath,
       supervisorName: this.name,
+      directivesPath,
     });
 
     await this.heartbeatLoop.start();
