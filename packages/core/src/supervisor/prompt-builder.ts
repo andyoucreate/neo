@@ -1073,7 +1073,10 @@ export function buildStandardPrompt(opts: PromptOptions): string {
  * Build the consolidation heartbeat prompt (1 out of 5 heartbeats).
  */
 export function buildConsolidationPrompt(opts: ConsolidationPromptOptions): string {
-  const instructionParts = buildBaseInstructions(opts, { includeExamples: true });
+  // Only include verbose examples in the first 3 heartbeats to reduce token waste
+  const instructionParts = buildBaseInstructions(opts, {
+    includeExamples: opts.heartbeatCount <= 3,
+  });
 
   instructionParts.push(
     `### Consolidation
@@ -1104,7 +1107,10 @@ If there IS active work, your job:
  * Build the compaction heartbeat prompt (every ~50 heartbeats).
  */
 export function buildCompactionPrompt(opts: ConsolidationPromptOptions): string {
-  const instructionParts = buildBaseInstructions(opts, { includeExamples: true });
+  // Only include verbose examples in the first 3 heartbeats to reduce token waste
+  const instructionParts = buildBaseInstructions(opts, {
+    includeExamples: opts.heartbeatCount <= 3,
+  });
 
   instructionParts.push(`### Compaction
 This is a COMPACTION heartbeat. Deep-clean your ENTIRE memory.

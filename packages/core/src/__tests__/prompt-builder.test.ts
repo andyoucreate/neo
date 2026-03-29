@@ -189,6 +189,31 @@ describe("buildStandardPrompt", () => {
     expect(result).toContain("Recurring review issues:");
     expect(result).toContain("[input_validation] Missing validation");
   });
+
+  it("uses full commands reference for early heartbeats (HB <= 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 3 };
+    const result = buildStandardPrompt(opts);
+    // Full reference includes the detailed flag table
+    expect(result).toContain("| Flag | Required | Description |");
+  });
+
+  it("uses compact commands reference for later heartbeats (HB > 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 4 };
+    const result = buildStandardPrompt(opts);
+    // Compact reference uses single-line format
+    expect(result).toContain("Commands (reference)");
+    // Should NOT include the detailed table
+    expect(result).not.toContain("| Flag | Required |");
+  });
+
+  it("never includes memory examples (standard prompt)", () => {
+    // Standard prompt should never include verbose examples, regardless of HB
+    const earlyResult = buildStandardPrompt({ ...baseOpts(), heartbeatCount: 1 });
+    const laterResult = buildStandardPrompt({ ...baseOpts(), heartbeatCount: 10 });
+
+    expect(earlyResult).not.toContain("<memory-examples>");
+    expect(laterResult).not.toContain("<memory-examples>");
+  });
 });
 
 // ─── buildConsolidationPrompt ───────────────────────────
@@ -374,7 +399,8 @@ describe("buildConsolidationPrompt", () => {
   it("includes neo memory write instructions", () => {
     const result = buildConsolidationPrompt(baseOpts());
     expect(result).toContain("neo memory write");
-    expect(result).toContain("neo memory forget");
+    // After HB#3, compact format uses "write|update|forget|..." instead of separate commands
+    expect(result).toMatch(/neo memory (write\|update\|)?forget/);
   });
 
   it("does NOT include the standard heartbeat footer", () => {
@@ -392,6 +418,37 @@ describe("buildConsolidationPrompt", () => {
     const result = buildConsolidationPrompt(baseOpts());
     expect(result).toContain("CONSOLIDATION heartbeat");
     expect(result).toContain("Review memory");
+  });
+
+  it("includes memory examples for early heartbeats (HB <= 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 3 };
+    const result = buildConsolidationPrompt(opts);
+    // Memory examples section is verbose with full example commands
+    expect(result).toContain("<memory-examples>");
+    expect(result).toContain('neo memory write --type focus --expires 2h "ACTIVE:');
+  });
+
+  it("excludes memory examples for later heartbeats (HB > 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 4 };
+    const result = buildConsolidationPrompt(opts);
+    // Memory examples should NOT be included after HB #3 to save tokens
+    expect(result).not.toContain("<memory-examples>");
+  });
+
+  it("uses compact commands reference for later heartbeats (HB > 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 10 };
+    const result = buildConsolidationPrompt(opts);
+    // Compact reference uses single-line format
+    expect(result).toContain("Commands (reference)");
+    // Full reference has a detailed table with "| Flag | Required |"
+    expect(result).not.toContain("| Flag | Required |");
+  });
+
+  it("uses full commands reference for early heartbeats (HB <= 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 3 };
+    const result = buildConsolidationPrompt(opts);
+    // Full reference includes the detailed table
+    expect(result).toContain("| Flag | Required | Description |");
   });
 });
 
@@ -668,6 +725,38 @@ describe("buildCompactionPrompt", () => {
     });
     expect(result).toContain("Custom instructions");
     expect(result).toContain("Keep security-related facts.");
+  });
+
+  it("includes memory examples for early heartbeats (HB <= 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 2 };
+    const result = buildCompactionPrompt(opts);
+    // Memory examples section is verbose with full example commands
+    expect(result).toContain("<memory-examples>");
+    expect(result).toContain('neo memory write --type focus --expires 2h "ACTIVE:');
+  });
+
+  it("excludes memory examples for later heartbeats (HB > 3)", () => {
+    // Compaction typically happens at HB #50, but test the boundary
+    const opts = { ...baseOpts(), heartbeatCount: 50 };
+    const result = buildCompactionPrompt(opts);
+    // Memory examples should NOT be included after HB #3 to save tokens
+    expect(result).not.toContain("<memory-examples>");
+  });
+
+  it("uses compact commands reference for later heartbeats (HB > 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 50 };
+    const result = buildCompactionPrompt(opts);
+    // Compact reference uses single-line format
+    expect(result).toContain("Commands (reference)");
+    // Full reference has a detailed table with "| Flag | Required |"
+    expect(result).not.toContain("| Flag | Required |");
+  });
+
+  it("uses full commands reference for early heartbeats (HB <= 3)", () => {
+    const opts = { ...baseOpts(), heartbeatCount: 3 };
+    const result = buildCompactionPrompt(opts);
+    // Full reference includes the detailed table
+    expect(result).toContain("| Flag | Required | Description |");
   });
 });
 
