@@ -4,6 +4,7 @@ import {
   type SessionOptions,
   type SessionResult,
 } from "@/runner/session";
+import { sleep } from "@/shared/time";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -76,12 +77,6 @@ function getStrategy(attempt: number): string {
     default:
       return "fresh";
   }
-}
-
-// ─── Sleep utility ──────────────────────────────────────
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ─── Error handling ─────────────────────────────────────
