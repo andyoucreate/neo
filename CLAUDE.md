@@ -30,6 +30,7 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 - Recovery escalation: normal → resume session → fresh session (3 levels, per ADR-020)
 - Persisted runs: .neo/runs/<runId>.json written after EVERY step — enables cross-process resume
 - Agent extends: $inherited token in tools array keeps parent tools, promptAppend adds to inherited prompt
+- Race condition prevention: wrap appendFile calls in withWriteLock() for atomic operations — see decision-store.ts and jsonl-supervisor-store.ts (fixed in PR#197, PR#198)
 
 # Do NOT
 - Do not merge branches automatically — neo creates branches/PRs but NEVER merges (destructive, irreversible). **Exception:** in `autoDecide` mode, the supervisor MAY merge branches when it judges the PR is ready (CI green, review passed)
