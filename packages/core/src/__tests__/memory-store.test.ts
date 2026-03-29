@@ -433,6 +433,267 @@ describe("MemoryStore", () => {
     });
   });
 
+  describe("schema migration from old to new", () => {
+    it("migrates existing database with old schema types to new schema", async () => {
+      const dbPath = path.join(TMP_DIR, "old-schema.sqlite");
+
+      // Create database with OLD schema (fact, procedure, feedback, episode, task, focus)
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // Old schema with old CHECK constraint
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','feedback','episode','task','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+      `);
+
+      // Insert data with old types
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES
+          ('fact_1', 'fact', 'global', 'TypeScript is used', 'user', '2024-01-01', '2024-01-01'),
+          ('proc_1', 'procedure', '/repo/a', 'Run pnpm build first', 'user', '2024-01-02', '2024-01-02'),
+          ('feed_1', 'feedback', 'global', 'Always run tests', 'reviewer', '2024-01-03', '2024-01-03'),
+          ('focus_1', 'focus', 'global', 'Current task focus', 'user', '2024-01-04', '2024-01-04');
+      `);
+      db.close();
+
+      // Open with MemoryStore — migration should run automatically
+      const store = new MemoryStore(dbPath);
+
+      // Verify migration was successful
+      // 1. fact → knowledge with subtype=fact
+      const knowledge = store.query({ types: ["knowledge"] });
+      expect(knowledge).toHaveLength(2); // fact_1 and proc_1
+
+      const factEntry = knowledge.find((e) => e.id === "fact_1");
+      expect(factEntry).toBeDefined();
+      expect(factEntry?.type).toBe("knowledge");
+      expect(factEntry?.subtype).toBe("fact");
+      expect(factEntry?.content).toBe("TypeScript is used");
+
+      // 2. procedure → knowledge with subtype=procedure
+      const procEntry = knowledge.find((e) => e.id === "proc_1");
+      expect(procEntry).toBeDefined();
+      expect(procEntry?.type).toBe("knowledge");
+      expect(procEntry?.subtype).toBe("procedure");
+
+      // 3. feedback → warning
+      const warnings = store.query({ types: ["warning"] });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]?.id).toBe("feed_1");
+      expect(warnings[0]?.type).toBe("warning");
+
+      // 4. focus stays as focus
+      const focus = store.query({ types: ["focus"] });
+      expect(focus).toHaveLength(1);
+      expect(focus[0]?.id).toBe("focus_1");
+      expect(focus[0]?.type).toBe("focus");
+
+      // 5. New writes should work with new types
+      const newId = await store.write({
+        type: "knowledge",
+        scope: "global",
+        content: "New knowledge entry",
+        source: "user",
+        subtype: "fact",
+      });
+      expect(newId).toBeDefined();
+
+      const allKnowledge = store.query({ types: ["knowledge"] });
+      expect(allKnowledge).toHaveLength(3); // 2 migrated + 1 new
+
+      store.close();
+    });
+
+    it("preserves data integrity during migration", async () => {
+      const dbPath = path.join(TMP_DIR, "integrity-test.sqlite");
+
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // Old schema
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','feedback','episode','task','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 5,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, tags, created_at, last_accessed_at, access_count, category)
+        VALUES ('test_1', 'fact', '/my/repo', 'Important fact', 'developer', '["tag1","tag2"]', '2024-06-15T10:00:00Z', '2024-06-20T15:30:00Z', 42, 'testing');
+      `);
+      db.close();
+
+      const store = new MemoryStore(dbPath);
+
+      const results = store.query({ types: ["knowledge"] });
+      expect(results).toHaveLength(1);
+
+      const entry = results[0];
+      expect(entry?.id).toBe("test_1");
+      expect(entry?.type).toBe("knowledge");
+      expect(entry?.subtype).toBe("fact");
+      expect(entry?.scope).toBe("/my/repo");
+      expect(entry?.content).toBe("Important fact");
+      expect(entry?.source).toBe("developer");
+      expect(entry?.tags).toEqual(["tag1", "tag2"]);
+      expect(entry?.createdAt).toBe("2024-06-15T10:00:00Z");
+      expect(entry?.lastAccessedAt).toBe("2024-06-20T15:30:00Z");
+      expect(entry?.accessCount).toBe(42);
+      expect(entry?.category).toBe("testing");
+
+      store.close();
+    });
+
+    it("deletes episode and task entries during migration", async () => {
+      const dbPath = path.join(TMP_DIR, "delete-test.sqlite");
+
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','feedback','episode','task','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+      `);
+
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES
+          ('fact_1', 'fact', 'global', 'Keep me', 'user', '2024-01-01', '2024-01-01'),
+          ('episode_1', 'episode', 'global', 'Delete me', 'user', '2024-01-01', '2024-01-01'),
+          ('task_1', 'task', 'global', 'Delete me too', 'user', '2024-01-01', '2024-01-01');
+      `);
+      db.close();
+
+      const store = new MemoryStore(dbPath);
+
+      // Only fact_1 should remain (as knowledge)
+      const all = store.query({});
+      expect(all).toHaveLength(1);
+      expect(all[0]?.id).toBe("fact_1");
+      expect(all[0]?.type).toBe("knowledge");
+
+      store.close();
+    });
+
+    it("preserves FTS search functionality after migration", async () => {
+      const dbPath = path.join(TMP_DIR, "fts-migration.sqlite");
+
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // Create old schema with FTS
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','feedback','episode','task','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+
+        CREATE VIRTUAL TABLE memories_fts USING fts5(
+          content,
+          content='memories',
+          content_rowid='rowid',
+          tokenize='porter'
+        );
+
+        CREATE TRIGGER memories_ai AFTER INSERT ON memories BEGIN
+          INSERT INTO memories_fts(rowid, content) VALUES (new.rowid, new.content);
+        END;
+      `);
+
+      // Insert searchable data
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES
+          ('fact_1', 'fact', 'global', 'TypeScript is a typed superset of JavaScript', 'user', '2024-01-01', '2024-01-01'),
+          ('proc_1', 'procedure', 'global', 'Always run pnpm build before deployment', 'user', '2024-01-02', '2024-01-02');
+      `);
+      db.close();
+
+      // Open with MemoryStore — migration should run and rebuild FTS
+      const store = new MemoryStore(dbPath);
+
+      // Verify migrated data is searchable
+      const tsResults = await store.search("TypeScript");
+      expect(tsResults.length).toBeGreaterThanOrEqual(1);
+      expect(tsResults[0]?.content).toContain("TypeScript");
+      expect(tsResults[0]?.type).toBe("knowledge");
+
+      const buildResults = await store.search("pnpm build");
+      expect(buildResults.length).toBeGreaterThanOrEqual(1);
+      expect(buildResults[0]?.content).toContain("pnpm build");
+
+      // Verify new entries are also searchable
+      await store.write({
+        type: "knowledge",
+        scope: "global",
+        content: "Vitest is the testing framework",
+        source: "user",
+        subtype: "fact",
+      });
+
+      const vitestResults = await store.search("Vitest testing");
+      expect(vitestResults.length).toBeGreaterThanOrEqual(1);
+      expect(vitestResults[0]?.content).toContain("Vitest");
+
+      store.close();
+    });
+  });
+
   describe("migration error handling", () => {
     it("logs error to console.error when migration fails", async () => {
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -449,7 +710,7 @@ describe("MemoryStore", () => {
       const Database = (await import("better-sqlite3")).default;
       const db = new Database(dbPath);
 
-      // The comment below contains 'fact' which triggers hasOldTypes check in migrateSchema()
+      // The comment below contains 'fact' which triggers hasOldTypes check in migrateSchemaIfNeeded()
       // No CHECK constraint so we can insert invalid type data
       db.exec(`
         CREATE TABLE memories (

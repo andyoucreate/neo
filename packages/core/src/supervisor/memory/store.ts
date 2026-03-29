@@ -36,7 +36,12 @@ export class MemoryStore {
   // ─── Schema initialization ───────────────────────────
 
   private initSchema(): void {
-    // Create table with new type constraint
+    // CRITICAL: Check for existing table with old schema BEFORE creating new table
+    // The old schema has CHECK(type IN ('fact','procedure','feedback','episode','task','focus'))
+    // We must migrate existing data before applying new CHECK constraint
+    this.migrateSchemaIfNeeded();
+
+    // Create table with new type constraint (only runs if table doesn't exist)
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS memories (
         id TEXT PRIMARY KEY,
@@ -59,9 +64,6 @@ export class MemoryStore {
       CREATE INDEX IF NOT EXISTS idx_mem_type_scope ON memories(type, scope);
       CREATE INDEX IF NOT EXISTS idx_mem_created ON memories(created_at);
     `);
-
-    // Run migration from old schema if needed
-    this.migrateSchema();
 
     // FTS5 for full-text search
     this.db.exec(`
@@ -89,33 +91,31 @@ export class MemoryStore {
   }
 
   /**
-   * Migrate from old schema to new schema:
+   * Migrate from old schema to new schema BEFORE applying new constraints.
+   *
+   * This MUST run before CREATE TABLE IF NOT EXISTS with new CHECK constraints.
+   * Otherwise, existing databases with old constraints will fail UPDATE operations
+   * because the old CHECK constraint rejects new type values ('knowledge', 'warning').
+   *
+   * Migration steps:
    * - fact, procedure → knowledge (with subtype)
    * - feedback → warning
    * - episode → delete
-   * - task → migrated by TaskStore (deleted here)
+   * - task → deleted (migrated by TaskStore)
    * - Add subtype column if missing
+   * - Recreate table with new CHECK constraint
    */
-  private migrateSchema(): void {
-    // Check if we need to migrate (old types exist)
+  private migrateSchemaIfNeeded(): void {
+    // Check if table exists
     const tableInfo = this.db
       .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
       .get() as { sql: string } | undefined;
 
-    // No table yet — nothing to migrate
+    // No table yet — nothing to migrate, initSchema will create fresh
     if (!tableInfo) return;
 
-    // Check if subtype column exists
-    const hasSubtype = tableInfo.sql.includes("subtype");
-    if (!hasSubtype) {
-      try {
-        this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
-      } catch {
-        // Silent — column likely already exists (race condition or partial migration)
-      }
-    }
-
-    // Check if old types exist in the constraint
+    // Check if old types exist in the CHECK constraint
+    // This detects databases created with old schema
     const hasOldTypes =
       tableInfo.sql.includes("'fact'") ||
       tableInfo.sql.includes("'procedure'") ||
@@ -123,81 +123,97 @@ export class MemoryStore {
       tableInfo.sql.includes("'episode'") ||
       tableInfo.sql.includes("'task'");
 
-    // No old types in schema — no migration needed
+    // Already migrated or fresh schema — no migration needed
     if (!hasOldTypes) return;
 
-    // Check if there's data to migrate
-    const oldTypesExist = this.db
-      .prepare(
-        "SELECT COUNT(*) as count FROM memories WHERE type IN ('fact', 'procedure', 'feedback', 'episode', 'task')",
-      )
-      .get() as { count: number };
+    // ─── Migration required ───────────────────────────────
+
+    // Check if subtype column exists (may be missing in very old schemas)
+    const hasSubtype = tableInfo.sql.includes("subtype");
+    if (!hasSubtype) {
+      try {
+        this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
+      } catch {
+        // Column may already exist — race condition or partial migration
+      }
+    }
 
     // Migrate in a transaction
     this.db.exec("BEGIN TRANSACTION");
     try {
-      // Capture subtypes before migration
+      // Step 1: Rename old table
+      this.db.exec("ALTER TABLE memories RENAME TO memories_old");
+
+      // Step 2: Create new table with new CHECK constraint
       this.db.exec(`
-        UPDATE memories SET subtype = 'fact' WHERE type = 'fact';
-        UPDATE memories SET subtype = 'procedure' WHERE type = 'procedure';
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT,
+          subtype TEXT
+        )
       `);
 
-      // Migrate fact and procedure to knowledge
+      // Step 3: Migrate data with type conversion in the INSERT
+      // - fact, procedure → knowledge (with subtype preserving original)
+      // - feedback → warning
+      // - focus → focus (unchanged)
+      // - episode, task → deleted (not inserted)
       this.db.exec(`
-        UPDATE memories SET type = 'knowledge' WHERE type IN ('fact', 'procedure');
+        INSERT INTO memories (
+          id, type, scope, content, source, tags, created_at, last_accessed_at,
+          access_count, expires_at, outcome, run_id, category, severity, subtype
+        )
+        SELECT
+          id,
+          CASE
+            WHEN type IN ('fact', 'procedure') THEN 'knowledge'
+            WHEN type = 'feedback' THEN 'warning'
+            ELSE type
+          END,
+          scope, content, source, tags, created_at, last_accessed_at,
+          access_count, expires_at, outcome, run_id, category, severity,
+          CASE
+            WHEN type = 'fact' THEN 'fact'
+            WHEN type = 'procedure' THEN 'procedure'
+            ELSE subtype
+          END
+        FROM memories_old
+        WHERE type NOT IN ('episode', 'task')
       `);
 
-      // Migrate feedback to warning
+      // Step 4: Drop old table
+      this.db.exec("DROP TABLE memories_old");
+
+      // Step 5: Create indexes
       this.db.exec(`
-        UPDATE memories SET type = 'warning' WHERE type = 'feedback';
+        CREATE INDEX IF NOT EXISTS idx_mem_type_scope ON memories(type, scope);
+        CREATE INDEX IF NOT EXISTS idx_mem_created ON memories(created_at);
       `);
 
-      // Delete episodes (write-only, never read)
-      this.db.exec(`
-        DELETE FROM memories WHERE type = 'episode';
-      `);
-
-      // Delete tasks (migrated by TaskStore)
-      this.db.exec(`
-        DELETE FROM memories WHERE type = 'task';
-      `);
-
-      // Set default subtype for knowledge entries without one
-      this.db.exec(`
-        UPDATE memories SET subtype = 'fact' WHERE type = 'knowledge' AND subtype IS NULL;
-      `);
-
-      // Only recreate table if there were old types in the constraint
-      if (oldTypesExist.count > 0 || hasOldTypes) {
-        // Recreate table with new constraint
-        this.db.exec(`
-          ALTER TABLE memories RENAME TO memories_old;
-
-          CREATE TABLE memories (
-            id TEXT PRIMARY KEY,
-            type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
-            scope TEXT NOT NULL,
-            content TEXT NOT NULL,
-            source TEXT NOT NULL,
-            tags TEXT DEFAULT '[]',
-            created_at TEXT NOT NULL,
-            last_accessed_at TEXT NOT NULL,
-            access_count INTEGER DEFAULT 0,
-            expires_at TEXT,
-            outcome TEXT,
-            run_id TEXT,
-            category TEXT,
-            severity TEXT,
-            subtype TEXT
-          );
-
-          INSERT INTO memories SELECT
-            id, type, scope, content, source, tags, created_at, last_accessed_at,
-            access_count, expires_at, outcome, run_id, category, severity, subtype
-          FROM memories_old;
-
-          DROP TABLE memories_old;
-        `);
+      // Step 6: Rebuild FTS index if it exists
+      // After migration, the FTS table may have stale data pointing to old rowids
+      // We need to rebuild it with the migrated content
+      const ftsExists = this.db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memories_fts'")
+        .get();
+      if (ftsExists) {
+        // Clear and rebuild FTS index from migrated data
+        this.db.exec("DELETE FROM memories_fts");
+        this.db.exec(
+          "INSERT INTO memories_fts(rowid, content) SELECT rowid, content FROM memories",
+        );
       }
 
       this.db.exec("COMMIT");
