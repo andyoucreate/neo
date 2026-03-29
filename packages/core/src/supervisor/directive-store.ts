@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync } from "node:fs";
-import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { appendFile, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
@@ -290,7 +290,12 @@ export class DirectiveStore {
     const lines = Array.from(map.values())
       .map((d) => JSON.stringify(d))
       .join("\n");
-    await writeFile(this.filePath, lines ? `${lines}\n` : "", "utf-8");
+    const content = lines ? `${lines}\n` : "";
+
+    // Write atomically: temp file then rename to prevent corruption on crash
+    const tempPath = `${this.filePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, content, "utf-8");
+    await rename(tempPath, this.filePath);
   }
 
   private async append(directive: Directive): Promise<void> {
