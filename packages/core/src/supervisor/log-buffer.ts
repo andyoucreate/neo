@@ -271,17 +271,20 @@ export function buildAgentDigest(entries: LogBufferEntry[]): string {
 
 /**
  * Append a single entry to the log buffer file.
+ * Uses a mutex to serialize concurrent calls and prevent race conditions.
  */
 export async function appendLogBuffer(dir: string, entry: LogBufferEntry): Promise<void> {
-  try {
-    // Ensure directory exists (appendFile will create the file but not the dir)
-    await appendFile(bufferPath(dir), `${JSON.stringify(entry)}\n`, "utf-8");
-  } catch (err) {
-    // Best-effort — don't crash the CLI if buffer write fails
-    console.debug(
-      `[log-buffer] Failed to append entry: ${err instanceof Error ? err.message : String(err)}`,
-    );
-  }
+  return withWriteLock(dir, async () => {
+    try {
+      // Ensure directory exists (appendFile will create the file but not the dir)
+      await appendFile(bufferPath(dir), `${JSON.stringify(entry)}\n`, "utf-8");
+    } catch (err) {
+      // Best-effort — don't crash the CLI if buffer write fails
+      console.debug(
+        `[log-buffer] Failed to append entry: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  });
 }
 
 /**

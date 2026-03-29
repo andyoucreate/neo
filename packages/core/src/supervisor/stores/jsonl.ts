@@ -77,7 +77,9 @@ export class JsonlSupervisorStore implements SupervisorStore {
 
   async appendActivity(supervisorId: string, entry: ActivityEntry): Promise<void> {
     const dir = await this.ensureDir(supervisorId);
-    await appendFile(path.join(dir, "activity.jsonl"), `${JSON.stringify(entry)}\n`, "utf-8");
+    await this.withWriteLock(async () => {
+      await appendFile(path.join(dir, "activity.jsonl"), `${JSON.stringify(entry)}\n`, "utf-8");
+    });
   }
 
   async getRecentActivity(supervisorId: string, limit = 50): Promise<ActivityEntry[]> {
