@@ -133,8 +133,11 @@ export class MemoryStore {
     if (!hasSubtype) {
       try {
         this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
-      } catch {
+      } catch (err) {
         // Column may already exist — race condition or partial migration
+        console.debug(
+          `[MemoryStore] ALTER TABLE add subtype skipped: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
@@ -221,8 +224,11 @@ export class MemoryStore {
       // Attempt rollback — may fail if transaction already aborted
       try {
         this.db.exec("ROLLBACK");
-      } catch {
+      } catch (rbErr) {
         // Rollback failed — transaction may already be aborted
+        console.debug(
+          `[MemoryStore] Migration rollback failed: ${rbErr instanceof Error ? rbErr.message : String(rbErr)}`,
+        );
       }
 
       // Log the error with context so users know migration failed
@@ -422,8 +428,11 @@ export class MemoryStore {
           score: Math.max(0, Math.min(1, score)),
         };
       });
-    } catch {
+    } catch (err) {
       // FTS query syntax error — fall back to LIKE
+      console.debug(
+        `[MemoryStore] FTS search failed, falling back to LIKE: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return this.query(opts).map((e) => ({ ...e, score: 0 }));
     }
   }
@@ -542,7 +551,10 @@ function rowToEntry(row: RawMemoryRow): MemoryEntry {
   let tags: string[] = [];
   try {
     tags = JSON.parse(row.tags);
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[MemoryStore] Failed to parse tags JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
     tags = [];
   }
 

@@ -13,7 +13,10 @@ export async function loadAgentFile(filePath: string): Promise<AgentConfig> {
   let raw: string;
   try {
     raw = await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[agents/loader] Failed to read agent file: ${err instanceof Error ? err.message : String(err)}`,
+    );
     throw new Error(`Agent file not found: ${filePath}`);
   }
 

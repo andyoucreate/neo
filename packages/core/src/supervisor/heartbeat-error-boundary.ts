@@ -173,10 +173,12 @@ export class HeartbeatErrorBoundary {
 
     try {
       await this.onWebhookEvent(event);
-    } catch {
+    } catch (err) {
       // Emission failed - log to console.debug and continue
       // biome-ignore lint/suspicious/noConsole: Debug logging for emission failure
-      console.debug(`[neo] Webhook event emission failed for ${event.type}`);
+      console.debug(
+        `[neo] Webhook event emission failed for ${event.type}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 
@@ -190,10 +192,12 @@ export class HeartbeatErrorBoundary {
   ): Promise<void> {
     try {
       await this.activityLog.log(level, message, detail);
-    } catch {
+    } catch (err) {
       // Log failed - fallback to console.debug
       // biome-ignore lint/suspicious/noConsole: Debug fallback for log failure
-      console.debug(`[neo] Activity log failed: ${message}`);
+      console.debug(
+        `[neo] Activity log failed: ${message} (error: ${err instanceof Error ? err.message : String(err)})`,
+      );
     }
   }
 

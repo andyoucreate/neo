@@ -72,7 +72,10 @@ async function loadAndModifyConfig(
   try {
     const raw = await readFile(configPath, "utf-8");
     config = (parseYaml(raw) as Record<string, unknown>) ?? {};
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[mcp] Config file not found, starting with empty config: ${err instanceof Error ? err.message : String(err)}`,
+    );
     config = {};
   }
 

@@ -715,12 +715,18 @@ async function readChildActivity(
     for (const line of lastLines) {
       try {
         entries.push(JSON.parse(line) as ActivityEntry);
-      } catch {
+      } catch (err) {
         /* skip malformed line */
+        console.debug(
+          `[tui] Failed to parse child activity line: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
     return entries;
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[tui] Failed to read child activity: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return [];
   }
 }

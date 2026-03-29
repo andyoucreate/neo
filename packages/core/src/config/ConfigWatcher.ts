@@ -118,9 +118,12 @@ export class ConfigWatcher extends EventEmitter {
     try {
       await this.store.load();
       this.emit("change");
-    } catch {
+    } catch (err) {
       // Silently ignore reload errors — file may be temporarily invalid
       // ConfigStore.load() already handles missing/invalid files gracefully
+      console.debug(
+        `[ConfigWatcher] Config reload failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }
