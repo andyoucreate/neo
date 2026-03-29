@@ -1,6 +1,6 @@
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryStore } from "@/supervisor/memory/store";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_memory_store_test__");
@@ -430,6 +430,86 @@ describe("MemoryStore", () => {
       expect(top[0]?.id).toBe(id2);
       expect(top[0]?.accessCount).toBe(3);
       store.close();
+    });
+  });
+
+  describe("migration error handling", () => {
+    it("logs error to console.error when migration fails", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // Create a corrupted database that will cause migration to fail
+      // We simulate this by creating a database with old schema types but
+      // with data that will fail the INSERT during table recreation
+      const dbPath = path.join(TMP_DIR, "corrupted.sqlite");
+
+      // Create database with old-style schema that will trigger migration but fail
+      // The migration check looks for 'fact' in tableInfo.sql (sqlite_master)
+      // We include 'fact' in a comment to trigger migration, but insert invalid data
+      // that will fail the new CHECK constraint during table recreation
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // The comment below contains 'fact' which triggers hasOldTypes check in migrateSchema()
+      // No CHECK constraint so we can insert invalid type data
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL, -- old types included: 'fact', 'procedure'
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT,
+          subtype TEXT
+        );
+      `);
+
+      // Insert a row with an INVALID type that will fail the new constraint
+      // The migration will try to recreate the table with new CHECK constraint,
+      // but this row with 'invalid_type' will cause the INSERT to fail
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES ('test_id', 'invalid_type', 'global', 'test', 'user', '2024-01-01', '2024-01-01');
+      `);
+      db.close();
+
+      // Now open with MemoryStore — migration should fail but log the error
+      const store = new MemoryStore(dbPath);
+
+      // Verify error was logged
+      expect(errorSpy).toHaveBeenCalled();
+      const errorCall = errorSpy.mock.calls.find((call) =>
+        String(call[0]).includes("[neo] Memory schema migration failed"),
+      );
+      expect(errorCall).toBeDefined();
+
+      // Store should still be usable (graceful degradation)
+      // The table may be in an inconsistent state, but the store object exists
+      store.close();
+      errorSpy.mockRestore();
+    });
+
+    it("does not log error when no migration is needed", () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      // Create a fresh store — no migration needed
+      const store = createStore();
+
+      // No migration errors should be logged
+      const migrationErrors = errorSpy.mock.calls.filter((call) =>
+        String(call[0]).includes("[neo] Memory schema migration"),
+      );
+      expect(migrationErrors).toHaveLength(0);
+
+      store.close();
+      errorSpy.mockRestore();
     });
   });
 });
