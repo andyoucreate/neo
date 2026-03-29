@@ -161,7 +161,8 @@ export class RunStore {
         await this.collectRunFiles();
       }
 
-      const filePath = this.runIdIndex?.get(runId);
+      // Index is guaranteed to be populated by collectRunFiles()
+      const filePath = this.runIdIndex!.get(runId);
       if (!filePath) return null;
 
       const content = await readFile(filePath, "utf-8");
