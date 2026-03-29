@@ -449,7 +449,7 @@ describe("MemoryStore", () => {
       const Database = (await import("better-sqlite3")).default;
       const db = new Database(dbPath);
 
-      // The comment below contains 'fact' which triggers hasOldTypes check in migrateSchema()
+      // The comment below contains 'fact' which triggers hasOldTypes check in migrateSchemaIfNeeded()
       // No CHECK constraint so we can insert invalid type data
       db.exec(`
         CREATE TABLE memories (
@@ -510,6 +510,190 @@ describe("MemoryStore", () => {
 
       store.close();
       errorSpy.mockRestore();
+    });
+  });
+
+  describe("schema migration from old to new", () => {
+    it("migrates existing database with old CHECK constraint (fact, procedure types)", async () => {
+      // This is the CRITICAL test case: existing DB with old schema
+      // that previously failed with SQLITE_CONSTRAINT_CHECK
+      const dbPath = path.join(TMP_DIR, "old-schema.sqlite");
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // Create table with OLD CHECK constraint (the original schema)
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','feedback','episode','task','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+      `);
+
+      // Insert data with old types
+      db.exec(`
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES
+          ('mem_fact1', 'fact', 'global', 'Uses TypeScript', 'developer', '2024-01-01', '2024-01-01'),
+          ('mem_proc1', 'procedure', '/repo/a', 'Run pnpm build', 'developer', '2024-01-02', '2024-01-02'),
+          ('mem_feed1', 'feedback', 'global', 'Always test first', 'reviewer', '2024-01-03', '2024-01-03'),
+          ('mem_focus1', 'focus', 'global', 'Current task', 'user', '2024-01-04', '2024-01-04');
+      `);
+      db.close();
+
+      // Now open with MemoryStore — migration should succeed
+      const store = new MemoryStore(dbPath);
+
+      // Verify migration worked
+      const knowledge = store.query({ types: ["knowledge"] });
+      expect(knowledge).toHaveLength(2); // fact + procedure → knowledge
+      expect(knowledge.map((m) => m.subtype).sort()).toEqual(["fact", "procedure"]);
+      expect(knowledge.find((m) => m.content === "Uses TypeScript")?.subtype).toBe("fact");
+      expect(knowledge.find((m) => m.content === "Run pnpm build")?.subtype).toBe("procedure");
+
+      const warnings = store.query({ types: ["warning"] });
+      expect(warnings).toHaveLength(1); // feedback → warning
+      expect(warnings[0]?.content).toBe("Always test first");
+
+      const focus = store.query({ types: ["focus"] });
+      expect(focus).toHaveLength(1); // focus unchanged
+      expect(focus[0]?.content).toBe("Current task");
+
+      // CRITICAL: Verify new type 'knowledge' can be written (the original bug)
+      const newId = await store.write({
+        type: "knowledge",
+        scope: "global",
+        content: "New knowledge entry",
+        source: "user",
+        subtype: "fact",
+      });
+      expect(newId).toBeDefined();
+
+      const newEntry = store.query({ types: ["knowledge"] }).find((m) => m.id === newId);
+      expect(newEntry?.content).toBe("New knowledge entry");
+
+      store.close();
+    });
+
+    it("handles existing database without subtype column", async () => {
+      const dbPath = path.join(TMP_DIR, "no-subtype.sqlite");
+      const Database = (await import("better-sqlite3")).default;
+      const db = new Database(dbPath);
+
+      // Create table with old schema WITHOUT subtype column
+      db.exec(`
+        CREATE TABLE memories (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL CHECK(type IN ('fact','procedure','focus')),
+          scope TEXT NOT NULL,
+          content TEXT NOT NULL,
+          source TEXT NOT NULL,
+          tags TEXT DEFAULT '[]',
+          created_at TEXT NOT NULL,
+          last_accessed_at TEXT NOT NULL,
+          access_count INTEGER DEFAULT 0,
+          expires_at TEXT,
+          outcome TEXT,
+          run_id TEXT,
+          category TEXT,
+          severity TEXT
+        );
+
+        INSERT INTO memories (id, type, scope, content, source, created_at, last_accessed_at)
+        VALUES ('mem_fact1', 'fact', 'global', 'A fact', 'user', '2024-01-01', '2024-01-01');
+      `);
+      db.close();
+
+      // Migration should add subtype column and migrate
+      const store = new MemoryStore(dbPath);
+
+      const knowledge = store.query({ types: ["knowledge"] });
+      expect(knowledge).toHaveLength(1);
+      expect(knowledge[0]?.subtype).toBe("fact"); // subtype was set during migration
+
+      store.close();
+    });
+
+    it("new databases work correctly with new schema", async () => {
+      // Fresh database should just work without migration
+      const store = createStore();
+
+      // Write all new types
+      await store.write({
+        type: "knowledge",
+        scope: "global",
+        content: "A knowledge fact",
+        source: "user",
+        subtype: "fact",
+      });
+      await store.write({
+        type: "warning",
+        scope: "global",
+        content: "A warning",
+        source: "user",
+      });
+      await store.write({
+        type: "focus",
+        scope: "global",
+        content: "Current focus",
+        source: "user",
+      });
+
+      const knowledge = store.query({ types: ["knowledge"] });
+      expect(knowledge).toHaveLength(1);
+
+      const warnings = store.query({ types: ["warning"] });
+      expect(warnings).toHaveLength(1);
+
+      const focus = store.query({ types: ["focus"] });
+      expect(focus).toHaveLength(1);
+
+      store.close();
+    });
+
+    it("handles database with already-migrated schema (idempotent)", async () => {
+      // Run migration twice — should be safe
+      const dbPath = path.join(TMP_DIR, "idempotent.sqlite");
+
+      // First open creates fresh DB
+      const store1 = new MemoryStore(dbPath);
+      await store1.write({
+        type: "knowledge",
+        scope: "global",
+        content: "Test entry",
+        source: "user",
+        subtype: "fact",
+      });
+      store1.close();
+
+      // Second open should not break anything
+      const store2 = new MemoryStore(dbPath);
+      const entries = store2.query({ types: ["knowledge"] });
+      expect(entries).toHaveLength(1);
+      expect(entries[0]?.content).toBe("Test entry");
+
+      // Can still write
+      await store2.write({
+        type: "knowledge",
+        scope: "global",
+        content: "Another entry",
+        source: "user",
+        subtype: "procedure",
+      });
+      expect(store2.query({ types: ["knowledge"] })).toHaveLength(2);
+
+      store2.close();
     });
   });
 });
