@@ -321,11 +321,8 @@ export class ShutdownManager {
           await this.markRunAsFailed(filePath, activityLog);
         }
       }
-    } catch (err) {
-      // Non-critical — best effort cleanup
-      console.debug(
-        `[ShutdownManager] Failed to mark orphaned runs: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch {
+      // Non-critical — best effort cleanup, silently ignore
     }
   }
 
@@ -344,11 +341,8 @@ export class ShutdownManager {
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
 
       await activityLog?.log("event", `Marked orphaned run ${run.runId} as failed`);
-    } catch (err) {
-      // Non-critical — file may be corrupt or locked
-      console.debug(
-        `[ShutdownManager] Failed to mark run as failed in ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch {
+      // Non-critical — file may be corrupt or locked, silently ignore
     }
   }
 }

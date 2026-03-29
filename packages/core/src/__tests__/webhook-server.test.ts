@@ -522,9 +522,14 @@ describe("WebhookServer", () => {
 
       expect(receivedEvents).toHaveLength(1);
       const event = receivedEvents[0];
-      expect(event?.receivedAt).toBeDefined();
-      expect(event?.receivedAt >= before).toBe(true);
-      expect(event?.receivedAt <= after).toBe(true);
+      expect(event).toBeDefined();
+      const receivedAt = event?.receivedAt;
+      expect(receivedAt).toBeDefined();
+      expect(receivedAt).not.toBeUndefined();
+      if (receivedAt) {
+        expect(receivedAt >= before).toBe(true);
+        expect(receivedAt <= after).toBe(true);
+      }
     });
   });
 });
