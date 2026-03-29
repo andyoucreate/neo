@@ -734,18 +734,24 @@ export class HeartbeatLoop {
     const { grouped, rawEvents } = this.eventQueue.drainAndGroup();
     const totalEventCount =
       grouped.messages.length + grouped.webhooks.length + grouped.runCompletions.length;
-    const activeRuns = await this.getActiveRuns();
 
     const mcpServerNames = this.config.mcpServers ? Object.keys(this.config.mcpServers) : [];
-    const store = this.getMemoryStore();
-    const memories: MemoryEntry[] = store ? store.query({ limit: 40, sortBy: "relevance" }) : [];
+
+    // Synchronous store reads (better-sqlite3 is sync)
+    const memoryStore = this.getMemoryStore();
+    const memories: MemoryEntry[] = memoryStore
+      ? memoryStore.query({ limit: 40, sortBy: "relevance" })
+      : [];
     const taskStore = this.getTaskStore();
     const tasks: TaskEntry[] = taskStore ? taskStore.getTasks() : [];
-    const recentActions = await this.activityLog.tail(20);
 
-    // Fetch active idle directives
+    // Parallel async reads to reduce latency
     const directiveStore = this.getDirectiveStore();
-    const activeDirectives: Directive[] = directiveStore ? await directiveStore.active("idle") : [];
+    const [activeRuns, recentActions, activeDirectives] = await Promise.all([
+      this.getActiveRuns(),
+      this.activityLog.tail(20),
+      directiveStore ? directiveStore.active("idle") : Promise.resolve([] as Directive[]),
+    ]);
 
     return {
       grouped,
