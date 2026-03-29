@@ -34,6 +34,8 @@ const ORPHAN_GRACE_PERIOD_MS = 30_000;
 export class RunStore {
   private readonly runsDir: string;
   private readonly createdDirs = new Set<string>();
+  /** In-memory index for O(1) lookups by runId. Null = needs rebuild. */
+  private runIdIndex: Map<string, string> | null = null;
 
   constructor(options: RunStoreOptions = {}) {
     this.runsDir = options.runsDir ?? getRunsDir();
@@ -55,6 +57,8 @@ export class RunStore {
       }
       const filePath = path.join(repoDir, `${run.runId}.json`);
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      // Invalidate index — will be rebuilt on next query
+      this.runIdIndex = null;
     } catch (err) {
       console.debug(`[neo] persistRun failed for ${run.runId}:`, err);
       // Re-throw fatal filesystem errors — these indicate system problems
@@ -89,23 +93,33 @@ export class RunStore {
   /**
    * Collect all .json run files from the runs directory tree.
    * Searches both top-level and repo subdirectories.
+   * Also populates the runIdIndex for O(1) lookups.
    */
   async collectRunFiles(): Promise<string[]> {
     const entries = await readdir(this.runsDir, { withFileTypes: true });
     const jsonFiles: string[] = [];
+    const index = new Map<string, string>();
 
     for (const entry of entries) {
       if (entry.isDirectory()) {
         const subDir = path.join(this.runsDir, entry.name);
         const subFiles = await readdir(subDir);
         for (const f of subFiles) {
-          if (f.endsWith(".json")) jsonFiles.push(path.join(subDir, f));
+          if (f.endsWith(".json")) {
+            const filePath = path.join(subDir, f);
+            jsonFiles.push(filePath);
+            // Extract runId from filename (e.g., "abc123.json" -> "abc123")
+            index.set(path.basename(f, ".json"), filePath);
+          }
         }
       } else if (entry.name.endsWith(".json")) {
-        jsonFiles.push(path.join(this.runsDir, entry.name));
+        const filePath = path.join(this.runsDir, entry.name);
+        jsonFiles.push(filePath);
+        index.set(path.basename(entry.name, ".json"), filePath);
       }
     }
 
+    this.runIdIndex = index;
     return jsonFiles;
   }
 
@@ -136,18 +150,23 @@ export class RunStore {
   /**
    * Get a specific run by ID.
    * Returns null if not found.
+   * Uses O(1) index lookup when available.
    */
   async getRunById(runId: string): Promise<PersistedRun | null> {
     if (!existsSync(this.runsDir)) return null;
 
     try {
-      const jsonFiles = await this.collectRunFiles();
-      for (const filePath of jsonFiles) {
-        if (path.basename(filePath) === `${runId}.json`) {
-          const content = await readFile(filePath, "utf-8");
-          return JSON.parse(content) as PersistedRun;
-        }
+      // Rebuild index if invalidated
+      if (!this.runIdIndex) {
+        await this.collectRunFiles();
       }
+
+      // Index is guaranteed to be populated by collectRunFiles()
+      const filePath = this.runIdIndex!.get(runId);
+      if (!filePath) return null;
+
+      const content = await readFile(filePath, "utf-8");
+      return JSON.parse(content) as PersistedRun;
     } catch (err) {
       console.debug(`[neo] getRunById failed for ${runId}:`, err);
     }
@@ -204,6 +223,7 @@ export class RunStore {
       run.blockedReason = "supervisor crashed";
       run.updatedAt = new Date().toISOString();
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+      this.runIdIndex = null; // Invalidate index after direct file write
 
       return run;
     } catch (err) {
@@ -284,6 +304,7 @@ export class RunStore {
     run.status = "failed";
     run.updatedAt = new Date().toISOString();
     await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+    this.runIdIndex = null; // Invalidate index after direct file write
 
     return run;
   }

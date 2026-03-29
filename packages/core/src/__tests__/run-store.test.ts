@@ -509,4 +509,197 @@ describe("RunStore", () => {
       expect(runIds).toEqual(["orphan", "orphan-2"]);
     });
   });
+
+  describe("getRunById", () => {
+    it("returns null when runs directory does not exist", async () => {
+      const store = new RunStore({
+        runsDir: path.join(TMP_DIR, "nonexistent"),
+      });
+
+      const result = await store.getRunById("any-id");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns null when run does not exist", async () => {
+      await mkdir(TMP_DIR, { recursive: true });
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      const result = await store.getRunById("nonexistent-run");
+
+      expect(result).toBeNull();
+    });
+
+    it("returns the correct run when found", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      const run = makeRun({ runId: "target-run", agent: "reviewer" });
+      await writeFile(path.join(repoDir, "target-run.json"), JSON.stringify(run));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+      const result = await store.getRunById("target-run");
+
+      expect(result).not.toBeNull();
+      expect(result?.runId).toBe("target-run");
+      expect(result?.agent).toBe("reviewer");
+    });
+
+    it("finds run among multiple runs", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      // Create multiple runs
+      for (const id of ["run-1", "run-2", "run-3"]) {
+        const run = makeRun({ runId: id, agent: `agent-${id}` });
+        await writeFile(path.join(repoDir, `${id}.json`), JSON.stringify(run));
+      }
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+      const result = await store.getRunById("run-2");
+
+      expect(result).not.toBeNull();
+      expect(result?.runId).toBe("run-2");
+      expect(result?.agent).toBe("agent-run-2");
+    });
+
+    it("uses cached index on subsequent calls (O(1) lookup)", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      const run = makeRun({ runId: "cached-run" });
+      await writeFile(path.join(repoDir, "cached-run.json"), JSON.stringify(run));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // First call builds the index
+      await store.getRunById("cached-run");
+
+      // Spy on collectRunFiles to verify it's not called again
+      const collectSpy = vi.spyOn(store, "collectRunFiles");
+
+      // Second call should use cached index
+      const result = await store.getRunById("cached-run");
+
+      expect(result?.runId).toBe("cached-run");
+      expect(collectSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("index invalidation and reconstruction", () => {
+    it("rebuilds index after persistRun invalidates it", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      // Create initial run file
+      const run1 = makeRun({ runId: "run-1", repo: TMP_DIR });
+      await writeFile(path.join(repoDir, "run-1.json"), JSON.stringify(run1));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Build initial index
+      await store.getRunById("run-1");
+      expect(await store.getRunById("run-1")).not.toBeNull();
+
+      // Add new run via persistRun (uses custom runsDir for this test)
+      const run2 = makeRun({ runId: "run-2", repo: TMP_DIR });
+      await writeFile(path.join(repoDir, "run-2.json"), JSON.stringify(run2));
+
+      // Manually simulate what persistRun does: invalidate index
+      // (Since persistRun writes to global dir, we write directly and call collectRunFiles)
+      const collectSpy = vi.spyOn(store, "collectRunFiles");
+
+      // Force index invalidation by calling getAllRuns (which calls collectRunFiles)
+      await store.getAllRuns();
+      collectSpy.mockClear();
+
+      // Now getRunById should find the new run after index rebuild
+      const result = await store.getRunById("run-2");
+
+      expect(result).not.toBeNull();
+      expect(result?.runId).toBe("run-2");
+    });
+
+    it("rebuilds index after recoverOrphanedRuns modifies runs", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      const deadPid = 999999999;
+      const orphanRun = makeRun({
+        runId: "orphan-run",
+        status: "running",
+        pid: deadPid,
+        createdAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+      await writeFile(path.join(repoDir, "orphan-run.json"), JSON.stringify(orphanRun));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Build initial index
+      const initialRun = await store.getRunById("orphan-run");
+      expect(initialRun?.status).toBe("running");
+
+      // Recover orphaned runs (this invalidates the index via recoverRunIfOrphaned)
+      await store.recoverOrphanedRuns();
+
+      // After recovery, getRunById should rebuild index and return updated run
+      const recoveredRun = await store.getRunById("orphan-run");
+
+      expect(recoveredRun).not.toBeNull();
+      expect(recoveredRun?.status).toBe("failed");
+    });
+
+    it("rebuilds index after scanForStaleRuns modifies runs", async () => {
+      const repoDir = path.join(TMP_DIR, "my-repo");
+      await mkdir(repoDir, { recursive: true });
+
+      const deadPid = 999999999;
+      const staleRun = makeRun({
+        runId: "stale-run",
+        status: "running",
+        pid: deadPid,
+        createdAt: new Date(Date.now() - 60_000).toISOString(),
+      });
+      await writeFile(path.join(repoDir, "stale-run.json"), JSON.stringify(staleRun));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Build initial index
+      const initialRun = await store.getRunById("stale-run");
+      expect(initialRun?.status).toBe("running");
+
+      // Scan for stale runs (this invalidates the index via recoverGhostRun)
+      await store.scanForStaleRuns();
+
+      // After scan, getRunById should rebuild index and return updated run
+      const recoveredRun = await store.getRunById("stale-run");
+
+      expect(recoveredRun).not.toBeNull();
+      expect(recoveredRun?.status).toBe("failed");
+      expect(recoveredRun?.blockedReason).toBe("supervisor crashed");
+    });
+
+    it("index correctly maps runId to file path across repos", async () => {
+      const repo1Dir = path.join(TMP_DIR, "repo-1");
+      const repo2Dir = path.join(TMP_DIR, "repo-2");
+      await mkdir(repo1Dir, { recursive: true });
+      await mkdir(repo2Dir, { recursive: true });
+
+      const run1 = makeRun({ runId: "unique-1", repo: "/tmp/repo-1" });
+      const run2 = makeRun({ runId: "unique-2", repo: "/tmp/repo-2" });
+      await writeFile(path.join(repo1Dir, "unique-1.json"), JSON.stringify(run1));
+      await writeFile(path.join(repo2Dir, "unique-2.json"), JSON.stringify(run2));
+
+      const store = new RunStore({ runsDir: TMP_DIR });
+
+      // Both runs should be found via O(1) lookup
+      const result1 = await store.getRunById("unique-1");
+      const result2 = await store.getRunById("unique-2");
+
+      expect(result1?.runId).toBe("unique-1");
+      expect(result1?.repo).toBe("/tmp/repo-1");
+      expect(result2?.runId).toBe("unique-2");
+      expect(result2?.repo).toBe("/tmp/repo-2");
+    });
+  });
 });
