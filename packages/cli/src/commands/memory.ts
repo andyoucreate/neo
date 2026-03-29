@@ -7,6 +7,14 @@ import { printError, printSuccess, printTable } from "../output.js";
 const VALID_TYPES = ["knowledge", "warning", "focus"] as const;
 const VALID_SUBTYPES = ["fact", "procedure"] as const;
 
+// Legacy type aliases for backward compatibility
+// Agents/docs may use: --type fact, --type procedure, --type feedback
+const LEGACY_TYPE_MAP: Record<string, { type: MemoryType; subtype?: KnowledgeSubtype }> = {
+  fact: { type: "knowledge", subtype: "fact" },
+  procedure: { type: "knowledge", subtype: "procedure" },
+  feedback: { type: "warning" },
+};
+
 interface ParsedArgs {
   value: string | undefined;
   type: string | undefined;
@@ -61,16 +69,29 @@ async function handleWrite(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  const type = args.type ?? "knowledge";
-  if (!VALID_TYPES.includes(type as MemoryType)) {
-    printError(`Invalid type "${type}". Must be one of: ${VALID_TYPES.join(", ")}`);
+  const inputType = args.type ?? "knowledge";
+
+  // Map legacy types (fact, procedure, feedback) to new schema
+  const legacyMapping = LEGACY_TYPE_MAP[inputType];
+  let type: MemoryType;
+  let subtype: KnowledgeSubtype | undefined;
+
+  if (legacyMapping) {
+    type = legacyMapping.type;
+    subtype = (args.subtype as KnowledgeSubtype | undefined) ?? legacyMapping.subtype;
+  } else if (VALID_TYPES.includes(inputType as MemoryType)) {
+    type = inputType as MemoryType;
+    subtype =
+      (args.subtype as KnowledgeSubtype | undefined) ?? (type === "knowledge" ? "fact" : undefined);
+  } else {
+    const allValid = [...VALID_TYPES, ...Object.keys(LEGACY_TYPE_MAP)];
+    printError(`Invalid type "${inputType}". Must be one of: ${allValid.join(", ")}`);
     process.exitCode = 1;
     return;
   }
 
   // Validate subtype for knowledge type
-  const subtype = args.subtype ?? (type === "knowledge" ? "fact" : undefined);
-  if (type === "knowledge" && subtype && !VALID_SUBTYPES.includes(subtype as KnowledgeSubtype)) {
+  if (type === "knowledge" && subtype && !VALID_SUBTYPES.includes(subtype)) {
     printError(`Invalid subtype "${subtype}". Must be one of: ${VALID_SUBTYPES.join(", ")}`);
     process.exitCode = 1;
     return;
