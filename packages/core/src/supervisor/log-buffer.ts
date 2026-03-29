@@ -8,6 +8,38 @@ const COMPACTION_AGE_MS = 24 * 60 * 60 * 1000; // 24h
 const MAX_ENTRIES_PER_RUN = 5;
 const MAX_DIGEST_ENTRIES = 30;
 
+// ─── Module-level write lock ─────────────────────────────
+// Keyed by directory path to allow concurrent operations on different buffers
+
+const writeLocks = new Map<string, Promise<void>>();
+
+/**
+ * Acquire the write lock for a directory and execute a callback.
+ * Serializes write operations per-directory to prevent race conditions.
+ */
+async function withWriteLock<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  // Chain onto the existing lock for this directory
+  const release = writeLocks.get(dir) ?? Promise.resolve();
+  let releaseLock: () => void = () => {};
+  const newLock = new Promise<void>((r) => {
+    releaseLock = r;
+  });
+  writeLocks.set(dir, newLock);
+
+  try {
+    // Wait for previous operation to complete
+    await release;
+    return await fn();
+  } finally {
+    // Release the lock for the next operation
+    releaseLock();
+    // Clean up if this was the last lock in the chain
+    if (writeLocks.get(dir) === newLock) {
+      writeLocks.delete(dir);
+    }
+  }
+}
+
 // ─── Type markers for digest formatting ─────────────────
 
 const TYPE_MARKERS: Record<string, string> = {
@@ -76,96 +108,102 @@ export async function readUnconsolidated(dir: string): Promise<LogBufferEntry[]>
 /**
  * Set consolidatedAt on entries by id.
  * Rewrites the file with updated entries.
+ * Uses a mutex to serialize concurrent calls and prevent race conditions.
  */
 export async function markConsolidated(dir: string, ids: string[]): Promise<void> {
-  const filePath = bufferPath(dir);
-  let content: string;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch (err) {
-    // Buffer file not found — nothing to mark
-    console.debug(
-      `[log-buffer] Failed to read for consolidation: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
-
-  const idSet = new Set(ids);
-  const now = new Date().toISOString();
-  const lines = content.trim().split("\n").filter(Boolean);
-  const updated: string[] = [];
-
-  for (const line of lines) {
+  return withWriteLock(dir, async () => {
+    const filePath = bufferPath(dir);
+    let content: string;
     try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (idSet.has(entry.id) && !entry.consolidatedAt) {
-        entry.consolidatedAt = now;
-      }
-      updated.push(JSON.stringify(entry));
+      content = await readFile(filePath, "utf-8");
     } catch (err) {
-      // Preserve malformed lines as-is during consolidation
+      // Buffer file not found — nothing to mark
       console.debug(
-        `[log-buffer] Preserving malformed line during consolidation: ${err instanceof Error ? err.message : String(err)}`,
+        `[log-buffer] Failed to read for consolidation: ${err instanceof Error ? err.message : String(err)}`,
       );
-      updated.push(line);
+      return;
     }
-  }
 
-  // Write atomically: temp file then rename to prevent data loss
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tempPath, `${updated.join("\n")}\n`, "utf-8");
-  await rename(tempPath, filePath);
+    const idSet = new Set(ids);
+    const now = new Date().toISOString();
+    const lines = content.trim().split("\n").filter(Boolean);
+    const updated: string[] = [];
+
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (idSet.has(entry.id) && !entry.consolidatedAt) {
+          entry.consolidatedAt = now;
+        }
+        updated.push(JSON.stringify(entry));
+      } catch (err) {
+        // Preserve malformed lines as-is during consolidation
+        console.debug(
+          `[log-buffer] Preserving malformed line during consolidation: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        updated.push(line);
+      }
+    }
+
+    // Write atomically: temp file then rename to prevent data loss
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, `${updated.join("\n")}\n`, "utf-8");
+    await rename(tempPath, filePath);
+  });
 }
 
 /**
  * Remove entries with consolidatedAt older than 24h. Cap file at 1MB.
+ * Uses a mutex to serialize concurrent calls and prevent race conditions.
  */
 export async function compactLogBuffer(dir: string): Promise<void> {
-  const filePath = bufferPath(dir);
-  let content: string;
-  try {
-    content = await readFile(filePath, "utf-8");
-  } catch (err) {
-    // Buffer file not found — nothing to compact
-    console.debug(
-      `[log-buffer] Failed to read for compaction: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return;
-  }
-
-  const now = Date.now();
-  const lines = content.trim().split("\n").filter(Boolean);
-  const kept: string[] = [];
-
-  for (const line of lines) {
+  return withWriteLock(dir, async () => {
+    const filePath = bufferPath(dir);
+    let content: string;
     try {
-      const entry = JSON.parse(line) as LogBufferEntry;
-      if (entry.consolidatedAt) {
-        const consolidatedTime = new Date(entry.consolidatedAt).getTime();
-        if (now - consolidatedTime > COMPACTION_AGE_MS) {
-          continue; // Drop old consolidated entries
-        }
-      }
-      kept.push(JSON.stringify(entry));
+      content = await readFile(filePath, "utf-8");
     } catch (err) {
-      // Drop malformed lines during compaction
+      // Buffer file not found — nothing to compact
       console.debug(
-        `[log-buffer] Dropping malformed line during compaction: ${err instanceof Error ? err.message : String(err)}`,
+        `[log-buffer] Failed to read for compaction: ${err instanceof Error ? err.message : String(err)}`,
       );
+      return;
     }
-  }
 
-  // Cap at 1MB — drop oldest entries first
-  let result = `${kept.join("\n")}\n`;
-  while (Buffer.byteLength(result, "utf-8") > MAX_FILE_BYTES && kept.length > 0) {
-    kept.shift();
-    result = `${kept.join("\n")}\n`;
-  }
+    const now = Date.now();
+    const lines = content.trim().split("\n").filter(Boolean);
+    const kept: string[] = [];
 
-  // Write atomically: temp file then rename to prevent data loss
-  const tempPath = `${filePath}.${process.pid}.tmp`;
-  await writeFile(tempPath, result, "utf-8");
-  await rename(tempPath, filePath);
+    for (const line of lines) {
+      try {
+        const entry = JSON.parse(line) as LogBufferEntry;
+        if (entry.consolidatedAt) {
+          const consolidatedTime = new Date(entry.consolidatedAt).getTime();
+          if (now - consolidatedTime > COMPACTION_AGE_MS) {
+            continue; // Drop old consolidated entries
+          }
+        }
+        kept.push(JSON.stringify(entry));
+      } catch (err) {
+        // Drop malformed lines during compaction
+        console.debug(
+          `[log-buffer] Dropping malformed line during compaction: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // Cap at 1MB — drop oldest entries first
+    let result = `${kept.join("\n")}\n`;
+    while (Buffer.byteLength(result, "utf-8") > MAX_FILE_BYTES && kept.length > 0) {
+      kept.shift();
+      result = `${kept.join("\n")}\n`;
+    }
+
+    // Write atomically: temp file then rename to prevent data loss
+    const tempPath = `${filePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, result, "utf-8");
+    await rename(tempPath, filePath);
+  });
 }
 
 // ─── Digest helpers ──────────────────────────────────────

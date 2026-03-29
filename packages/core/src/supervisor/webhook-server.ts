@@ -29,6 +29,8 @@ export class WebhookServer {
   private readonly eventsPath: string;
   private readonly onEvent: (event: WebhookIncomingEvent) => void;
   private readonly getHealth: () => Record<string, unknown>;
+  /** Promise-based mutex to serialize write operations */
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(options: WebhookServerOptions) {
     this.port = options.port;
@@ -123,7 +125,10 @@ export class WebhookServer {
     };
 
     // Disk-first: persist before pushing to memory
-    await appendFile(this.eventsPath, `${JSON.stringify(event)}\n`, "utf-8");
+    // Use write lock to prevent race conditions with concurrent webhook requests
+    await this.withWriteLock(async () => {
+      await appendFile(this.eventsPath, `${JSON.stringify(event)}\n`, "utf-8");
+    });
 
     // Push to in-memory queue
     this.onEvent(event);
@@ -157,5 +162,27 @@ export class WebhookServer {
   private sendJson(res: ServerResponse, status: number, data: unknown): void {
     res.writeHead(status, { "Content-Type": "application/json" });
     res.end(JSON.stringify(data));
+  }
+
+  /**
+   * Acquire the write lock and execute a callback.
+   * Serializes all write operations to prevent race conditions.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Chain onto the existing lock
+    const release = this.writeLock;
+    let releaseLock: () => void = () => {};
+    this.writeLock = new Promise((r) => {
+      releaseLock = r;
+    });
+
+    try {
+      // Wait for previous operation to complete
+      await release;
+      return await fn();
+    } finally {
+      // Release the lock for the next operation
+      releaseLock();
+    }
   }
 }

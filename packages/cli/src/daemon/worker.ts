@@ -144,11 +144,17 @@ async function main(): Promise<void> {
     console.error(`[worker] Run ${runId} failed: ${errorMsg}`);
 
     // Update persisted run to failed status
+    // CRITICAL: Use console.error as fallback to ensure the error is visible
+    // even if the run file write fails (prevents silent error loss)
     await updatePersistedRun(runPath, {
       status: "failed",
       updatedAt: new Date().toISOString(),
-    }).catch((err) => {
-      console.debug("[worker] Failed to update persisted run on error:", err);
+    }).catch((persistErr) => {
+      // Log to both debug and stderr to ensure visibility
+      console.debug("[worker] Failed to update persisted run on error:", persistErr);
+      console.error(
+        `[worker] CRITICAL: Run ${runId} failed with "${errorMsg}" but could not persist failure state: ${persistErr instanceof Error ? persistErr.message : String(persistErr)}`,
+      );
     });
   } finally {
     logStream.end();
