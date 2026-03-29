@@ -169,6 +169,10 @@ export class DirectiveStore {
 
   // ─── Create ────────────────────────────────────────────
 
+  /**
+   * Create a new directive and persist it.
+   * Uses a mutex to serialize concurrent calls and prevent race conditions.
+   */
   async create(input: DirectiveCreateInput): Promise<string> {
     const id = `dir_${randomUUID().slice(0, 12)}`;
     const now = new Date().toISOString();
@@ -184,7 +188,9 @@ export class DirectiveStore {
       expiresAt: input.expiresAt,
     };
 
-    await this.append(directive);
+    await this.withWriteLock(async () => {
+      await this.append(directive);
+    });
     return id;
   }
 
