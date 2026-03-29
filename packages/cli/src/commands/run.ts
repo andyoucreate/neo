@@ -8,6 +8,7 @@ import {
   AgentRegistry,
   getRepoRunsDir,
   getRunDispatchPath,
+  getWorkerStartedPath,
   loadGlobalConfig,
   Orchestrator,
   toRepoSlug,
@@ -83,6 +84,33 @@ interface DetachParams {
   jsonOutput: boolean;
 }
 
+/**
+ * Time in milliseconds to wait for worker startup confirmation.
+ * The worker writes a .started file immediately after spawning.
+ * If this file doesn't appear within the timeout, the worker likely crashed.
+ */
+const WORKER_STARTUP_TIMEOUT_MS = 5000;
+
+/**
+ * Polling interval for checking if the worker has started.
+ */
+const WORKER_STARTUP_POLL_MS = 100;
+
+/**
+ * Wait for the worker to write its startup confirmation file.
+ * Returns true if the worker started successfully, false if it timed out.
+ */
+async function waitForWorkerStartup(startedPath: string, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (existsSync(startedPath)) {
+      return true;
+    }
+    await new Promise((resolve) => setTimeout(resolve, WORKER_STARTUP_POLL_MS));
+  }
+  return false;
+}
+
 async function runDetached(params: DetachParams): Promise<void> {
   const runId = randomUUID();
   const repoSlug = toRepoSlug({ path: params.repo });
@@ -139,6 +167,30 @@ async function runDetached(params: DetachParams): Promise<void> {
     }
 
     printError(`Failed to spawn worker: ${spawnResult.error}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Wait for worker to confirm startup by writing .started file
+  // This catches early crashes between spawn() and actual worker initialization
+  const startedPath = getWorkerStartedPath(repoSlug, runId);
+  const workerStarted = await waitForWorkerStartup(startedPath, WORKER_STARTUP_TIMEOUT_MS);
+
+  if (!workerStarted) {
+    // Worker failed to start - mark run as failed
+    try {
+      const raw = await readFile(runFilePath, "utf-8");
+      const run = JSON.parse(raw) as PersistedRun;
+      run.status = "failed";
+      run.updatedAt = new Date().toISOString();
+      await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
+    } catch {
+      // Best effort - run file update failed
+    }
+
+    printError(
+      `Worker failed to start within ${WORKER_STARTUP_TIMEOUT_MS / 1000}s. The process may have crashed before initialization.`,
+    );
     process.exitCode = 1;
     return;
   }

@@ -52,6 +52,16 @@ export function getRunLogPath(repoSlug: string, runId: string): string {
 }
 
 /**
+ * Path to the worker startup confirmation file for a detached run.
+ * This file is written immediately after worker process starts to confirm
+ * it survived the spawn phase. The parent process checks for this file
+ * to detect early worker crashes.
+ */
+export function getWorkerStartedPath(repoSlug: string, runId: string): string {
+  return path.join(getRepoRunsDir(repoSlug), `${runId}.started`);
+}
+
+/**
  * Directory for all supervisor instances: ~/.neo/supervisors/
  */
 export function getSupervisorsDir(): string {

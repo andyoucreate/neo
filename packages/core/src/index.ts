@@ -93,6 +93,7 @@ export {
   getSupervisorLockPath,
   getSupervisorStatePath,
   getSupervisorsDir,
+  getWorkerStartedPath,
   toRepoSlug,
 } from "@/paths";
 export type { ParsedOutput } from "@/runner/output-parser";
