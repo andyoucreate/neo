@@ -3,9 +3,14 @@ import { existsSync } from "node:fs";
 import { mkdir, readdir, rm } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { promisify } from "node:util";
+import { sleep } from "@/shared/time";
 
 const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT = 60_000;
+
+// Retry configuration for clone operations
+const CLONE_MAX_RETRIES = 3;
+const CLONE_BACKOFF_BASE_MS = 1000;
 
 /**
  * Validates that a git ref name (branch, tag, remote) is safe to use.
@@ -87,9 +92,47 @@ export async function createSessionClone(options: {
   // This ensures zero coupling: no hardlinks, no local-path origin,
   // no alternates. Falls back to local clone if no remote is configured.
   const cloneSource = remoteUrl || repoPath;
-  await execFileAsync("git", ["clone", "--branch", options.baseBranch, cloneSource, sessionDir], {
-    timeout: GIT_TIMEOUT,
-  });
+
+  // Retry clone with exponential backoff to handle transient network failures
+  let lastError: Error | undefined;
+  for (let attempt = 1; attempt <= CLONE_MAX_RETRIES; attempt++) {
+    try {
+      await execFileAsync(
+        "git",
+        ["clone", "--branch", options.baseBranch, cloneSource, sessionDir],
+        { timeout: GIT_TIMEOUT },
+      );
+      lastError = undefined;
+      break;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.debug(
+        `[neo] Clone attempt ${attempt}/${CLONE_MAX_RETRIES} failed: ${lastError.message}`,
+      );
+
+      // Clean up partial clone if it exists before retrying
+      if (existsSync(sessionDir)) {
+        await rm(sessionDir, { recursive: true, force: true }).catch((rmErr) => {
+          console.debug(
+            `[neo] Failed to clean up partial clone: ${rmErr instanceof Error ? rmErr.message : String(rmErr)}`,
+          );
+        });
+      }
+
+      if (attempt < CLONE_MAX_RETRIES) {
+        const backoffMs = CLONE_BACKOFF_BASE_MS * 2 ** (attempt - 1);
+        console.debug(`[neo] Retrying clone in ${backoffMs}ms...`);
+        await sleep(backoffMs);
+      }
+    }
+  }
+
+  if (lastError) {
+    throw new Error(
+      `Clone failed after ${CLONE_MAX_RETRIES} attempts. Last error: ${lastError.message}`,
+      { cause: lastError },
+    );
+  }
 
   // If branch === baseBranch, we're already on it after clone — nothing to do
   if (options.branch !== options.baseBranch) {
