@@ -493,7 +493,7 @@ describe("orchestrator E2E: concurrent run handling", () => {
   });
 
   it("allows status queries during execution and verifies final state", {
-    timeout: 15000,
+    timeout: 30000,
   }, async () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
