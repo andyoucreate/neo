@@ -5,6 +5,7 @@ import {
   getFocusedSupervisorDir,
   getFocusedSupervisorSessionPath,
   getFocusedSupervisorsDir,
+  getWorkerStartedPath,
   toRepoSlug,
 } from "@/paths";
 
@@ -63,5 +64,12 @@ describe("focused supervisor paths", () => {
     expect(result).toBe(
       path.join(homedir(), ".neo", "supervisors", "focused", "sup_abc123", "session.json"),
     );
+  });
+});
+
+describe("worker startup paths", () => {
+  it("getWorkerStartedPath returns ~/.neo/runs/<slug>/<runId>.started", () => {
+    const result = getWorkerStartedPath("my-repo", "run-123");
+    expect(result).toBe(path.join(homedir(), ".neo", "runs", "my-repo", "run-123.started"));
   });
 });

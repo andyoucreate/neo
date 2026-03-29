@@ -17,6 +17,7 @@ import {
   getRepoRunsDir,
   getRunDispatchPath,
   getRunLogPath,
+  getWorkerStartedPath,
   loadGlobalConfig,
   Orchestrator,
 } from "@neotx/core";
@@ -52,6 +53,16 @@ async function main(): Promise<void> {
   // This ensures a trace exists even if the process crashes before any other code runs.
   // Without this, spawn failures leave no evidence in the log file.
   writeLog(`[worker] Process started (PID ${process.pid}), initializing...`);
+
+  // CRITICAL: Write startup confirmation file immediately
+  // The parent process checks for this file to detect early worker crashes.
+  // This must happen as early as possible to minimize the window for undetected failures.
+  const startedPath = getWorkerStartedPath(repoSlug, runId);
+  await writeFile(
+    startedPath,
+    JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }),
+    "utf-8",
+  );
 
   process.stdout.write = logStream.write.bind(logStream);
   process.stderr.write = logStream.write.bind(logStream);
@@ -157,6 +168,10 @@ async function main(): Promise<void> {
       );
     });
   } finally {
+    // Clean up the startup confirmation file
+    await unlink(startedPath).catch(() => {
+      // Best effort - file may not exist or be already cleaned up
+    });
     logStream.end();
     process.exit(0);
   }
