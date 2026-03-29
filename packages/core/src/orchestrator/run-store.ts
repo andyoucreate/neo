@@ -5,6 +5,19 @@ import { getRunsDir, toRepoSlug } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import type { PersistedRun } from "@/types";
 
+/** Fatal filesystem error codes that indicate system problems (disk full, permission denied). */
+const FATAL_FS_ERRORS = new Set(["ENOSPC", "EACCES", "EROFS", "EDQUOT"]);
+
+/** Check if an error is a fatal filesystem error that should be re-thrown. */
+function isFatalFsError(err: unknown): boolean {
+  return (
+    err instanceof Error &&
+    "code" in err &&
+    typeof err.code === "string" &&
+    FATAL_FS_ERRORS.has(err.code)
+  );
+}
+
 export interface RunStoreOptions {
   runsDir?: string | undefined;
 }
@@ -28,7 +41,8 @@ export class RunStore {
 
   /**
    * Persist a run to disk. Creates the repo subdirectory if needed.
-   * Fails silently — run persistence is non-critical.
+   * Logs errors but does not throw — run persistence is non-critical for dispatch.
+   * However, fatal errors (ENOSPC, EACCES) are re-thrown as they indicate system problems.
    */
   async persistRun(run: PersistedRun): Promise<void> {
     try {
@@ -41,8 +55,12 @@ export class RunStore {
       }
       const filePath = path.join(repoDir, `${run.runId}.json`);
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch {
-      // Non-critical — don't fail the dispatch if persistence fails
+    } catch (err) {
+      console.debug(`[neo] persistRun failed for ${run.runId}:`, err);
+      // Re-throw fatal filesystem errors — these indicate system problems
+      if (isFatalFsError(err)) {
+        throw err;
+      }
     }
   }
 
@@ -61,8 +79,8 @@ export class RunStore {
         const run = await this.recoverRunIfOrphaned(filePath);
         if (run) orphaned.push(run);
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      console.debug("[neo] recoverOrphanedRuns failed:", err);
     }
 
     return orphaned;
@@ -105,12 +123,12 @@ export class RunStore {
           const content = await readFile(filePath, "utf-8");
           const run = JSON.parse(content) as PersistedRun;
           runs.push(run);
-        } catch {
-          // Skip corrupted files
+        } catch (err) {
+          console.debug(`[neo] getAllRuns: skipping corrupted file ${filePath}:`, err);
         }
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      console.debug("[neo] getAllRuns failed:", err);
     }
     return runs;
   }
@@ -130,8 +148,8 @@ export class RunStore {
           return JSON.parse(content) as PersistedRun;
         }
       }
-    } catch {
-      // Non-critical
+    } catch (err) {
+      console.debug(`[neo] getRunById failed for ${runId}:`, err);
     }
     return null;
   }
@@ -153,8 +171,8 @@ export class RunStore {
         const run = await this.recoverGhostRun(filePath);
         if (run) recovered.push(run);
       }
-    } catch {
-      // Non-critical — best effort recovery
+    } catch (err) {
+      console.debug("[neo] scanForStaleRuns failed:", err);
     }
 
     return recovered;
@@ -188,8 +206,8 @@ export class RunStore {
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
 
       return run;
-    } catch {
-      // Non-critical — file may be corrupt or locked
+    } catch (err) {
+      console.debug(`[neo] recoverGhostRun failed for ${filePath}:`, err);
       return null;
     }
   }
