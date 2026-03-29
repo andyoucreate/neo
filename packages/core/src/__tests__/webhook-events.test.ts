@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   heartbeatEventSchema,
+  heartbeatFailureEventSchema,
   runCompletedEventSchema,
   runDispatchedEventSchema,
   supervisorStartedEventSchema,
@@ -102,6 +103,72 @@ describe("heartbeatEventSchema", () => {
     };
     const result = heartbeatEventSchema.safeParse(event);
     expect(result.success).toBe(false);
+  });
+});
+
+describe("heartbeatFailureEventSchema", () => {
+  it("accepts valid heartbeat failure event", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: "2026-03-15T10:00:00.000Z",
+      error: "Connection refused: adapter.query() failed",
+      consecutiveFailures: 1,
+    };
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects consecutiveFailures less than 1", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: "2026-03-15T10:00:00.000Z",
+      error: "Some error",
+      consecutiveFailures: 0,
+    };
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects error longer than 1000 characters", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: "2026-03-15T10:00:00.000Z",
+      error: "x".repeat(1001),
+      consecutiveFailures: 1,
+    };
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects missing heartbeatId", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      timestamp: "2026-03-15T10:00:00.000Z",
+      error: "Some error",
+      consecutiveFailures: 1,
+    };
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts high consecutiveFailures count", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-456",
+      timestamp: "2026-03-15T10:00:00.000Z",
+      error: "Persistent failure",
+      consecutiveFailures: 100,
+    };
+    const result = heartbeatFailureEventSchema.safeParse(event);
+    expect(result.success).toBe(true);
   });
 });
 
@@ -329,6 +396,22 @@ describe("supervisorWebhookEventSchema (discriminated union)", () => {
     };
     const result = supervisorWebhookEventSchema.safeParse(event);
     expect(result.success).toBe(true);
+  });
+
+  it("accepts heartbeat_failure event", () => {
+    const event = {
+      type: "heartbeat_failure",
+      supervisorId: "sup-123",
+      heartbeatId: "hb-789",
+      timestamp: "2026-03-15T10:30:00.000Z",
+      error: "SDK query failed: timeout",
+      consecutiveFailures: 3,
+    };
+    const result = supervisorWebhookEventSchema.safeParse(event);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.type).toBe("heartbeat_failure");
+    }
   });
 
   it("rejects unknown event type", () => {
