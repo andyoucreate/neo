@@ -133,8 +133,10 @@ export class TaskStore {
 
         DELETE FROM memories WHERE type = 'task';
       `);
-    } catch {
+    } catch (err) {
       // Migration failed — memories table may not have task type yet
+      // biome-ignore lint/suspicious/noConsole: Log migration failures for debugging
+      console.debug("[neo] Task migration from memories table failed:", err);
     }
   }
 

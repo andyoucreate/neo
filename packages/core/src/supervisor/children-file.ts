@@ -19,7 +19,9 @@ export async function readChildrenFile(filePath: string): Promise<ChildHandle[]>
   try {
     const raw = await readFile(filePath, "utf-8");
     return JSON.parse(raw) as ChildHandle[];
-  } catch {
+  } catch (err) {
+    // biome-ignore lint/suspicious/noConsole: Log file read failures for debugging
+    console.debug("[neo] Failed to read children file:", err);
     return [];
   }
 }
