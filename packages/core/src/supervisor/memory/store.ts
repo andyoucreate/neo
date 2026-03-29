@@ -97,111 +97,127 @@ export class MemoryStore {
    * - Add subtype column if missing
    */
   private migrateSchema(): void {
-    try {
-      // Check if we need to migrate (old types exist)
-      const tableInfo = this.db
-        .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
-        .get() as { sql: string } | undefined;
+    // Check if we need to migrate (old types exist)
+    const tableInfo = this.db
+      .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='memories'")
+      .get() as { sql: string } | undefined;
 
-      if (!tableInfo) return;
+    // No table yet — nothing to migrate
+    if (!tableInfo) return;
 
-      // Check if subtype column exists
-      const hasSubtype = tableInfo.sql.includes("subtype");
-      if (!hasSubtype) {
-        this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
-      }
-
-      // Check if old types exist in the constraint
-      const hasOldTypes =
-        tableInfo.sql.includes("'fact'") ||
-        tableInfo.sql.includes("'procedure'") ||
-        tableInfo.sql.includes("'feedback'") ||
-        tableInfo.sql.includes("'episode'") ||
-        tableInfo.sql.includes("'task'");
-
-      if (!hasOldTypes) return;
-
-      // Check if there's data to migrate
-      const oldTypesExist = this.db
-        .prepare(
-          "SELECT COUNT(*) as count FROM memories WHERE type IN ('fact', 'procedure', 'feedback', 'episode', 'task')",
-        )
-        .get() as { count: number };
-
-      // Migrate in a transaction
-      this.db.exec("BEGIN TRANSACTION");
+    // Check if subtype column exists
+    const hasSubtype = tableInfo.sql.includes("subtype");
+    if (!hasSubtype) {
       try {
-        // Capture subtypes before migration
-        this.db.exec(`
-          UPDATE memories SET subtype = 'fact' WHERE type = 'fact';
-          UPDATE memories SET subtype = 'procedure' WHERE type = 'procedure';
-        `);
-
-        // Migrate fact and procedure to knowledge
-        this.db.exec(`
-          UPDATE memories SET type = 'knowledge' WHERE type IN ('fact', 'procedure');
-        `);
-
-        // Migrate feedback to warning
-        this.db.exec(`
-          UPDATE memories SET type = 'warning' WHERE type = 'feedback';
-        `);
-
-        // Delete episodes (write-only, never read)
-        this.db.exec(`
-          DELETE FROM memories WHERE type = 'episode';
-        `);
-
-        // Delete tasks (migrated by TaskStore)
-        this.db.exec(`
-          DELETE FROM memories WHERE type = 'task';
-        `);
-
-        // Set default subtype for knowledge entries without one
-        this.db.exec(`
-          UPDATE memories SET subtype = 'fact' WHERE type = 'knowledge' AND subtype IS NULL;
-        `);
-
-        // Only recreate table if there were old types in the constraint
-        if (oldTypesExist.count > 0 || hasOldTypes) {
-          // Recreate table with new constraint
-          this.db.exec(`
-            ALTER TABLE memories RENAME TO memories_old;
-
-            CREATE TABLE memories (
-              id TEXT PRIMARY KEY,
-              type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
-              scope TEXT NOT NULL,
-              content TEXT NOT NULL,
-              source TEXT NOT NULL,
-              tags TEXT DEFAULT '[]',
-              created_at TEXT NOT NULL,
-              last_accessed_at TEXT NOT NULL,
-              access_count INTEGER DEFAULT 0,
-              expires_at TEXT,
-              outcome TEXT,
-              run_id TEXT,
-              category TEXT,
-              severity TEXT,
-              subtype TEXT
-            );
-
-            INSERT INTO memories SELECT
-              id, type, scope, content, source, tags, created_at, last_accessed_at,
-              access_count, expires_at, outcome, run_id, category, severity, subtype
-            FROM memories_old;
-
-            DROP TABLE memories_old;
-          `);
-        }
-
-        this.db.exec("COMMIT");
-      } catch (err) {
-        this.db.exec("ROLLBACK");
-        throw err;
+        this.db.exec("ALTER TABLE memories ADD COLUMN subtype TEXT");
+      } catch {
+        // Silent — column likely already exists (race condition or partial migration)
       }
-    } catch {
-      // Migration not needed or failed — continue
+    }
+
+    // Check if old types exist in the constraint
+    const hasOldTypes =
+      tableInfo.sql.includes("'fact'") ||
+      tableInfo.sql.includes("'procedure'") ||
+      tableInfo.sql.includes("'feedback'") ||
+      tableInfo.sql.includes("'episode'") ||
+      tableInfo.sql.includes("'task'");
+
+    // No old types in schema — no migration needed
+    if (!hasOldTypes) return;
+
+    // Check if there's data to migrate
+    const oldTypesExist = this.db
+      .prepare(
+        "SELECT COUNT(*) as count FROM memories WHERE type IN ('fact', 'procedure', 'feedback', 'episode', 'task')",
+      )
+      .get() as { count: number };
+
+    // Migrate in a transaction
+    this.db.exec("BEGIN TRANSACTION");
+    try {
+      // Capture subtypes before migration
+      this.db.exec(`
+        UPDATE memories SET subtype = 'fact' WHERE type = 'fact';
+        UPDATE memories SET subtype = 'procedure' WHERE type = 'procedure';
+      `);
+
+      // Migrate fact and procedure to knowledge
+      this.db.exec(`
+        UPDATE memories SET type = 'knowledge' WHERE type IN ('fact', 'procedure');
+      `);
+
+      // Migrate feedback to warning
+      this.db.exec(`
+        UPDATE memories SET type = 'warning' WHERE type = 'feedback';
+      `);
+
+      // Delete episodes (write-only, never read)
+      this.db.exec(`
+        DELETE FROM memories WHERE type = 'episode';
+      `);
+
+      // Delete tasks (migrated by TaskStore)
+      this.db.exec(`
+        DELETE FROM memories WHERE type = 'task';
+      `);
+
+      // Set default subtype for knowledge entries without one
+      this.db.exec(`
+        UPDATE memories SET subtype = 'fact' WHERE type = 'knowledge' AND subtype IS NULL;
+      `);
+
+      // Only recreate table if there were old types in the constraint
+      if (oldTypesExist.count > 0 || hasOldTypes) {
+        // Recreate table with new constraint
+        this.db.exec(`
+          ALTER TABLE memories RENAME TO memories_old;
+
+          CREATE TABLE memories (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL CHECK(type IN ('knowledge','warning','focus')),
+            scope TEXT NOT NULL,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL,
+            tags TEXT DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            last_accessed_at TEXT NOT NULL,
+            access_count INTEGER DEFAULT 0,
+            expires_at TEXT,
+            outcome TEXT,
+            run_id TEXT,
+            category TEXT,
+            severity TEXT,
+            subtype TEXT
+          );
+
+          INSERT INTO memories SELECT
+            id, type, scope, content, source, tags, created_at, last_accessed_at,
+            access_count, expires_at, outcome, run_id, category, severity, subtype
+          FROM memories_old;
+
+          DROP TABLE memories_old;
+        `);
+      }
+
+      this.db.exec("COMMIT");
+    } catch (err) {
+      // Attempt rollback — may fail if transaction already aborted
+      try {
+        this.db.exec("ROLLBACK");
+      } catch {
+        // Rollback failed — transaction may already be aborted
+      }
+
+      // Log the error with context so users know migration failed
+      console.error(
+        "[neo] Memory schema migration failed. The database may be in an inconsistent state.",
+        "\n  Error:",
+        err instanceof Error ? err.message : err,
+        "\n  Action: Neo will continue but some memories may not be accessible.",
+        "\n  To fix: Back up and delete ~/.neo/memory.sqlite, or manually inspect the schema.",
+      );
+      // Do NOT re-throw — neo should continue working with graceful degradation
     }
   }
 
