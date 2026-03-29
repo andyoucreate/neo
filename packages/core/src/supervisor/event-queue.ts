@@ -35,8 +35,8 @@ export interface DrainAndGroupResult {
  */
 export class EventQueue {
   private readonly queue: QueuedEvent[] = [];
-  /** Map of event ID to timestamp for proper LRU eviction */
-  private readonly seenIds = new Map<string, number>();
+  /** Set of event IDs for deduplication. Map preserves insertion order, so first entry is oldest. */
+  private readonly seenIds = new Map<string, true>();
   private readonly maxSeenIds = 1000;
   private readonly maxEventsPerSec: number;
   private eventCountThisSecond = 0;
@@ -68,9 +68,9 @@ export class EventQueue {
     if (this.eventCountThisSecond >= this.maxEventsPerSec) return false;
     this.eventCountThisSecond++;
 
-    // Track seen IDs with timestamps for proper LRU eviction
+    // Track seen IDs for deduplication. Map preserves insertion order.
     if (id) {
-      this.seenIds.set(id, Date.now());
+      this.seenIds.set(id, true);
       if (this.seenIds.size > this.maxSeenIds) {
         this.evictOldestSeenId();
       }
@@ -82,22 +82,13 @@ export class EventQueue {
   }
 
   /**
-   * Evicts the oldest entry from seenIds based on actual timestamp,
-   * not insertion order.
+   * Evicts the oldest entry from seenIds.
+   * Map preserves insertion order, so the first key is the oldest — O(1) eviction.
    */
   private evictOldestSeenId(): void {
-    let oldestId: string | undefined;
-    let oldestTime = Number.POSITIVE_INFINITY;
-
-    for (const [id, timestamp] of this.seenIds) {
-      if (timestamp < oldestTime) {
-        oldestTime = timestamp;
-        oldestId = id;
-      }
-    }
-
-    if (oldestId) {
-      this.seenIds.delete(oldestId);
+    const firstKey = this.seenIds.keys().next().value;
+    if (firstKey !== undefined) {
+      this.seenIds.delete(firstKey);
     }
   }
 

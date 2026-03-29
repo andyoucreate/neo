@@ -49,22 +49,19 @@ describe("EventQueue", () => {
   });
 
   describe("LRU eviction", () => {
-    it("evicts oldest entry by timestamp when maxSeenIds is exceeded", () => {
-      // Create a queue with small maxSeenIds for testing
+    it("evicts first-inserted entry when maxSeenIds is exceeded", () => {
+      // Create a queue with default maxSeenIds (1000)
       const smallQueue = new EventQueue({ maxEventsPerSec: 2000 });
-      // Access private field for testing — normally we'd use a test-specific subclass
-      // but for simplicity we test the observable behavior
 
       // Push 1000 events (maxSeenIds default)
       for (let i = 0; i < 1000; i++) {
-        vi.spyOn(Date, "now").mockReturnValue(1000 + i);
         smallQueue.push({
           kind: "webhook",
           data: { id: `event-${i}`, receivedAt: "2024-01-01T00:00:00Z" } as never,
         });
       }
 
-      // The oldest event (event-0 with timestamp 1000) should still be tracked
+      // The first event (event-0) should still be tracked
       const duplicate0 = smallQueue.push({
         kind: "webhook",
         data: { id: "event-0", receivedAt: "2024-01-01T00:00:00Z" } as never,
@@ -72,48 +69,32 @@ describe("EventQueue", () => {
       expect(duplicate0).toBe(false);
 
       // Now push one more event to trigger eviction
-      vi.spyOn(Date, "now").mockReturnValue(3000);
       smallQueue.push({
         kind: "webhook",
         data: { id: "event-1000", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
 
-      // event-0 (timestamp 1000) should have been evicted as the oldest
+      // event-0 (first inserted) should have been evicted
       // So pushing it again should succeed
-      vi.spyOn(Date, "now").mockReturnValue(4000);
       const resubmit0 = smallQueue.push({
         kind: "webhook",
         data: { id: "event-0", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
       expect(resubmit0).toBe(true);
-
-      vi.restoreAllMocks();
     });
 
-    it("evicts based on timestamp, not insertion order", () => {
+    it("evicts based on insertion order (O(1) using Map iteration order)", () => {
       const smallQueue = new EventQueue({ maxEventsPerSec: 2000 });
 
-      // Mock Date.now once at the start
-      let mockTime = 5000;
-      vi.spyOn(Date, "now").mockImplementation(() => mockTime);
-
-      // Insert events with varying timestamps (not in order)
-      // event-A: timestamp 5000 (newest of the 3)
-      mockTime = 5000;
+      // Insert 3 events in order: A, B, C
       smallQueue.push({
         kind: "webhook",
         data: { id: "event-A", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
-
-      // event-B: timestamp 1000 (oldest)
-      mockTime = 1000;
       smallQueue.push({
         kind: "webhook",
         data: { id: "event-B", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
-
-      // event-C: timestamp 3000 (middle)
-      mockTime = 3000;
       smallQueue.push({
         kind: "webhook",
         data: { id: "event-C", receivedAt: "2024-01-01T00:00:00Z" } as never,
@@ -121,7 +102,6 @@ describe("EventQueue", () => {
 
       // Fill up to maxSeenIds (1000) - we have 3, need 997 more
       for (let i = 0; i < 997; i++) {
-        mockTime = 6000 + i;
         smallQueue.push({
           kind: "webhook",
           data: { id: `fill-${i}`, receivedAt: "2024-01-01T00:00:00Z" } as never,
@@ -129,32 +109,33 @@ describe("EventQueue", () => {
       }
 
       // Now at exactly 1000 entries. Push one more to trigger eviction.
-      mockTime = 10000;
       smallQueue.push({
         kind: "webhook",
         data: { id: "trigger-eviction", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
 
-      // event-B (timestamp 1000) should be evicted as oldest by timestamp
+      // event-A (first inserted) should be evicted as Map preserves insertion order
       // So pushing it again should succeed
-      mockTime = 11000;
-      const resubmitB = smallQueue.push({
-        kind: "webhook",
-        data: { id: "event-B", receivedAt: "2024-01-01T00:00:00Z" } as never,
-      });
-      expect(resubmitB).toBe(true);
-
-      // event-A and event-C should still be tracked (not evicted yet)
       const resubmitA = smallQueue.push({
         kind: "webhook",
         data: { id: "event-A", receivedAt: "2024-01-01T00:00:00Z" } as never,
       });
-      expect(resubmitA).toBe(false);
+      expect(resubmitA).toBe(true);
 
-      // Note: event-C may have been evicted by subsequent eviction when resubmitting event-B
-      // Let's just verify the main behavior: event-B (oldest) was evicted first
+      // Note: resubmitting A triggered another eviction (B was evicted)
+      // So B can now be resubmitted, but C should still be tracked
+      const resubmitB = smallQueue.push({
+        kind: "webhook",
+        data: { id: "event-B", receivedAt: "2024-01-01T00:00:00Z" } as never,
+      });
+      expect(resubmitB).toBe(true); // B was evicted when A was resubmitted
 
-      vi.restoreAllMocks();
+      // C is still tracked (third in insertion order)
+      const resubmitC = smallQueue.push({
+        kind: "webhook",
+        data: { id: "event-C", receivedAt: "2024-01-01T00:00:00Z" } as never,
+      });
+      expect(resubmitC).toBe(true); // C was evicted when B was resubmitted
     });
   });
 
