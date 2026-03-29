@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
@@ -247,7 +247,12 @@ export class SupervisorDaemon {
 
   private async writeState(state: SupervisorDaemonState): Promise<void> {
     const statePath = path.join(this.dir, "state.json");
-    await writeFile(statePath, JSON.stringify(state, null, 2), "utf-8");
+    const content = JSON.stringify(state, null, 2);
+
+    // Write atomically: temp file then rename to prevent corruption on crash
+    const tempPath = `${statePath}.${process.pid}.tmp`;
+    await writeFile(tempPath, content, "utf-8");
+    await rename(tempPath, statePath);
   }
 
   /**
@@ -293,7 +298,12 @@ export class SupervisorDaemon {
       );
     }
 
-    // Stale lock — remove and retry atomically
+    // Stale lock — remove and retry.
+    // NOTE: There is an inherent race window between rm() and tryAcquire() where
+    // another process could create the lock. This is accepted as best-effort behavior:
+    // - The window is small (typically < 1ms on local filesystem)
+    // - A true compare-and-swap would require OS-specific syscalls (flock, lockf)
+    // - If another process wins the race, we detect it and report cleanly below
     await rm(lockPath, { force: true });
 
     // Retry lock acquisition

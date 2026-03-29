@@ -214,6 +214,104 @@ describe("DirectiveStore", () => {
   });
 });
 
+describe("DirectiveStore concurrent write safety", () => {
+  const CONCURRENT_TEST_DIR = "/tmp/neo-directive-store-concurrent-test";
+  const CONCURRENT_TEST_FILE = path.join(CONCURRENT_TEST_DIR, "directives.jsonl");
+
+  beforeEach(() => {
+    if (existsSync(CONCURRENT_TEST_DIR)) {
+      rmSync(CONCURRENT_TEST_DIR, { recursive: true });
+    }
+    mkdirSync(CONCURRENT_TEST_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    if (existsSync(CONCURRENT_TEST_DIR)) {
+      rmSync(CONCURRENT_TEST_DIR, { recursive: true });
+    }
+  });
+
+  it("handles concurrent toggle calls without race conditions", async () => {
+    const store = new DirectiveStore(CONCURRENT_TEST_FILE);
+    const ids = await Promise.all([
+      store.create({ trigger: "idle", action: "action-1" }),
+      store.create({ trigger: "idle", action: "action-2" }),
+      store.create({ trigger: "idle", action: "action-3" }),
+    ]);
+
+    // Toggle all directives concurrently
+    await Promise.all([
+      store.toggle(ids[0]!, false),
+      store.toggle(ids[1]!, false),
+      store.toggle(ids[2]!, false),
+    ]);
+
+    // All directives should be disabled
+    const all = await store.list();
+    expect(all.every((d) => d.enabled === false)).toBe(true);
+  });
+
+  it("handles concurrent markTriggered calls without data loss", async () => {
+    const store = new DirectiveStore(CONCURRENT_TEST_FILE);
+    const ids = await Promise.all([
+      store.create({ trigger: "idle", action: "action-1" }),
+      store.create({ trigger: "idle", action: "action-2" }),
+      store.create({ trigger: "idle", action: "action-3" }),
+    ]);
+
+    // Mark all directives as triggered concurrently
+    await Promise.all(ids.map((id) => store.markTriggered(id)));
+
+    // All directives should have lastTriggeredAt set
+    const all = await store.list();
+    expect(all.every((d) => d.lastTriggeredAt !== undefined)).toBe(true);
+  });
+
+  it("handles concurrent delete calls without corruption", async () => {
+    const store = new DirectiveStore(CONCURRENT_TEST_FILE);
+    const ids = await Promise.all([
+      store.create({ trigger: "idle", action: "action-1" }),
+      store.create({ trigger: "idle", action: "action-2" }),
+      store.create({ trigger: "idle", action: "action-3" }),
+      store.create({ trigger: "idle", action: "action-4" }), // Keep this one
+    ]);
+
+    // Delete first 3 directives concurrently
+    await Promise.all([store.delete(ids[0]!), store.delete(ids[1]!), store.delete(ids[2]!)]);
+
+    // Only the 4th directive should remain
+    const all = await store.list();
+    expect(all).toHaveLength(1);
+    expect(all[0]?.action).toBe("action-4");
+  });
+
+  it("handles mixed concurrent operations safely", async () => {
+    const store = new DirectiveStore(CONCURRENT_TEST_FILE);
+
+    // Create initial directives
+    const id1 = await store.create({ trigger: "idle", action: "action-1" });
+    const id2 = await store.create({ trigger: "idle", action: "action-2" });
+    const id3 = await store.create({
+      trigger: "idle",
+      action: "action-3",
+      expiresAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(), // Old expired
+    });
+
+    // Run mixed operations concurrently
+    await Promise.all([store.toggle(id1, false), store.markTriggered(id2), store.expireOld()]);
+
+    // Verify state is consistent
+    const all = await store.list();
+    const d1 = all.find((d) => d.id === id1);
+    const d2 = all.find((d) => d.id === id2);
+    const d3 = all.find((d) => d.id === id3);
+
+    expect(d1?.enabled).toBe(false);
+    expect(d2?.lastTriggeredAt).toBeDefined();
+    expect(d3).toBeUndefined(); // Should be removed by expireOld
+  });
+});
+
 describe("parseDirectiveDuration", () => {
   it("parses 'for X hours' format", () => {
     const now = Date.now();
