@@ -47,8 +47,34 @@ export class EventQueue {
   /** Resolve function to wake up the heartbeat loop when an event arrives */
   private wakeUp: (() => void) | null = null;
 
+  /** Write locks keyed by file path to serialize read-modify-write operations */
+  private readonly writeLocks = new Map<string, Promise<void>>();
+
   constructor(options: EventQueueOptions) {
     this.maxEventsPerSec = options.maxEventsPerSec;
+  }
+
+  /**
+   * Acquire the write lock for a file path and execute a callback.
+   * Serializes write operations per-file to prevent race conditions during read-modify-write.
+   */
+  private async withWriteLock<T>(filePath: string, fn: () => Promise<T>): Promise<T> {
+    const release = this.writeLocks.get(filePath) ?? Promise.resolve();
+    let releaseLock: () => void = () => {};
+    const newLock = new Promise<void>((r) => {
+      releaseLock = r;
+    });
+    this.writeLocks.set(filePath, newLock);
+
+    try {
+      await release;
+      return await fn();
+    } finally {
+      releaseLock();
+      if (this.writeLocks.get(filePath) === newLock) {
+        this.writeLocks.delete(filePath);
+      }
+    }
   }
 
   /**
@@ -338,38 +364,40 @@ export class EventQueue {
     matchTimestamp: string,
     processedAt: string,
   ): Promise<void> {
-    try {
-      const content = await readFile(filePath, "utf-8");
-      const lines = content.split("\n");
-      let changed = false;
+    return this.withWriteLock(filePath, async () => {
+      try {
+        const content = await readFile(filePath, "utf-8");
+        const lines = content.split("\n");
+        let changed = false;
 
-      const updated = lines.map((line) => {
-        if (!line.trim()) return line;
-        try {
-          const parsed = JSON.parse(line) as Record<string, unknown>;
-          if (
-            (parsed.receivedAt === matchTimestamp || parsed.timestamp === matchTimestamp) &&
-            !parsed.processedAt
-          ) {
-            parsed.processedAt = processedAt;
-            changed = true;
-            return JSON.stringify(parsed);
+        const updated = lines.map((line) => {
+          if (!line.trim()) return line;
+          try {
+            const parsed = JSON.parse(line) as Record<string, unknown>;
+            if (
+              (parsed.receivedAt === matchTimestamp || parsed.timestamp === matchTimestamp) &&
+              !parsed.processedAt
+            ) {
+              parsed.processedAt = processedAt;
+              changed = true;
+              return JSON.stringify(parsed);
+            }
+          } catch (_err) {
+            // Non-critical: keep malformed lines as-is (manual edits or corruption)
           }
-        } catch (_err) {
-          // Non-critical: keep malformed lines as-is (manual edits or corruption)
-        }
-        return line;
-      });
+          return line;
+        });
 
-      if (changed) {
-        await writeFile(filePath, updated.join("\n"), "utf-8");
-        this.fileOffsets.set(filePath, updated.join("\n").length);
+        if (changed) {
+          await writeFile(filePath, updated.join("\n"), "utf-8");
+          this.fileOffsets.set(filePath, updated.join("\n").length);
+        }
+      } catch (err) {
+        // Non-critical: marking as processed may fail but events are already handled.
+        // Worst case: duplicate processing on restart (idempotent operations).
+        // biome-ignore lint/suspicious/noConsole: Log mark processed failures for debugging
+        console.debug(`[neo] Failed to mark events processed in ${filePath}:`, err);
       }
-    } catch (err) {
-      // Non-critical: marking as processed may fail but events are already handled.
-      // Worst case: duplicate processing on restart (idempotent operations).
-      // biome-ignore lint/suspicious/noConsole: Log mark processed failures for debugging
-      console.debug(`[neo] Failed to mark events processed in ${filePath}:`, err);
-    }
+    });
   }
 }

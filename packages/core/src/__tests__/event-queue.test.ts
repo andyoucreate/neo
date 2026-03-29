@@ -1,4 +1,4 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EventQueue } from "@/supervisor/event-queue";
@@ -322,6 +322,97 @@ describe("EventQueue", () => {
       // The message should be in the queue
       const events = queue.drain();
       expect(events.length).toBeGreaterThanOrEqual(0); // May or may not have processed depending on timing
+    });
+  });
+
+  describe("markProcessed concurrent writes", () => {
+    beforeEach(async () => {
+      await mkdir(TEST_DIR, { recursive: true });
+    });
+
+    afterEach(async () => {
+      queue.stopWatching();
+      await rm(TEST_DIR, { recursive: true, force: true });
+    });
+
+    it("handles 10 concurrent markProcessed calls without corrupting file", async () => {
+      const eventsPath = path.join(TEST_DIR, "events.jsonl");
+      const inboxPath = path.join(TEST_DIR, "inbox.jsonl");
+
+      // Create 10 webhook events with unique timestamps
+      const events: Array<{ id: string; receivedAt: string }> = [];
+      for (let i = 0; i < 10; i++) {
+        events.push({
+          id: `event-${i}`,
+          receivedAt: `2024-01-01T00:00:0${i}Z`,
+        });
+      }
+
+      // Write all events to the file
+      const initialContent = events.map((e) => JSON.stringify(e)).join("\n");
+      await writeFile(eventsPath, `${initialContent}\n`);
+      await writeFile(inboxPath, "");
+
+      // Build QueuedEvent array for markProcessed
+      const queuedEvents = events.map((e) => ({
+        kind: "webhook" as const,
+        data: e as never,
+      }));
+
+      // Call markProcessed 10 times concurrently — each marking a different event
+      const promises = queuedEvents.map((event) =>
+        queue.markProcessed(inboxPath, eventsPath, [event]),
+      );
+      await Promise.all(promises);
+
+      // Read the file and verify integrity
+      const finalContent = await readFile(eventsPath, "utf-8");
+      const lines = finalContent.trim().split("\n").filter(Boolean);
+
+      // Should have exactly 10 lines (no data loss)
+      expect(lines).toHaveLength(10);
+
+      // All events should be marked as processed
+      const parsed = lines.map((line) => JSON.parse(line) as Record<string, unknown>);
+      const allProcessed = parsed.every((entry) => entry.processedAt !== undefined);
+      expect(allProcessed).toBe(true);
+
+      // All original event IDs should be present (no data corruption)
+      const ids = parsed.map((entry) => entry.id);
+      for (let i = 0; i < 10; i++) {
+        expect(ids).toContain(`event-${i}`);
+      }
+    });
+
+    it("serializes concurrent writes to the same file", async () => {
+      const eventsPath = path.join(TEST_DIR, "events.jsonl");
+      const inboxPath = path.join(TEST_DIR, "inbox.jsonl");
+
+      // Create a single event
+      const event = { id: "single-event", receivedAt: "2024-01-01T00:00:00Z" };
+      await writeFile(eventsPath, `${JSON.stringify(event)}\n`);
+      await writeFile(inboxPath, "");
+
+      const queuedEvent = {
+        kind: "webhook" as const,
+        data: event as never,
+      };
+
+      // Call markProcessed multiple times concurrently for the SAME event
+      // Only one should actually mark it (idempotent), but none should corrupt
+      const promises = Array.from({ length: 5 }, () =>
+        queue.markProcessed(inboxPath, eventsPath, [queuedEvent]),
+      );
+      await Promise.all(promises);
+
+      // Verify file integrity
+      const finalContent = await readFile(eventsPath, "utf-8");
+      const lines = finalContent.trim().split("\n").filter(Boolean);
+
+      expect(lines).toHaveLength(1);
+      const parsed = JSON.parse(lines[0] as string) as Record<string, unknown>;
+      expect(parsed.id).toBe("single-event");
+      expect(parsed.processedAt).toBeDefined();
     });
   });
 });
