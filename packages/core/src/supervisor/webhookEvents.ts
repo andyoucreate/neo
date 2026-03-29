@@ -81,6 +81,7 @@ export const ghostRunRecoveredEventSchema = z.object({
 
 export type GhostRunRecoveredEvent = z.infer<typeof ghostRunRecoveredEventSchema>;
 
+
 // ─── Supervisor stopped event ────────────────────────────
 
 export const supervisorStoppedEventSchema = z.object({
