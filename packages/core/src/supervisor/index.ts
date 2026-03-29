@@ -37,6 +37,15 @@ export type { FocusedLoopOptions } from "./focused-loop.js";
 export { FocusedLoop } from "./focused-loop.js";
 export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
+// ─── Heartbeat error boundary ──────────────────────────────
+export type {
+  CircuitBreakerResult,
+  ErrorBoundaryConfig,
+  ErrorContext,
+  ErrorSeverity,
+  WebhookEmitter,
+} from "./heartbeat-error-boundary.js";
+export { HeartbeatErrorBoundary } from "./heartbeat-error-boundary.js";
 // ─── Log buffer ─────────────────────────────────────────
 export {
   appendLogBuffer,

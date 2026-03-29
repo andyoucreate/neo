@@ -25,6 +25,7 @@ import { type Decision, DecisionStore } from "./decisions.js";
 import { type Directive, DirectiveStore } from "./directive-store.js";
 import type { EventQueue, GroupedEvents } from "./event-queue.js";
 import { createFailureReport, writeFailureReport } from "./failure-report.js";
+import { HeartbeatErrorBoundary } from "./heartbeat-error-boundary.js";
 import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
@@ -47,7 +48,6 @@ import {
   type GhostRunRecoveredEvent,
   ghostRunRecoveredEventSchema,
   type HeartbeatEvent,
-  type HeartbeatFailureEvent,
   heartbeatEventSchema,
   heartbeatFailureEventSchema,
   type RunCompletedEvent,
@@ -285,6 +285,7 @@ export class HeartbeatLoop {
   private readonly supervisorName: string | undefined;
   private directiveStore: DirectiveStore | null = null;
   private readonly directivesPath: string | undefined;
+  private errorBoundary: HeartbeatErrorBoundary | null = null;
 
   constructor(options: HeartbeatLoopOptions) {
     this.config = options.config;
@@ -318,19 +319,11 @@ export class HeartbeatLoop {
       try {
         this.memoryStore = new MemoryStore(this.memoryDbPath);
         this.storeInitErrors.delete("memory");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+      } catch (error) {
+        // Memory store unavailable — continue without it
+        const msg = error instanceof Error ? error.message : String(error);
         this.storeInitErrors.set("memory", msg);
-        this.activityLog
-          .log("warning", `MemoryStore initialization failed: ${msg}`, {
-            store: "memory",
-            error: msg,
-          })
-          .catch((logErr) => {
-            // Best-effort logging — don't let logging failure cascade
-            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
-            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
-          });
+        this.getErrorBoundary()?.handleSilentError("getMemoryStore", error);
       }
     }
     return this.memoryStore;
@@ -343,19 +336,11 @@ export class HeartbeatLoop {
       try {
         this.taskStore = new TaskStore(this.memoryDbPath);
         this.storeInitErrors.delete("task");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+      } catch (error) {
+        // Task store unavailable — continue without it
+        const msg = error instanceof Error ? error.message : String(error);
         this.storeInitErrors.set("task", msg);
-        this.activityLog
-          .log("warning", `TaskStore initialization failed: ${msg}`, {
-            store: "task",
-            error: msg,
-          })
-          .catch((logErr) => {
-            // Best-effort logging — don't let logging failure cascade
-            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
-            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
-          });
+        this.getErrorBoundary()?.handleSilentError("getTaskStore", error);
       }
     }
     return this.taskStore;
@@ -373,19 +358,11 @@ export class HeartbeatLoop {
       try {
         this.directiveStore = new DirectiveStore(this.directivesPath);
         this.storeInitErrors.delete("directive");
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
+      } catch (error) {
+        // Directive store unavailable — continue without it
+        const msg = error instanceof Error ? error.message : String(error);
         this.storeInitErrors.set("directive", msg);
-        this.activityLog
-          .log("warning", `DirectiveStore initialization failed: ${msg}`, {
-            store: "directive",
-            error: msg,
-          })
-          .catch((logErr) => {
-            // Best-effort logging — don't let logging failure cascade
-            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
-            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
-          });
+        this.getErrorBoundary()?.handleSilentError("getDirectiveStore", error);
       }
     }
     return this.directiveStore;
@@ -420,6 +397,26 @@ export class HeartbeatLoop {
     };
   }
 
+  /**
+   * Get or create the HeartbeatErrorBoundary instance.
+   * Lazily initialized to ensure sessionId is available.
+   */
+  private getErrorBoundary(): HeartbeatErrorBoundary {
+    if (!this.errorBoundary) {
+      this.errorBoundary = new HeartbeatErrorBoundary(
+        this.activityLog,
+        {
+          maxConsecutiveFailures: this.config.supervisor.maxConsecutiveFailures,
+          baseBackoffMs: this.config.supervisor.eventTimeoutMs,
+          maxBackoffMs: 15 * 60 * 1000, // 15 minutes max
+        },
+        this.sessionId,
+        this.onWebhookEvent,
+      );
+    }
+    return this.errorBoundary;
+  }
+
   async start(): Promise<void> {
     this.customInstructions = await this.loadInstructions();
 
@@ -436,23 +433,17 @@ export class HeartbeatLoop {
       try {
         await this.runHeartbeat();
         this.consecutiveFailures = 0;
-      } catch (error) {
+      } catch {
+        // Error was already handled via handleHeartbeatError() in runHeartbeat()
+        // We just need to track consecutive failures and evaluate circuit breaker
         this.consecutiveFailures++;
-        const msg = error instanceof Error ? error.message : String(error);
-        await this.activityLog.log("error", `Heartbeat failed: ${msg}`, { error: msg });
+        const boundary = this.getErrorBoundary();
 
         // Circuit breaker: exponential backoff after consecutive failures
-        if (this.consecutiveFailures >= this.config.supervisor.maxConsecutiveFailures) {
-          const backoffMs = Math.min(
-            this.config.supervisor.eventTimeoutMs *
-              2 ** (this.consecutiveFailures - this.config.supervisor.maxConsecutiveFailures),
-            15 * 60 * 1000, // max 15 minutes
-          );
-          await this.activityLog.log(
-            "error",
-            `Circuit breaker: backing off ${Math.round(backoffMs / 1000)}s after ${this.consecutiveFailures} failures`,
-          );
-          await this.sleep(backoffMs);
+        const circuitResult = boundary.evaluateCircuitBreaker(this.consecutiveFailures);
+        if (circuitResult.shouldBackoff) {
+          await boundary.logCircuitBreaker(this.consecutiveFailures, circuitResult.backoffMs);
+          await this.sleep(circuitResult.backoffMs);
           continue;
         }
       }
@@ -520,8 +511,7 @@ export class HeartbeatLoop {
 
     // Log the config change
     this.activityLog.log("event", "Configuration reloaded (hot-reload)").catch((err) => {
-      // biome-ignore lint/suspicious/noConsole: Debug logging for config reload errors
-      console.debug("[neo] Config reload log failed:", err);
+      this.getErrorBoundary()?.handleSilentError("handleConfigChange", err);
     });
 
     // Interrupt the event queue wait to trigger an immediate heartbeat
@@ -658,18 +648,15 @@ export class HeartbeatLoop {
       // Global error boundary: emit heartbeat:failure event and re-throw
       // This ensures the daemon's outer catch handles circuit-breaker logic
       // while also providing visibility via webhook events
-      const errorMsg = error instanceof Error ? error.message : String(error);
+      const boundary = this.getErrorBoundary();
 
-      // Emit failure event before re-throwing (best-effort, don't let emission failure mask original error)
-      try {
-        await this.emitHeartbeatFailure({
-          heartbeatId,
-          error: errorMsg,
-          consecutiveFailures: this.consecutiveFailures + 1,
-        });
-      } catch {
-        // Emission failed — log and continue to re-throw original error
-      }
+      // Handle error via boundary (emits webhook event and logs)
+      await boundary.handleHeartbeatError({
+        heartbeatId,
+        consecutiveFailures: this.consecutiveFailures + 1,
+        error,
+        source: "runHeartbeat",
+      });
 
       throw error;
     }
@@ -1153,7 +1140,8 @@ export class HeartbeatLoop {
       const parsed = JSON.parse(raw);
       const result = supervisorDaemonStateSchema.safeParse(parsed);
       return result.success ? result.data : null;
-    } catch {
+    } catch (error) {
+      this.getErrorBoundary()?.handleSilentError("readState", error);
       return null;
     }
   }
@@ -1167,8 +1155,9 @@ export class HeartbeatLoop {
       const state = result.data;
       Object.assign(state, updates);
       await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
-    } catch {
+    } catch (error) {
       // Non-critical
+      this.getErrorBoundary()?.handleSilentError("updateState", error);
     }
   }
 
@@ -1201,14 +1190,16 @@ export class HeartbeatLoop {
                 `${run.runId} [${run.status}] ${run.agent} on ${path.basename(run.repo)}`,
               );
             }
-          } catch {
+          } catch (error) {
             // Corrupted or partial file — skip
+            this.getErrorBoundary()?.handleSilentError("getActiveRuns:parseRunFile", error);
           }
         }
       }
 
       return active;
-    } catch {
+    } catch (error) {
+      this.getErrorBoundary()?.handleSilentError("getActiveRuns", error);
       return [];
     }
   }
@@ -1238,8 +1229,9 @@ export class HeartbeatLoop {
         const content = await readFile(filePath, "utf-8");
         await this.activityLog.log("event", `Loaded instructions from ${filePath}`);
         return content;
-      } catch {
-        // File not found — try next candidate
+      } catch (error) {
+        // File not found — try next candidate (silent, expected for fallback resolution)
+        this.getErrorBoundary()?.handleSilentError("loadInstructions", error);
       }
     }
 
@@ -1512,8 +1504,9 @@ export class HeartbeatLoop {
           };
         }
       }
-    } catch {
+    } catch (error) {
       // Non-critical — return null if we can't read run data
+      this.getErrorBoundary()?.handleSilentError("readPersistedRun", error);
     }
 
     return null;
@@ -1660,27 +1653,11 @@ export class HeartbeatLoop {
           costUsd: opts.costUsd,
         });
         await writeFailureReport(this.supervisorDir, report);
-      } catch {
+      } catch (error) {
         // Best-effort: failure report errors should never crash daemon
+        this.getErrorBoundary()?.handleSilentError("writeFailureReport", error);
       }
     }
-  }
-
-  /** Emit HeartbeatFailureEvent when runHeartbeat encounters an uncaught error */
-  private async emitHeartbeatFailure(opts: {
-    heartbeatId: string;
-    error: string;
-    consecutiveFailures: number;
-  }): Promise<void> {
-    const event: HeartbeatFailureEvent = {
-      type: "heartbeat_failure",
-      supervisorId: this.sessionId,
-      heartbeatId: opts.heartbeatId,
-      timestamp: new Date().toISOString(),
-      error: opts.error.slice(0, 1000), // Truncate to schema max
-      consecutiveFailures: opts.consecutiveFailures,
-    };
-    await this.emitWebhookEvent(event);
   }
 
   /** Emit GhostRunRecoveredEvent when a ghost run is detected and marked failed */
