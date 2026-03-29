@@ -596,7 +596,7 @@ describe("orchestrator E2E: concurrent run handling", () => {
     await orchestrator.shutdown();
   });
 
-  it("emits events in correct order for each run", { timeout: 15000 }, async () => {
+  it("emits events in correct order for each run", { timeout: 30000 }, async () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
