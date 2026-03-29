@@ -606,27 +606,22 @@ describe("orchestrator E2E: concurrent run handling", () => {
     orchestrator.registerAgent(makeAgent());
 
     const allEvents: Array<{ type: string; runId: string }> = [];
-    let completeCount = 0;
 
-    // Create a promise that resolves when we've received 2 session:complete events
-    const allCompletedPromise = new Promise<void>((resolve) => {
-      orchestrator.on("session:start", (e) => {
-        allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
-      });
+    // Attach listeners BEFORE any async operations to avoid race conditions
+    // on Node 24 where event emission timing may differ
+    orchestrator.on("session:start", (e) => {
+      allEvents.push({ type: "session:start", runId: (e as SessionStartEvent).runId });
+    });
 
-      orchestrator.on("session:complete", (e) => {
-        allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
-        completeCount++;
-        if (completeCount === 2) {
-          resolve();
-        }
-      });
+    orchestrator.on("session:complete", (e) => {
+      allEvents.push({ type: "session:complete", runId: (e as SessionCompleteEvent).runId });
     });
 
     await orchestrator.start();
 
-    // Dispatch concurrent runs
-    await Promise.all([
+    // Dispatch concurrent runs - dispatch() returns only after session:complete is emitted
+    // so we don't need a separate promise to wait for events
+    const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
         agent: "e2e-developer",
         repo: TEST_REPO_DIR,
@@ -641,8 +636,8 @@ describe("orchestrator E2E: concurrent run handling", () => {
       }),
     ]);
 
-    // Wait for all session:complete events to be processed
-    await allCompletedPromise;
+    // Allow microtask queue to flush for any pending event callbacks
+    await new Promise((resolve) => setImmediate(resolve));
 
     // Should have 4 events (2 starts + 2 completes)
     expect(allEvents).toHaveLength(4);
@@ -650,6 +645,8 @@ describe("orchestrator E2E: concurrent run handling", () => {
     // For each run, start should come before complete
     const runIds = [...new Set(allEvents.map((e) => e.runId))];
     expect(runIds).toHaveLength(2);
+    expect(runIds).toContain(result1.runId);
+    expect(runIds).toContain(result2.runId);
 
     for (const runId of runIds) {
       const runEvents = allEvents.filter((e) => e.runId === runId);
