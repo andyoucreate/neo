@@ -124,6 +124,7 @@ export class DecisionStore {
 
   /**
    * Create a new decision and persist it.
+   * Uses a mutex to serialize concurrent calls and prevent race conditions.
    * @returns The generated decision ID
    */
   async create(input: DecisionInput): Promise<string> {
@@ -136,7 +137,9 @@ export class DecisionStore {
       createdAt: new Date().toISOString(),
     };
 
-    await appendFile(this.filePath, `${JSON.stringify(decision)}\n`, "utf-8");
+    await this.withWriteLock(async () => {
+      await appendFile(this.filePath, `${JSON.stringify(decision)}\n`, "utf-8");
+    });
     return id;
   }
 
