@@ -336,9 +336,9 @@ neo child spawn --objective "..." --criteria "..." [--budget <usd>] [--superviso
 \`\`\`
 
 ### Directives
-Standing instructions for idle time:
+Standing instructions (always active, not only during idle):
 \`\`\`bash
-neo directive create "<action>" [--trigger idle] [--duration "2h" | "until midnight"] [--priority 5]
+neo directive create "<action>" [--duration "2h" | "until midnight"] [--priority 5]
 neo directive list                      # list all directives
 neo directive toggle <id>               # enable/disable a directive
 neo directive delete <id>               # delete a directive
@@ -481,13 +481,19 @@ function buildFullContext(opts: PromptOptions): string {
     parts.push(answeredDecisions);
   }
 
-  // 3. Knowledge — accumulated memory (facts, procedures, feedback)
+  // 3. Directives — standing instructions (always active)
+  const directives = buildDirectivesSection(opts.activeDirectives);
+  if (directives) {
+    parts.push(directives);
+  }
+
+  // 4. Knowledge — accumulated memory (facts, procedures, feedback)
   parts.push(buildKnowledgeSection(opts.memories));
 
-  // 4. Environment — stable infra (repos, MCP, budget)
+  // 5. Environment — stable infra (repos, MCP, budget)
   parts.push(...buildEnvironmentSections(opts));
 
-  // 5. Events — the "query" (last = highest attention per Anthropic guidelines)
+  // 6. Events — the "query" (last = highest attention per Anthropic guidelines)
   parts.push(`Events:\n${buildEventsSection(opts.grouped)}`);
 
   return `<context>\n${parts.join("\n\n")}\n</context>`;
@@ -888,8 +894,8 @@ function countEvents(grouped: GroupedEvents): number {
 // ─── Directives ─────────────────────────────────────────
 
 /**
- * Build the active directives section for idle prompts.
- * Directives are standing instructions that should execute during idle time.
+ * Build the active directives section.
+ * Directives are standing instructions that apply continuously, not only during idle.
  */
 function buildDirectivesSection(directives: Directive[] | undefined): string {
   if (!directives || directives.length === 0) {
@@ -908,7 +914,7 @@ function buildDirectivesSection(directives: Directive[] | undefined): string {
   return `Active directives (${directives.length}):
 ${lines.join("\n")}
 
-These are standing instructions for idle time. Execute the highest-priority directive that is feasible given current budget and repository state.`;
+These are standing instructions. Apply them continuously — respecting priority and current budget.`;
 }
 
 /**
@@ -1013,7 +1019,7 @@ ${getCommandsSection(opts.heartbeatCount)}
 </reference>
 
 <directive>
-Idle — but you have active directives. Execute the highest-priority directive that is feasible, then yield. Log your action with \`neo log action\`.
+No active runs. You have standing directives — execute the highest-priority one that is feasible, then yield. Log your action with \`neo log action\`.
 </directive>`;
   }
 
@@ -1039,7 +1045,7 @@ Nothing to do. Run \`neo log discovery "idle"\` and yield. Do not produce any ot
  *
  * Structure (Anthropic best practices: data top, instructions bottom):
  *   <role>         — Identity only
- *   <context>      — Focus \u2192 work state \u2192 knowledge \u2192 environment \u2192 events (query last)
+ *   <context>      — Focus \u2192 work state \u2192 directives \u2192 knowledge \u2192 environment \u2192 events (query last)
  *   <reference>    — Command documentation
  *   <instructions> — Principles \u2192 lifecycle \u2192 reporting \u2192 memory \u2192 directive
  */
