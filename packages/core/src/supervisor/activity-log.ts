@@ -9,6 +9,8 @@ const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB rotation threshold
 export class ActivityLog {
   readonly filePath: string;
   private readonly dir: string;
+  /** Promise-based mutex to serialize write operations */
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(dir: string) {
     this.dir = dir;
@@ -16,13 +18,38 @@ export class ActivityLog {
   }
 
   /**
+   * Acquire the write lock and execute a callback.
+   * Serializes write operations to prevent race conditions during rotation.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Chain onto the existing lock
+    const release = this.writeLock;
+    let releaseLock: () => void = () => {};
+    this.writeLock = new Promise((r) => {
+      releaseLock = r;
+    });
+
+    try {
+      // Wait for previous operation to complete
+      await release;
+      return await fn();
+    } finally {
+      // Release the lock for the next operation
+      releaseLock();
+    }
+  }
+
+  /**
    * Append a structured entry to the activity log.
    * Rotates the file if it exceeds MAX_SIZE_BYTES.
+   * Uses a mutex to serialize concurrent calls and prevent race conditions.
    */
   async append(entry: ActivityEntry): Promise<void> {
-    await this.checkRotation();
-    const line = `${JSON.stringify(entry)}\n`;
-    await appendFile(this.filePath, line, "utf-8");
+    return this.withWriteLock(async () => {
+      await this.checkRotation();
+      const line = `${JSON.stringify(entry)}\n`;
+      await appendFile(this.filePath, line, "utf-8");
+    });
   }
 
   /**
