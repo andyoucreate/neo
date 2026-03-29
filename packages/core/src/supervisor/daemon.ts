@@ -285,7 +285,10 @@ export class SupervisorDaemon {
       } finally {
         // Ensure handle is closed even if an error occurs during write
         if (handle) {
-          await handle.close().catch(() => {});
+          await handle.close().catch((err) => {
+            // biome-ignore lint/suspicious/noConsole: Debug logging for file handle close failure
+            console.debug(`[SupervisorDaemon] Lock file close failed: ${err}`);
+          });
         }
       }
     };

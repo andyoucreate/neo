@@ -101,11 +101,8 @@ async function runDetached(params: DetachParams): Promise<void> {
     updatedAt: new Date().toISOString(),
     metadata: params.metadata,
   };
-  await writeFile(
-    path.join(runsDir, `${runId}.json`),
-    JSON.stringify(persistedRun, null, 2),
-    "utf-8",
-  );
+  const runFilePath = path.join(runsDir, `${runId}.json`);
+  await writeFile(runFilePath, JSON.stringify(persistedRun, null, 2), "utf-8");
 
   const dispatchPath = getRunDispatchPath(repoSlug, runId);
   await writeFile(
@@ -124,38 +121,89 @@ async function runDetached(params: DetachParams): Promise<void> {
   );
 
   const workerPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "daemon", "worker.js");
-  // Use spawn (not fork) so the child gets its own process group via detached: true.
-  // fork() shares the parent's process group, so when the SDK kills the Bash
-  // process tree the worker dies too.
-  const child = spawn(process.execPath, [workerPath, runId, repoSlug], {
-    detached: true,
-    stdio: "ignore",
-    env: process.env,
-  });
-  child.unref();
 
-  // Write PID to persisted run immediately so other workers' recoverOrphanedRuns()
-  // can see this process is alive (prevents false orphan detection on concurrent launches)
-  if (child.pid) {
-    const runFilePath = path.join(runsDir, `${runId}.json`);
+  // Wait for spawn confirmation before persisting PID
+  // This prevents ghost runs where spawn fails silently
+  const spawnResult = await new Promise<{ pid: number } | { error: string }>((resolve) => {
+    let resolved = false;
+    const safeResolve = (result: { pid: number } | { error: string }) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+
+    // Use spawn (not fork) so the child gets its own process group via detached: true.
+    // fork() shares the parent's process group, so when the SDK kills the Bash
+    // process tree the worker dies too.
+    const child = spawn(process.execPath, [workerPath, runId, repoSlug], {
+      detached: true,
+      stdio: "ignore",
+      env: process.env,
+    });
+
+    // Capture spawn errors before unref() - these would otherwise be silently discarded
+    child.on("error", (err) => {
+      safeResolve({ error: err.message });
+    });
+
+    // Wait for 'spawn' event to confirm process started successfully
+    child.on("spawn", () => {
+      child.unref();
+      if (child.pid) {
+        safeResolve({ pid: child.pid });
+      } else {
+        safeResolve({ error: "Spawn succeeded but no PID assigned" });
+      }
+    });
+
+    // Safety timeout in case neither event fires (shouldn't happen)
+    const timer = setTimeout(() => {
+      child.unref();
+      if (child.pid) {
+        safeResolve({ pid: child.pid });
+      } else {
+        safeResolve({ error: "Spawn timeout - no PID available" });
+      }
+    }, 1000);
+  });
+
+  if ("error" in spawnResult) {
+    // Mark run as failed if spawn failed
     try {
       const raw = await readFile(runFilePath, "utf-8");
       const run = JSON.parse(raw) as PersistedRun;
-      run.pid = child.pid;
+      run.status = "failed";
+      run.updatedAt = new Date().toISOString();
       await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch (err) {
-      // Non-critical — worker will write PID on startup anyway
-      console.debug(
-        `[run] Failed to update run file with PID: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch {
+      // Best effort - run file update failed
     }
+
+    printError(`Failed to spawn worker: ${spawnResult.error}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Write PID to persisted run AFTER spawn confirmation
+  // This ensures PID in run.json corresponds to an actually running process
+  try {
+    const raw = await readFile(runFilePath, "utf-8");
+    const run = JSON.parse(raw) as PersistedRun;
+    run.pid = spawnResult.pid;
+    await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
+  } catch (err) {
+    // Non-critical — worker will write PID on startup anyway
+    console.debug(
+      `[run] Failed to update run file with PID: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   if (params.jsonOutput) {
-    printJson({ runId, status: "detached", pid: child.pid });
+    printJson({ runId, status: "detached", pid: spawnResult.pid });
   } else {
     printSuccess(`Detached run started: ${runId}`);
-    console.log(`  PID:  ${String(child.pid)}`);
+    console.log(`  PID:  ${String(spawnResult.pid)}`);
     console.log(`  Logs: neo logs -f ${runId}`);
   }
 }

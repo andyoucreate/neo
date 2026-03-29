@@ -878,7 +878,13 @@ export function SupervisorTui({ name }: { name: string }) {
         readState(name),
         readActivity(name, MAX_VISIBLE_ENTRIES),
         readDecisions(name),
-        readChildrenFile(getSupervisorChildrenPath(name)).catch(() => [] as ChildHandle[]),
+        readChildrenFile(getSupervisorChildrenPath(name)).catch((err) => {
+          // File not found is expected when no children exist - only log real errors
+          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+            console.debug(`[TUI] readChildrenFile failed: ${err}`);
+          }
+          return [] as ChildHandle[];
+        }),
       ]);
       if (!active) return;
       setState(newState);

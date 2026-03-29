@@ -326,8 +326,10 @@ export class HeartbeatLoop {
             store: "memory",
             error: msg,
           })
-          .catch(() => {
+          .catch((logErr) => {
             // Best-effort logging — don't let logging failure cascade
+            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
+            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
           });
       }
     }
@@ -349,8 +351,10 @@ export class HeartbeatLoop {
             store: "task",
             error: msg,
           })
-          .catch(() => {
+          .catch((logErr) => {
             // Best-effort logging — don't let logging failure cascade
+            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
+            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
           });
       }
     }
@@ -377,8 +381,10 @@ export class HeartbeatLoop {
             store: "directive",
             error: msg,
           })
-          .catch(() => {
+          .catch((logErr) => {
             // Best-effort logging — don't let logging failure cascade
+            // biome-ignore lint/suspicious/noConsole: Fallback for when activity log itself fails
+            console.debug(`[HeartbeatLoop] Activity log failed: ${logErr}`);
           });
       }
     }

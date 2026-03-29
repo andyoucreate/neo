@@ -106,10 +106,17 @@ async function startDaemon(name: string): Promise<void> {
     await rm(lockPath, { force: true });
   }
 
-  const pid = await startDaemonDetached(name);
+  const result = await startDaemonDetached(name);
+
+  if (result.error) {
+    printError(`Failed to start supervisor daemon: ${result.error}`);
+    process.exitCode = 1;
+    return;
+  }
+
   const config = await loadGlobalConfig();
 
-  printSuccess(`Supervisor "${name}" started (PID ${pid})`);
+  printSuccess(`Supervisor "${name}" started (PID ${result.pid})`);
   console.log(`  Port:     ${config.supervisor.port}`);
   console.log(`  Health:   curl localhost:${config.supervisor.port}/health`);
   console.log(`  Webhook:  curl -X POST localhost:${config.supervisor.port}/webhook -d '{}'`);

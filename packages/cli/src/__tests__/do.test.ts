@@ -22,7 +22,7 @@ vi.mock("@neotx/core", async () => {
 // Mock daemon-utils to avoid spawning real processes
 vi.mock("../daemon-utils.js", () => ({
   isDaemonRunning: vi.fn(),
-  startDaemonDetached: vi.fn().mockResolvedValue(12345),
+  startDaemonDetached: vi.fn().mockResolvedValue({ pid: 12345 }),
 }));
 
 // Mock output
