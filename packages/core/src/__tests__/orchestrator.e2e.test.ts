@@ -501,11 +501,22 @@ describe("orchestrator E2E: concurrent run handling", () => {
     orchestrator.registerAgent(makeAgent());
 
     const statusSnapshots: Array<{ activeSessions: number; queueDepth: number }> = [];
+    let completeCount = 0;
 
-    orchestrator.on("session:start", () => {
-      statusSnapshots.push({
-        activeSessions: orchestrator.status.activeSessions.length,
-        queueDepth: orchestrator.status.queueDepth,
+    // Create a promise that resolves when we've received 2 session:complete events
+    const allCompletedPromise = new Promise<void>((resolve) => {
+      orchestrator.on("session:start", () => {
+        statusSnapshots.push({
+          activeSessions: orchestrator.status.activeSessions.length,
+          queueDepth: orchestrator.status.queueDepth,
+        });
+      });
+
+      orchestrator.on("session:complete", () => {
+        completeCount++;
+        if (completeCount === 2) {
+          resolve();
+        }
       });
     });
 
@@ -531,6 +542,9 @@ describe("orchestrator E2E: concurrent run handling", () => {
         branch: "feat/status-2",
       }),
     ]);
+
+    // Wait for all session:complete events to be processed
+    await allCompletedPromise;
 
     // Verify both completed
     expect(result1.status).toBe("success");
