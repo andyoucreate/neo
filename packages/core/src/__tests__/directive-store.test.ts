@@ -234,7 +234,9 @@ describe("DirectiveStore", () => {
       expect(lines.length).toBe(1);
 
       // Should be valid JSON
-      expect(() => JSON.parse(lines[0]!)).not.toThrow();
+      const firstLine = lines[0];
+      expect(firstLine).toBeDefined();
+      expect(() => JSON.parse(firstLine ?? "")).not.toThrow();
     });
 
     it("serializes concurrent delete and toggle operations", async () => {
@@ -265,7 +267,9 @@ describe("DirectiveStore", () => {
       // File should still be valid
       const content = readFileSync(TEST_FILE, "utf-8");
       const lines = content.trim().split("\n").filter(Boolean);
-      expect(() => JSON.parse(lines[lines.length - 1]!)).not.toThrow();
+      const lastLine = lines[lines.length - 1];
+      expect(lastLine).toBeDefined();
+      expect(() => JSON.parse(lastLine ?? "")).not.toThrow();
     });
   });
 
@@ -275,7 +279,10 @@ describe("DirectiveStore", () => {
       await store.create({ trigger: "idle", action: "test" });
 
       // Toggle to trigger writeAll
-      const id = (await store.list())[0]!.id;
+      const directives = await store.list();
+      const firstDirective = directives[0];
+      expect(firstDirective).toBeDefined();
+      const id = firstDirective?.id ?? "";
       await store.toggle(id, false);
 
       // Check no temp files left behind
@@ -313,10 +320,14 @@ describe("DirectiveStore concurrent write safety", () => {
     ]);
 
     // Toggle all directives concurrently
+    const [id0, id1, id2] = ids;
+    expect(id0).toBeDefined();
+    expect(id1).toBeDefined();
+    expect(id2).toBeDefined();
     await Promise.all([
-      store.toggle(ids[0]!, false),
-      store.toggle(ids[1]!, false),
-      store.toggle(ids[2]!, false),
+      store.toggle(id0 ?? "", false),
+      store.toggle(id1 ?? "", false),
+      store.toggle(id2 ?? "", false),
     ]);
 
     // All directives should be disabled
@@ -350,7 +361,15 @@ describe("DirectiveStore concurrent write safety", () => {
     ]);
 
     // Delete first 3 directives concurrently
-    await Promise.all([store.delete(ids[0]!), store.delete(ids[1]!), store.delete(ids[2]!)]);
+    const [delId0, delId1, delId2] = ids;
+    expect(delId0).toBeDefined();
+    expect(delId1).toBeDefined();
+    expect(delId2).toBeDefined();
+    await Promise.all([
+      store.delete(delId0 ?? ""),
+      store.delete(delId1 ?? ""),
+      store.delete(delId2 ?? ""),
+    ]);
 
     // Only the 4th directive should remain
     const all = await store.list();
@@ -390,7 +409,7 @@ describe("parseDirectiveDuration", () => {
     const now = Date.now();
     const result = parseDirectiveDuration("for 2 hours");
     expect(result).toBeDefined();
-    const diff = new Date(result!).getTime() - now;
+    const diff = new Date(result ?? "").getTime() - now;
     // Allow 1 second tolerance
     expect(diff).toBeGreaterThan(2 * 60 * 60 * 1000 - 1000);
     expect(diff).toBeLessThan(2 * 60 * 60 * 1000 + 1000);
@@ -400,7 +419,7 @@ describe("parseDirectiveDuration", () => {
     const now = Date.now();
     const result = parseDirectiveDuration("for 30 minutes");
     expect(result).toBeDefined();
-    const diff = new Date(result!).getTime() - now;
+    const diff = new Date(result ?? "").getTime() - now;
     expect(diff).toBeGreaterThan(30 * 60 * 1000 - 1000);
     expect(diff).toBeLessThan(30 * 60 * 1000 + 1000);
   });
@@ -412,14 +431,14 @@ describe("parseDirectiveDuration", () => {
     const midnight = new Date();
     midnight.setHours(23, 59, 59, 999);
     // Result should be before or at midnight
-    expect(new Date(result!).getTime()).toBeLessThanOrEqual(midnight.getTime() + 1000);
+    expect(new Date(result ?? "").getTime()).toBeLessThanOrEqual(midnight.getTime() + 1000);
   });
 
   it("parses 'until HH:MM' format", () => {
     const result = parseDirectiveDuration("until 18:00");
     expect(result).toBeDefined();
 
-    const parsed = new Date(result!);
+    const parsed = new Date(result ?? "");
     expect(parsed.getHours()).toBe(18);
     expect(parsed.getMinutes()).toBe(0);
   });
@@ -428,7 +447,7 @@ describe("parseDirectiveDuration", () => {
     const now = Date.now();
     const result = parseDirectiveDuration("2h");
     expect(result).toBeDefined();
-    const diff = new Date(result!).getTime() - now;
+    const diff = new Date(result ?? "").getTime() - now;
     expect(diff).toBeGreaterThan(2 * 60 * 60 * 1000 - 1000);
   });
 
@@ -436,7 +455,7 @@ describe("parseDirectiveDuration", () => {
     const now = Date.now();
     const result = parseDirectiveDuration("30m");
     expect(result).toBeDefined();
-    const diff = new Date(result!).getTime() - now;
+    const diff = new Date(result ?? "").getTime() - now;
     expect(diff).toBeGreaterThan(30 * 60 * 1000 - 1000);
   });
 
@@ -444,7 +463,7 @@ describe("parseDirectiveDuration", () => {
     const now = Date.now();
     const result = parseDirectiveDuration("7d");
     expect(result).toBeDefined();
-    const diff = new Date(result!).getTime() - now;
+    const diff = new Date(result ?? "").getTime() - now;
     expect(diff).toBeGreaterThan(7 * 24 * 60 * 60 * 1000 - 1000);
   });
 

@@ -118,6 +118,7 @@ export default defineCommand({
       default: false,
     },
   },
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: CLI command handler with multiple type-specific branches; extracting would obscure flow
   async run({ args }) {
     const type = args.type as string | undefined;
 
