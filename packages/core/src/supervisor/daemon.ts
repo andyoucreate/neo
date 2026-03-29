@@ -258,6 +258,11 @@ export class SupervisorDaemon {
   /**
    * Atomically acquire a lockfile using O_EXCL flag.
    * Handles stale locks by checking if the owning process is still alive.
+   *
+   * Note: A small race window exists between stale lock removal and retry.
+   * Another process could grab the lock during this window, which is acceptable
+   * because we detect and report it on the retry attempt. This is a best-effort
+   * pattern — a true CAS (compare-and-swap) would require platform-specific APIs.
    */
   private async acquireLock(lockPath: string): Promise<void> {
     const tryAcquire = async (): Promise<boolean> => {

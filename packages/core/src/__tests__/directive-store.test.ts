@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DirectiveStore, parseDirectiveDuration } from "../supervisor/directive-store.js";
@@ -210,6 +210,79 @@ describe("DirectiveStore", () => {
       const all = await store.list();
       expect(all).toHaveLength(1);
       expect(all[0]?.action).toBe("recent");
+    });
+  });
+
+  describe("concurrency", () => {
+    it("serializes concurrent toggle operations", async () => {
+      const store = new DirectiveStore(TEST_FILE);
+      const id = await store.create({ trigger: "idle", action: "concurrent test" });
+
+      // Run multiple toggles concurrently
+      await Promise.all([
+        store.toggle(id, false),
+        store.toggle(id, true),
+        store.toggle(id, false),
+        store.toggle(id, true),
+      ]);
+
+      // File should be valid JSONL (no corruption)
+      const content = readFileSync(TEST_FILE, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+
+      // Should have exactly 1 line (compacted after all writes)
+      expect(lines.length).toBe(1);
+
+      // Should be valid JSON
+      expect(() => JSON.parse(lines[0]!)).not.toThrow();
+    });
+
+    it("serializes concurrent delete and toggle operations", async () => {
+      const store = new DirectiveStore(TEST_FILE);
+      const id1 = await store.create({ trigger: "idle", action: "action 1" });
+      const id2 = await store.create({ trigger: "idle", action: "action 2" });
+
+      // Concurrent operations on different directives
+      await Promise.all([store.toggle(id1, false), store.delete(id2)]);
+
+      const all = await store.list();
+      expect(all).toHaveLength(1);
+      expect(all[0]?.id).toBe(id1);
+      expect(all[0]?.enabled).toBe(false);
+    });
+
+    it("serializes concurrent markTriggered operations", async () => {
+      const store = new DirectiveStore(TEST_FILE);
+      const id = await store.create({ trigger: "idle", action: "test" });
+
+      // Run multiple markTriggered concurrently
+      await Promise.all([
+        store.markTriggered(id),
+        store.markTriggered(id),
+        store.markTriggered(id),
+      ]);
+
+      // File should still be valid
+      const content = readFileSync(TEST_FILE, "utf-8");
+      const lines = content.trim().split("\n").filter(Boolean);
+      expect(() => JSON.parse(lines[lines.length - 1]!)).not.toThrow();
+    });
+  });
+
+  describe("atomic writes", () => {
+    it("uses temp file pattern (no temp files left behind)", async () => {
+      const store = new DirectiveStore(TEST_FILE);
+      await store.create({ trigger: "idle", action: "test" });
+
+      // Toggle to trigger writeAll
+      const id = (await store.list())[0]!.id;
+      await store.toggle(id, false);
+
+      // Check no temp files left behind
+      const dir = path.dirname(TEST_FILE);
+      const files = require("node:fs").readdirSync(dir);
+      const tempFiles = files.filter((f: string) => f.includes(".tmp"));
+      expect(tempFiles).toHaveLength(0);
     });
   });
 });
