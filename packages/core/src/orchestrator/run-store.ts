@@ -137,6 +137,64 @@ export class RunStore {
   }
 
   /**
+   * Scan for stale (ghost) runs on startup.
+   * For each run with status='running', check if the PID is alive.
+   * If dead, mark as 'failed' with blockedReason explaining the crash.
+   * Returns the list of recovered ghost runs for event emission.
+   */
+  async scanForStaleRuns(): Promise<PersistedRun[]> {
+    if (!existsSync(this.runsDir)) return [];
+
+    const recovered: PersistedRun[] = [];
+
+    try {
+      const jsonFiles = await this.collectRunFiles();
+      for (const filePath of jsonFiles) {
+        const run = await this.recoverGhostRun(filePath);
+        if (run) recovered.push(run);
+      }
+    } catch {
+      // Non-critical — best effort recovery
+    }
+
+    return recovered;
+  }
+
+  /**
+   * Check if a run file represents a ghost run (crashed supervisor).
+   * Unlike recoverRunIfOrphaned, this method:
+   * - Does NOT skip runs from the current process (we're a new process)
+   * - Marks with blockedReason to indicate supervisor crash
+   * If the run is a ghost, update its status to "failed" and return it.
+   */
+  private async recoverGhostRun(filePath: string): Promise<PersistedRun | null> {
+    try {
+      const content = await readFile(filePath, "utf-8");
+      const run = JSON.parse(content) as PersistedRun;
+
+      if (run.status !== "running") return null;
+
+      // If the run has a PID and the process is still alive, skip it
+      if (run.pid && isProcessAlive(run.pid)) return null;
+
+      // Don't mark recently created runs as ghost — the worker process
+      // may not have written its PID yet (race condition on concurrent launches)
+      const ageMs = Date.now() - new Date(run.createdAt).getTime();
+      if (ageMs < ORPHAN_GRACE_PERIOD_MS) return null;
+
+      run.status = "failed";
+      run.blockedReason = "supervisor crashed";
+      run.updatedAt = new Date().toISOString();
+      await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
+
+      return run;
+    } catch {
+      // Non-critical — file may be corrupt or locked
+      return null;
+    }
+  }
+
+  /**
    * Mark a run as blocked after all retries have been exhausted.
    * Blocked runs are visible to the supervisor but don't halt other work.
    */

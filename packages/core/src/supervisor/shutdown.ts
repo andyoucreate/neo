@@ -333,16 +333,40 @@ export class ShutdownManager {
 
       if (run.status !== "running") return;
 
-      // Only mark as failed if this process owns the run
-      if (run.pid && run.pid !== process.pid) return;
+      // Mark as failed if:
+      // 1. Run has no PID (legacy run or race condition)
+      // 2. Run belongs to current process
+      // 3. Run belongs to a dead process (ghost run from crashed supervisor)
+      if (run.pid && run.pid !== process.pid) {
+        // Check if the other process is still alive
+        const isAlive = this.isProcessAlive(run.pid);
+        if (isAlive) return; // Skip runs owned by other alive processes
+      }
 
       run.status = "failed";
+      run.blockedReason = run.pid === process.pid ? undefined : "supervisor crashed";
       run.updatedAt = new Date().toISOString();
       await writeFile(filePath, JSON.stringify(run, null, 2), "utf-8");
 
       await activityLog?.log("event", `Marked orphaned run ${run.runId} as failed`);
     } catch {
       // Non-critical — file may be corrupt or locked, silently ignore
+    }
+  }
+
+  /**
+   * Check if a process is alive. Extracted for testability.
+   */
+  private isProcessAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (error: unknown) {
+      // EPERM means the process exists but we lack permission to signal it
+      if (error instanceof Error && "code" in error && error.code === "EPERM") {
+        return true;
+      }
+      return false;
     }
   }
 }

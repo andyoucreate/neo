@@ -4,6 +4,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
+import { RunStore } from "@/orchestrator/run-store";
 import { getDataDir, getRunsDir } from "@/paths";
 import {
   isAssistantMessage,
@@ -43,6 +44,8 @@ import {
   supervisorDaemonStateSchema,
 } from "./schemas.js";
 import {
+  type GhostRunRecoveredEvent,
+  ghostRunRecoveredEventSchema,
   type HeartbeatEvent,
   type HeartbeatFailureEvent,
   heartbeatEventSchema,
@@ -354,6 +357,9 @@ export class HeartbeatLoop {
 
     // Initialize and start config watcher for hot-reload
     await this.initConfigWatcher();
+
+    // Scan for and recover ghost runs from crashed supervisors
+    await this.recoverGhostRuns();
 
     await this.activityLog.log("heartbeat", "Supervisor heartbeat loop started");
     await this.emitSupervisorStarted();
@@ -1466,6 +1472,9 @@ export class HeartbeatLoop {
         case "run_completed":
           runCompletedEventSchema.parse(event);
           break;
+        case "ghost_run_recovered":
+          ghostRunRecoveredEventSchema.parse(event);
+          break;
         case "supervisor_stopped":
           supervisorStoppedEventSchema.parse(event);
           break;
@@ -1598,6 +1607,56 @@ export class HeartbeatLoop {
       consecutiveFailures: opts.consecutiveFailures,
     };
     await this.emitWebhookEvent(event);
+  }
+
+  /** Emit GhostRunRecoveredEvent when a ghost run is detected and marked failed */
+  private async emitGhostRunRecovered(opts: {
+    runId: string;
+    agent: string;
+    repo: string;
+  }): Promise<void> {
+    const event: GhostRunRecoveredEvent = {
+      type: "ghost_run_recovered",
+      supervisorId: this.sessionId,
+      runId: opts.runId,
+      agent: opts.agent,
+      repo: opts.repo,
+      timestamp: new Date().toISOString(),
+      reason: "supervisor crashed",
+    };
+    await this.emitWebhookEvent(event);
+  }
+
+  /**
+   * Scan for ghost runs from crashed supervisors on startup.
+   * Marks them as failed and emits events for logging/debugging.
+   */
+  private async recoverGhostRuns(): Promise<void> {
+    try {
+      const runStore = new RunStore();
+      const ghostRuns = await runStore.scanForStaleRuns();
+
+      if (ghostRuns.length === 0) return;
+
+      await this.activityLog.log(
+        "event",
+        `Recovered ${ghostRuns.length} ghost run(s) from crashed supervisor`,
+        { runIds: ghostRuns.map((r) => r.runId) },
+      );
+
+      // Emit events for each recovered ghost run
+      for (const run of ghostRuns) {
+        await this.emitGhostRunRecovered({
+          runId: run.runId,
+          agent: run.agent,
+          repo: run.repo,
+        });
+      }
+    } catch (error) {
+      // Non-critical — best effort recovery
+      const msg = error instanceof Error ? error.message : String(error);
+      await this.activityLog.log("error", `Ghost run recovery failed: ${msg}`);
+    }
   }
 }
 
