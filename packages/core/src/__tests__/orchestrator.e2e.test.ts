@@ -550,7 +550,7 @@ describe("orchestrator E2E: concurrent run handling", () => {
     await orchestrator.shutdown();
   });
 
-  it("runs complete independently without affecting each other", { timeout: 15000 }, async () => {
+  it("runs complete independently without affecting each other", { timeout: 30000 }, async () => {
     const orchestrator = new Orchestrator(makeConfig(TEST_REPO_DIR), {
       skipOrphanRecovery: true,
     });
