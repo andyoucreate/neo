@@ -502,14 +502,10 @@ describe("orchestrator E2E: concurrent run handling", () => {
 
     const completedRuns: string[] = [];
 
-    // Wait for both sessions to complete to avoid race conditions in concurrent execution
-    const allCompletedPromise = new Promise<void>((resolve) => {
-      orchestrator.on("session:complete", (e) => {
-        completedRuns.push((e as SessionCompleteEvent).runId);
-        if (completedRuns.length === 2) {
-          resolve();
-        }
-      });
+    // Attach listener BEFORE any async operations to avoid race conditions
+    // across Node versions where event emission timing may differ
+    orchestrator.on("session:complete", (e) => {
+      completedRuns.push((e as SessionCompleteEvent).runId);
     });
 
     await orchestrator.start();
@@ -519,7 +515,8 @@ describe("orchestrator E2E: concurrent run handling", () => {
     expect(orchestrator.status.queueDepth).toBe(0);
     expect(orchestrator.status.costToday).toBe(0);
 
-    // Dispatch concurrent runs
+    // Dispatch concurrent runs - dispatch() returns only after session:complete is emitted
+    // so we don't need a separate promise to wait for events
     const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
         agent: "e2e-developer",
@@ -535,12 +532,13 @@ describe("orchestrator E2E: concurrent run handling", () => {
       }),
     ]);
 
-    // Wait for all session:complete events to be processed
-    await allCompletedPromise;
+    // Allow microtask queue to flush for any pending event callbacks
+    await new Promise((resolve) => setImmediate(resolve));
 
     // Verify both completed
     expect(result1.status).toBe("success");
     expect(result2.status).toBe("success");
+    expect(completedRuns).toHaveLength(2);
 
     // Verify final state
     expect(orchestrator.status.activeSessions).toHaveLength(0);
@@ -558,19 +556,16 @@ describe("orchestrator E2E: concurrent run handling", () => {
 
     const completedRuns: string[] = [];
 
-    // Create a promise that resolves when we've received 2 session:complete events
-    const allCompletedPromise = new Promise<void>((resolve) => {
-      orchestrator.on("session:complete", (e) => {
-        completedRuns.push((e as SessionCompleteEvent).runId);
-        if (completedRuns.length === 2) {
-          resolve();
-        }
-      });
+    // Attach listener BEFORE any async operations to avoid race conditions
+    // on Node 22 where event emission timing may differ from Node 24
+    orchestrator.on("session:complete", (e) => {
+      completedRuns.push((e as SessionCompleteEvent).runId);
     });
 
     await orchestrator.start();
 
-    // Dispatch concurrent runs
+    // Dispatch concurrent runs - dispatch() returns only after session:complete is emitted
+    // so we don't need a separate promise to wait for events
     const [result1, result2] = await Promise.all([
       orchestrator.dispatch({
         agent: "e2e-developer",
@@ -586,8 +581,8 @@ describe("orchestrator E2E: concurrent run handling", () => {
       }),
     ]);
 
-    // Wait for all session:complete events to be processed
-    await allCompletedPromise;
+    // Allow microtask queue to flush for any pending event callbacks
+    await new Promise((resolve) => setImmediate(resolve));
 
     // Both complete successfully
     expect(result1.status).toBe("success");
