@@ -11,7 +11,11 @@ import { ChildRegistry } from "./child-registry.js";
 import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
-import type { SupervisorDaemonState, WebhookIncomingEvent } from "./schemas.js";
+import {
+  type SupervisorDaemonState,
+  supervisorDaemonStateSchema,
+  type WebhookIncomingEvent,
+} from "./schemas.js";
 import { WebhookServer } from "./webhook-server.js";
 
 export interface SupervisorDaemonOptions {
@@ -240,7 +244,13 @@ export class SupervisorDaemon {
     const statePath = path.join(this.dir, "state.json");
     try {
       const raw = await readFile(statePath, "utf-8");
-      return JSON.parse(raw) as SupervisorDaemonState;
+      const parsed = JSON.parse(raw);
+      const result = supervisorDaemonStateSchema.safeParse(parsed);
+      if (!result.success) {
+        console.debug(`[SupervisorDaemon] Invalid state schema: ${result.error.message}`);
+        return null;
+      }
+      return result.data;
     } catch (err) {
       // State file not found or corrupted — treat as no previous state
       console.debug(

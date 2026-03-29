@@ -1,6 +1,6 @@
 import path from "node:path";
-import type { Embedder, KnowledgeSubtype, MemoryEntry, MemoryType } from "@neotx/core";
-import { getSupervisorDir, LocalEmbedder, MemoryStore } from "@neotx/core";
+import type { KnowledgeSubtype, MemoryEntry, MemoryType } from "@neotx/core";
+import { getSupervisorDir, MemoryStore } from "@neotx/core";
 import { defineCommand } from "citty";
 import { printError, printSuccess, printTable } from "../output.js";
 
@@ -35,22 +35,9 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
-function createEmbedder(): Embedder | null {
-  try {
-    return new LocalEmbedder();
-  } catch (err) {
-    // Embedder initialization failed — semantic search will be unavailable
-    console.debug(
-      `[memory] Failed to create embedder: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return null;
-  }
-}
-
-function openStore(name: string, withEmbeddings = false): MemoryStore {
+function openStore(name: string): MemoryStore {
   const dir = getSupervisorDir(name);
-  const embedder = withEmbeddings ? createEmbedder() : null;
-  return new MemoryStore(path.join(dir, "memory.sqlite"), embedder);
+  return new MemoryStore(path.join(dir, "memory.sqlite"));
 }
 
 function formatResultsTable(results: MemoryEntry[], full = false): void {
@@ -99,7 +86,7 @@ async function handleWrite(args: ParsedArgs): Promise<void> {
     }
   }
 
-  const store = openStore(args.name, true);
+  const store = openStore(args.name);
   try {
     const tags = args.tags ? args.tags.split(",").map((t) => t.trim()) : [];
     const id = await store.write({
@@ -182,7 +169,7 @@ async function handleSearch(args: ParsedArgs): Promise<void> {
     return;
   }
 
-  const store = openStore(args.name, true);
+  const store = openStore(args.name);
   try {
     const results = await store.search(args.value, {
       ...(args.scope !== "global" && { scope: args.scope }),

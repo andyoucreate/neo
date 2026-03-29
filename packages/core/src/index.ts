@@ -121,9 +121,6 @@ export {
 } from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
-export type { SupervisorState } from "@/supervisor";
-// ─── Supervisor (legacy) ──────────────────────────────
-export { supervisorStateSchema } from "@/supervisor";
 // ─── Decisions ─────────────────────────────────────────
 // ─── Supervisor children ───────────────────────────────
 // ─── Child supervisor ──────────────────────────────
@@ -195,7 +192,7 @@ export type {
   MemoryWriteInput,
 } from "@/supervisor/memory/index";
 // ─── Memory ───────────────────────────────────────────
-export { knowledgeSubtypeSchema, LocalEmbedder, MemoryStore } from "@/supervisor/memory/index";
+export { knowledgeSubtypeSchema, MemoryStore } from "@/supervisor/memory/index";
 // ─── Task Store ──────────────────────────────────────
 export type {
   TaskCreateInput,
@@ -210,7 +207,42 @@ export {
   taskPrioritySchema,
   taskStatusSchema,
 } from "@/supervisor/task-store";
-export * from "@/types";
+// ─── Types (explicit public exports) ──────────────────────
+export type {
+  ActiveSession,
+  AgentDefinition,
+  AgentMessageEvent,
+  AgentToolUseEvent,
+  BudgetAlertEvent,
+  CostEntry,
+  CostUpdateEvent,
+  DispatchInput,
+  GateWaitingEvent,
+  HookEvent,
+  Middleware,
+  MiddlewareContext,
+  MiddlewareContextMap,
+  MiddlewareEvent,
+  MiddlewareHandler,
+  MiddlewareResult,
+  NeoEvent,
+  OrchestratorShutdownEvent,
+  OrchestratorStatus,
+  PersistedRun,
+  Priority,
+  QueueDequeueEvent,
+  QueueEnqueueEvent,
+  ResolvedAgent,
+  RunContext,
+  SessionCompleteEvent,
+  SessionFailEvent,
+  SessionStartEvent,
+  StepCompleteEvent,
+  StepResult,
+  StepStartEvent,
+  SubagentDefinition,
+  TaskResult,
+} from "@/types";
 // ─── Webhook Config ────────────────────────────────────
 export type {
   WebhookEntry,

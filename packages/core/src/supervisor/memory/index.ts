@@ -1,5 +1,4 @@
 export type { Embedder } from "./embedder.js";
-export { cosineSimilarity, LocalEmbedder } from "./embedder.js";
 export type {
   KnowledgeSubtype,
   MemoryEntry,

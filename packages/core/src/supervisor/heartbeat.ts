@@ -28,7 +28,6 @@ import { type IdleContext, IdleDetector } from "./idle-detector.js";
 import { compactLogBuffer, markConsolidated, readUnconsolidated } from "./log-buffer.js";
 import type { MemoryEntry } from "./memory/entry.js";
 import { MemoryStore } from "./memory/store.js";
-import { notifyRunComplete, notifyRunFailed, shouldNotify } from "./notify.js";
 import {
   buildCompactionPrompt,
   buildConsolidationPrompt,
@@ -36,11 +35,12 @@ import {
   buildStandardPrompt,
   isIdleHeartbeat,
 } from "./prompt-builder.js";
-import type {
-  ActivityEntry,
-  LogBufferEntry,
-  QueuedEvent,
-  SupervisorDaemonState,
+import {
+  type ActivityEntry,
+  type LogBufferEntry,
+  type QueuedEvent,
+  type SupervisorDaemonState,
+  supervisorDaemonStateSchema,
 } from "./schemas.js";
 import {
   type HeartbeatEvent,
@@ -1047,7 +1047,9 @@ export class HeartbeatLoop {
   private async readState(): Promise<SupervisorDaemonState | null> {
     try {
       const raw = await readFile(this.statePath, "utf-8");
-      return JSON.parse(raw) as SupervisorDaemonState;
+      const parsed = JSON.parse(raw);
+      const result = supervisorDaemonStateSchema.safeParse(parsed);
+      return result.success ? result.data : null;
     } catch {
       return null;
     }
@@ -1056,7 +1058,10 @@ export class HeartbeatLoop {
   private async updateState(updates: Partial<SupervisorDaemonState>): Promise<void> {
     try {
       const raw = await readFile(this.statePath, "utf-8");
-      const state = JSON.parse(raw) as SupervisorDaemonState;
+      const parsed = JSON.parse(raw);
+      const result = supervisorDaemonStateSchema.safeParse(parsed);
+      if (!result.success) return;
+      const state = result.data;
       Object.assign(state, updates);
       await writeFile(this.statePath, JSON.stringify(state, null, 2), "utf-8");
     } catch {
@@ -1548,19 +1553,6 @@ export class HeartbeatLoop {
         await writeFailureReport(this.supervisorDir, report);
       } catch {
         // Best-effort: failure report errors should never crash daemon
-      }
-    }
-
-    // Send macOS notification in daemon mode
-    if (shouldNotify(process.stdout.isTTY ?? false)) {
-      try {
-        if (opts.status === "failed") {
-          await notifyRunFailed(opts.runId, opts.output ?? "Unknown error");
-        } else if (opts.status === "completed") {
-          await notifyRunComplete(opts.runId, opts.output ?? "Completed successfully");
-        }
-      } catch {
-        // Best-effort: notification failure should never crash daemon
       }
     }
   }
