@@ -16,9 +16,33 @@ import type { FocusedSupervisorState, SupervisorStore } from "../store.js";
  */
 export class JsonlSupervisorStore implements SupervisorStore {
   private readonly baseDir: string;
+  /** Promise-based mutex to serialize write operations */
+  private writeLock: Promise<void> = Promise.resolve();
 
   constructor(baseDir: string) {
     this.baseDir = baseDir;
+  }
+
+  /**
+   * Acquire the write lock and execute a callback.
+   * Serializes all write operations to prevent race conditions.
+   */
+  private async withWriteLock<T>(fn: () => Promise<T>): Promise<T> {
+    // Chain onto the existing lock
+    const release = this.writeLock;
+    let releaseLock: () => void = () => {};
+    this.writeLock = new Promise((r) => {
+      releaseLock = r;
+    });
+
+    try {
+      // Wait for previous operation to complete
+      await release;
+      return await fn();
+    } finally {
+      // Release the lock for the next operation
+      releaseLock();
+    }
   }
 
   private supervisorDir(supervisorId: string): string {
@@ -94,13 +118,15 @@ export class JsonlSupervisorStore implements SupervisorStore {
   // ─── Cost ──────────────────────────────────────────────
 
   async recordCost(supervisorId: string, costUsd: number): Promise<void> {
-    const current = await this.getTotalCost(supervisorId);
-    const dir = await this.ensureDir(supervisorId);
-    await writeFile(
-      path.join(dir, "cost.json"),
-      JSON.stringify({ totalCostUsd: current + costUsd }),
-      "utf-8",
-    );
+    await this.withWriteLock(async () => {
+      const current = await this.getTotalCost(supervisorId);
+      const dir = await this.ensureDir(supervisorId);
+      await writeFile(
+        path.join(dir, "cost.json"),
+        JSON.stringify({ totalCostUsd: current + costUsd }),
+        "utf-8",
+      );
+    });
   }
 
   async getTotalCost(supervisorId: string): Promise<number> {
