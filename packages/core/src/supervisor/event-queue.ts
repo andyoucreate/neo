@@ -35,7 +35,8 @@ export interface DrainAndGroupResult {
  */
 export class EventQueue {
   private readonly queue: QueuedEvent[] = [];
-  private readonly seenIds = new Set<string>();
+  /** Map of event ID to timestamp for proper LRU eviction */
+  private readonly seenIds = new Map<string, number>();
   private readonly maxSeenIds = 1000;
   private readonly maxEventsPerSec: number;
   private eventCountThisSecond = 0;
@@ -67,18 +68,37 @@ export class EventQueue {
     if (this.eventCountThisSecond >= this.maxEventsPerSec) return false;
     this.eventCountThisSecond++;
 
-    // Track seen IDs (LRU-style: evict oldest when full)
+    // Track seen IDs with timestamps for proper LRU eviction
     if (id) {
-      this.seenIds.add(id);
+      this.seenIds.set(id, Date.now());
       if (this.seenIds.size > this.maxSeenIds) {
-        const first = this.seenIds.values().next().value;
-        if (first) this.seenIds.delete(first);
+        this.evictOldestSeenId();
       }
     }
 
     this.queue.push(event);
     this.wakeUp?.();
     return true;
+  }
+
+  /**
+   * Evicts the oldest entry from seenIds based on actual timestamp,
+   * not insertion order.
+   */
+  private evictOldestSeenId(): void {
+    let oldestId: string | undefined;
+    let oldestTime = Number.POSITIVE_INFINITY;
+
+    for (const [id, timestamp] of this.seenIds) {
+      if (timestamp < oldestTime) {
+        oldestTime = timestamp;
+        oldestId = id;
+      }
+    }
+
+    if (oldestId) {
+      this.seenIds.delete(oldestId);
+    }
   }
 
   /**
@@ -207,9 +227,32 @@ export class EventQueue {
           console.debug(`[neo] Failed to read new lines from ${filePath}:`, err);
         });
       });
+
+      // Clean up watcher on error (e.g., file deleted, permissions changed)
+      watcher.on("error", (err) => {
+        // biome-ignore lint/suspicious/noConsole: Log watcher errors for debugging
+        console.debug(`[neo] Watcher error for ${filePath}, cleaning up:`, err);
+        this.cleanupWatcher(watcher);
+      });
+
       this.watchers.push(watcher);
     } catch {
       // Non-critical: file may not exist yet — watcher will be set up when file is created
+    }
+  }
+
+  /**
+   * Properly close and remove a watcher from the active list.
+   */
+  private cleanupWatcher(watcher: FSWatcher): void {
+    try {
+      watcher.close();
+    } catch {
+      // Ignore errors during close — watcher may already be closed
+    }
+    const index = this.watchers.indexOf(watcher);
+    if (index !== -1) {
+      this.watchers.splice(index, 1);
     }
   }
 
