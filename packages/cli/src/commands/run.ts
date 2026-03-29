@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
@@ -16,6 +15,7 @@ import {
 import { defineCommand } from "citty";
 import { printError, printJson, printSuccess } from "../output.js";
 import { resolveAgentsDir } from "../resolve.js";
+import { spawnWithConfirmation } from "../spawn-utils.js";
 
 function printProgress(event: NeoEvent): void {
   const ts = event.timestamp.slice(11, 19);
@@ -124,49 +124,7 @@ async function runDetached(params: DetachParams): Promise<void> {
 
   // Wait for spawn confirmation before persisting PID
   // This prevents ghost runs where spawn fails silently
-  const spawnResult = await new Promise<{ pid: number } | { error: string }>((resolve) => {
-    let resolved = false;
-    const safeResolve = (result: { pid: number } | { error: string }) => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(timer);
-      resolve(result);
-    };
-
-    // Use spawn (not fork) so the child gets its own process group via detached: true.
-    // fork() shares the parent's process group, so when the SDK kills the Bash
-    // process tree the worker dies too.
-    const child = spawn(process.execPath, [workerPath, runId, repoSlug], {
-      detached: true,
-      stdio: "ignore",
-      env: process.env,
-    });
-
-    // Capture spawn errors before unref() - these would otherwise be silently discarded
-    child.on("error", (err) => {
-      safeResolve({ error: err.message });
-    });
-
-    // Wait for 'spawn' event to confirm process started successfully
-    child.on("spawn", () => {
-      child.unref();
-      if (child.pid) {
-        safeResolve({ pid: child.pid });
-      } else {
-        safeResolve({ error: "Spawn succeeded but no PID assigned" });
-      }
-    });
-
-    // Safety timeout in case neither event fires (shouldn't happen)
-    const timer = setTimeout(() => {
-      child.unref();
-      if (child.pid) {
-        safeResolve({ pid: child.pid });
-      } else {
-        safeResolve({ error: "Spawn timeout - no PID available" });
-      }
-    }, 1000);
-  });
+  const spawnResult = await spawnWithConfirmation(process.execPath, [workerPath, runId, repoSlug]);
 
   if ("error" in spawnResult) {
     // Mark run as failed if spawn failed
