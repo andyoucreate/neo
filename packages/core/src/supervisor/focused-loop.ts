@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { sleep } from "@/shared/time";
 import type { AIAdapter } from "./ai-adapter.js";
 import type { SupervisorStore } from "./store.js";
 import {
@@ -188,8 +189,4 @@ Assess current progress toward the objective. Dispatch agents as needed.
 When ALL acceptance criteria are verifiably met, call \`supervisor_complete\` with evidence.
 If you cannot proceed without a decision, call \`supervisor_blocked\`.
 Do NOT call \`supervisor_complete\` unless you have objective evidence.`;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
