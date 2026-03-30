@@ -69,64 +69,9 @@ const OPERATING_PRINCIPLES = `### Operating principles
   3. After dispatch, update: \`neo task update <id> --status in_progress --context "neo runs <runId>"\`
   Runs without tasks are not allowed.
 - Always review agent outputs (\`neo runs <runId>\`) before follow-up, according to SUPERVISOR.md agent contracts.
-- **Child supervisors**: for self-contained objectives requiring 3+ agent dispatches with intermediate decisions, use \`spawn_child_supervisor\` instead of direct dispatch. Every child MUST have a \`maxCostUsd\` cap and a corresponding task. React to child IPC events: \`progress\` → log, \`complete\` → verify evidence + mark done, \`blocked\` → answer or escalate, \`failed\` → re-spawn max 2×, then escalate.
 `;
 
 // ─── Instruction blocks ─────────────────────────────────
-
-// ─── Child supervisor rules ──────────────────────────────
-const CHILD_SUPERVISOR_RULES = `### Child supervisors
-
-A child supervisor is a subordinate autonomous instance you can spawn for a **self-contained objective** that would otherwise require many sequential heartbeats and complex state-tracking. The child runs its own heartbeat loop and reports back via IPC events.
-
-<when-to-spawn>
-Spawn a child when ALL three conditions hold:
-1. The work is **isolated** — no shared branches or PRs with other active initiatives.
-2. It requires **3+ developer dispatches** with intermediate decisions (too complex to track in focus).
-3. It has **clear acceptance criteria** you can express as a checklist.
-
-Do NOT spawn a child for: simple one-agent tasks, work that shares a branch, or tasks where you need tight control over each step. Children cannot spawn children (depth limit = 1).
-</when-to-spawn>
-
-<spawn-tool>
-\`\`\`json
-{
-  "name": "spawn_child_supervisor",
-  "input": {
-    "objective": "Implement the CSV export feature per .neo/specs/csv-export.md",
-    "acceptanceCriteria": [
-      "PR is open and CI passes",
-      "Reviewer approved with no CRITICAL issues",
-      ".neo/specs/csv-export.md acceptance criteria are met"
-    ],
-    "maxCostUsd": 5.00
-  }
-}
-\`\`\`
-Always set \`maxCostUsd\` — budget-uncapped children are a safety risk.
-After spawning: create a task, mark it \`in_progress\`, log the supervisorId.
-</spawn-tool>
-
-<child-event-contracts>
-React to each IPC message type:
-
-| type | Meaning | Your action |
-|------|---------|-------------|
-| \`progress\` | Child is alive and working | Log summary, update task outcome with latest summary. No dispatch needed. |
-| \`complete\` | All acceptance criteria met | Read \`evidence[]\` to verify. Mark task \`done\`. If a PR was created, dispatch \`reviewer\`. |
-| \`blocked\` | Child needs a decision | Read \`question\` + \`urgency\`. If you can answer → \`neo decision answer\` or send \`inject\` with context. Urgency \`high\` = answer within 1 heartbeat. |
-| \`failed\` | Child crashed or hit max retries | Read \`error\`. If recoverable → re-spawn with same criteria. On 3rd failure → mark task \`blocked\`, create a decision for human. |
-| \`session\` | Child started a new SDK session | Note sessionId for debugging. No action needed. |
-
-After \`complete\`: always verify \`evidence[]\` — a child may self-report completion without fully meeting criteria.
-After \`failed\` 2× on the same child: do NOT re-spawn automatically. Create a \`blocked\` task and escalate.
-</child-event-contracts>
-
-<child-budget-guard>
-- Always set \`maxCostUsd\` — a child without a budget cap is a runaway risk.
-- Factor child cost into your \`neo cost --short\` check before spawning.
-- If a child hits its cap it will \`failed\` with "budget exceeded". Evaluate whether to re-spawn with a higher cap or restructure as direct agent dispatches.
-</child-budget-guard>`;
 
 const HEARTBEAT_RULES = `### Heartbeat lifecycle
 
@@ -330,11 +275,6 @@ neo config set <key> <value> --global
 neo config list
 \`\`\`
 
-### Child Supervisors
-\`\`\`bash
-neo child spawn --objective "..." --criteria "..." [--budget <usd>] [--supervisor <name>]
-\`\`\`
-
 ### Directives
 Standing instructions (always active, not only during idle):
 \`\`\`bash
@@ -355,7 +295,6 @@ const COMMANDS_COMPACT = `### Commands (reference)
 \`neo memory write|update|forget|search|list\` · \`neo log <type> "<msg>"\`
 \`neo config get <key>\` · \`neo config set <key> <value> --global\` · \`neo config list\`
 \`neo decision create "<question>" --options "..."\` · \`neo decision list\`
-\`neo child spawn --objective "..." --criteria "..." [--budget <usd>]\`
 \`neo directive create "<action>" [--duration "2h"]\` · \`neo directive list\``;
 
 function getCommandsSection(heartbeatCount: number): string {
@@ -529,7 +468,6 @@ function buildBaseInstructions(
 ): string[] {
   const parts: string[] = [];
   parts.push(OPERATING_PRINCIPLES);
-  parts.push(CHILD_SUPERVISOR_RULES);
   parts.push(HEARTBEAT_RULES);
   parts.push(REPORTING_RULES);
   parts.push(buildMemoryRulesCore());
@@ -865,21 +803,6 @@ function formatEvent(event: QueuedEvent): string {
       return `Run completed: ${event.runId} (check with \`neo runs\`)`;
     case "internal":
       return `Internal event: ${event.eventKind}`;
-    case "child_supervisor": {
-      const msg = event.message;
-      switch (msg.type) {
-        case "progress":
-          return `Child [${msg.supervisorId}] progress: ${msg.summary}`;
-        case "complete":
-          return `Child [${msg.supervisorId}] COMPLETE: ${msg.summary}\nEvidence:\n${msg.evidence.map((e) => `  - ${e}`).join("\n")}`;
-        case "blocked":
-          return `Child [${msg.supervisorId}] BLOCKED [${msg.urgency}]: ${msg.reason}\nQuestion: ${msg.question}`;
-        case "failed":
-          return `Child [${msg.supervisorId}] FAILED: ${msg.error}`;
-        case "session":
-          return `Child [${msg.supervisorId}] session started: ${msg.sessionId}`;
-      }
-    }
   }
 }
 

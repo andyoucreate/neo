@@ -197,7 +197,6 @@ tools: [Read, Write, Edit, Bash]
 sandbox: writable
 prompt: "You are a full agent."
 maxTurns: 25
-extends: developer
 promptAppend: "Extra instructions."
 `,
     );
@@ -206,23 +205,26 @@ promptAppend: "Extra instructions."
     expect(config.name).toBe("full-agent");
     expect(config.maxTurns).toBe(25);
     expect(config.sandbox).toBe("writable");
-    expect(config.extends).toBe("developer");
     expect(config.promptAppend).toBe("Extra instructions.");
   });
 
-  it("loads agent with only required fields", async () => {
+  it("loads agent with minimal required fields", async () => {
     await writeYaml(
       BUILT_IN_DIR,
       "minimal-agent",
       `
 name: minimal-agent
-extends: developer
+description: "Minimal agent"
+model: opus
+tools: [Read]
+sandbox: readonly
+prompt: "You are a minimal agent."
 `,
     );
 
     const config = await loadAgentFile(path.join(BUILT_IN_DIR, "minimal-agent.yml"));
     expect(config.name).toBe("minimal-agent");
-    expect(config.extends).toBe("developer");
+    expect(config.description).toBe("Minimal agent");
   });
 
   // ─── maxCost schema validation tests ─────────────────────
@@ -290,30 +292,7 @@ maxCost: -1.0
 // ─── resolveAgent ────────────────────────────────────────
 
 describe("resolveAgent", () => {
-  const builtIns = new Map<string, AgentConfig>();
-
-  beforeEach(() => {
-    builtIns.clear();
-    builtIns.set("developer", {
-      name: "developer",
-      description: "Implementation worker",
-      model: "opus",
-      tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-      prompt: "You are a developer.",
-      sandbox: "writable",
-      maxTurns: 30,
-    });
-    builtIns.set("architect", {
-      name: "architect",
-      description: "Strategic planner",
-      model: "opus",
-      tools: ["Read", "Glob", "Grep", "WebSearch", "WebFetch"],
-      prompt: "You are an architect.",
-      sandbox: "readonly",
-    });
-  });
-
-  it("resolves a full custom agent (no extends)", () => {
+  it("resolves a complete agent config", () => {
     const config: AgentConfig = {
       name: "db-migrator",
       description: "Database migration specialist",
@@ -324,7 +303,7 @@ describe("resolveAgent", () => {
       maxTurns: 20,
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.name).toBe("db-migrator");
     expect(resolved.source).toBe("custom");
     expect(resolved.definition.description).toBe("Database migration specialist");
@@ -334,146 +313,79 @@ describe("resolveAgent", () => {
     expect(resolved.maxTurns).toBe(20);
   });
 
-  it("extends a built-in: override model only", () => {
-    const config: AgentConfig = {
-      name: "my-dev",
-      extends: "developer",
-      model: "sonnet",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.name).toBe("my-dev");
-    expect(resolved.source).toBe("extended");
-    expect(resolved.definition.model).toBe("sonnet");
-    expect(resolved.definition.description).toBe("Implementation worker");
-    expect(resolved.definition.prompt).toBe("You are a developer.");
-    expect(resolved.definition.tools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
-    expect(resolved.sandbox).toBe("writable");
-    expect(resolved.maxTurns).toBe(30);
-  });
-
-  it("extends with $inherited tools + new tool", () => {
-    const config: AgentConfig = {
-      name: "dev-plus",
-      extends: "developer",
-      tools: ["$inherited", "WebSearch"],
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.tools).toEqual([
-      "Read",
-      "Write",
-      "Edit",
-      "Bash",
-      "Glob",
-      "Grep",
-      "WebSearch",
-    ]);
-  });
-
-  it("extends with full tool replacement", () => {
-    const config: AgentConfig = {
-      name: "minimal-dev",
-      extends: "developer",
-      tools: ["Read", "Write"],
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.tools).toEqual(["Read", "Write"]);
-  });
-
-  it("extends with promptAppend", () => {
-    const config: AgentConfig = {
-      name: "dev-extra",
-      extends: "developer",
-      promptAppend: "Always use Vitest.",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.prompt).toBe("You are a developer.\n\nAlways use Vitest.");
-  });
-
-  it("extends with prompt replacement", () => {
-    const config: AgentConfig = {
-      name: "dev-new",
-      extends: "developer",
-      prompt: "You are a new developer.",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.prompt).toBe("You are a new developer.");
-  });
-
-  it("implicit extends: same name as built-in without extends field", () => {
-    const config: AgentConfig = {
-      name: "developer",
-      model: "sonnet",
-      maxTurns: 50,
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.source).toBe("built-in");
-    expect(resolved.definition.model).toBe("sonnet");
-    expect(resolved.definition.description).toBe("Implementation worker");
-    expect(resolved.maxTurns).toBe(50);
-  });
-
-  it("throws for extending non-existent built-in", () => {
-    const config: AgentConfig = {
-      name: "bad",
-      extends: "nonexistent",
-    };
-
-    expect(() => resolveAgent(config, builtIns)).toThrow("no built-in agent with that name");
-  });
-
-  it("throws for custom agent missing required fields", () => {
+  it("throws for agent missing description", () => {
     const config: AgentConfig = {
       name: "incomplete",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Test",
+      sandbox: "readonly",
     };
 
-    expect(() => resolveAgent(config, builtIns)).toThrow("description");
+    expect(() => resolveAgent(config)).toThrow("description");
   });
 
-  it("inherits maxTurns from built-in when not overridden", () => {
-    builtIns.set("worker", {
-      name: "worker",
-      description: "Worker agent",
-      model: "opus",
-      tools: ["Read", "Write"],
-      prompt: "You are a worker.",
-      sandbox: "writable",
-      maxTurns: 50,
-    });
-
+  it("throws for agent missing model", () => {
     const config: AgentConfig = {
-      name: "my-worker",
-      extends: "worker",
+      name: "incomplete",
+      description: "Test agent",
+      tools: ["Read"],
+      prompt: "Test",
+      sandbox: "readonly",
     };
 
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.maxTurns).toBe(50);
+    expect(() => resolveAgent(config)).toThrow("model");
   });
 
-  it("overrides maxTurns from built-in", () => {
-    builtIns.set("worker", {
-      name: "worker",
-      description: "Worker agent",
-      model: "opus",
-      tools: ["Read", "Write"],
-      prompt: "You are a worker.",
-      sandbox: "writable",
-      maxTurns: 50,
-    });
-
+  it("throws for agent missing tools", () => {
     const config: AgentConfig = {
-      name: "my-worker",
-      extends: "worker",
-      maxTurns: 10,
+      name: "incomplete",
+      description: "Test agent",
+      model: "opus",
+      prompt: "Test",
+      sandbox: "readonly",
     };
 
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.maxTurns).toBe(10);
+    expect(() => resolveAgent(config)).toThrow("tools");
+  });
+
+  it("throws for agent missing sandbox", () => {
+    const config: AgentConfig = {
+      name: "incomplete",
+      description: "Test agent",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "Test",
+    };
+
+    expect(() => resolveAgent(config)).toThrow("sandbox");
+  });
+
+  it("throws for agent missing prompt", () => {
+    const config: AgentConfig = {
+      name: "incomplete",
+      description: "Test agent",
+      model: "opus",
+      tools: ["Read"],
+      sandbox: "readonly",
+    };
+
+    expect(() => resolveAgent(config)).toThrow("prompt");
+  });
+
+  it("applies promptAppend to prompt", () => {
+    const config: AgentConfig = {
+      name: "dev-extra",
+      description: "Developer",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "You are a developer.",
+      promptAppend: "Always use Vitest.",
+      sandbox: "writable",
+    };
+
+    const resolved = resolveAgent(config);
+    expect(resolved.definition.prompt).toBe("You are a developer.\n\nAlways use Vitest.");
   });
 
   it("carries mcpServers from agent config into definition", () => {
@@ -487,155 +399,22 @@ describe("resolveAgent", () => {
       mcpServers: ["notion", "github"],
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.definition.mcpServers).toEqual(["notion", "github"]);
-  });
-
-  it("merges mcpServers from base and override when extending", () => {
-    builtIns.set("mcp-base", {
-      name: "mcp-base",
-      description: "Base with MCP",
-      model: "opus",
-      tools: ["Read"],
-      prompt: "Base prompt.",
-      sandbox: "readonly",
-      mcpServers: ["notion"],
-    });
-
-    const config: AgentConfig = {
-      name: "mcp-extended",
-      extends: "mcp-base",
-      mcpServers: ["github"],
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.mcpServers).toEqual(["notion", "github"]);
-  });
-
-  it("deduplicates mcpServers when merging", () => {
-    builtIns.set("mcp-base2", {
-      name: "mcp-base2",
-      description: "Base",
-      model: "opus",
-      tools: ["Read"],
-      prompt: "Base.",
-      sandbox: "readonly",
-      mcpServers: ["notion", "github"],
-    });
-
-    const config: AgentConfig = {
-      name: "mcp-dup",
-      extends: "mcp-base2",
-      mcpServers: ["notion", "slack"],
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.mcpServers).toEqual(["notion", "github", "slack"]);
   });
 
   it("omits mcpServers from definition when none defined", () => {
     const config: AgentConfig = {
       name: "no-mcp",
-      extends: "developer",
+      description: "Developer",
+      model: "opus",
+      tools: ["Read"],
+      prompt: "You are a developer.",
+      sandbox: "writable",
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.definition.mcpServers).toBeUndefined();
-  });
-
-  it("merges agents from base and override", () => {
-    const base: AgentConfig = {
-      name: "developer",
-      description: "Dev",
-      model: "opus",
-      tools: ["Read"],
-      sandbox: "writable",
-      prompt: "You are a developer.",
-      agents: {
-        reviewer: {
-          description: "Base reviewer",
-          prompt: "Review code.",
-          tools: ["Read"],
-        },
-      },
-    };
-    const localBuiltIns = new Map([["developer", base]]);
-
-    const config: AgentConfig = {
-      name: "dev-custom",
-      extends: "developer",
-      agents: {
-        "quality-reviewer": {
-          description: "Quality reviewer",
-          prompt: "Review quality.",
-          tools: ["Read", "Grep"],
-          model: "sonnet",
-        },
-      },
-    };
-
-    const resolved = resolveAgent(config, localBuiltIns);
-    expect(resolved.definition.agents).toEqual({
-      reviewer: {
-        description: "Base reviewer",
-        prompt: "Review code.",
-        tools: ["Read"],
-      },
-      "quality-reviewer": {
-        description: "Quality reviewer",
-        prompt: "Review quality.",
-        tools: ["Read", "Grep"],
-        model: "sonnet",
-      },
-    });
-  });
-
-  it("override agents win on name collision", () => {
-    const base: AgentConfig = {
-      name: "developer",
-      description: "Dev",
-      model: "opus",
-      tools: ["Read"],
-      sandbox: "writable",
-      prompt: "You are a developer.",
-      agents: {
-        reviewer: {
-          description: "Base reviewer",
-          prompt: "Review code.",
-        },
-      },
-    };
-    const localBuiltIns = new Map([["developer", base]]);
-
-    const config: AgentConfig = {
-      name: "dev-override",
-      extends: "developer",
-      agents: {
-        reviewer: {
-          description: "Override reviewer",
-          prompt: "Review differently.",
-          model: "opus",
-        },
-      },
-    };
-
-    const resolved = resolveAgent(config, localBuiltIns);
-    expect(resolved.definition.agents?.reviewer?.description).toBe("Override reviewer");
-    expect(resolved.definition.agents?.reviewer?.model).toBe("opus");
-  });
-
-  it("filters $inherited from tools when no extends", () => {
-    const config: AgentConfig = {
-      name: "standalone",
-      description: "Standalone agent",
-      model: "opus",
-      tools: ["$inherited", "Read"],
-      prompt: "You are standalone.",
-      sandbox: "readonly",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.definition.tools).toEqual(["Read"]);
   });
 
   it("parses version field when present", () => {
@@ -649,7 +428,7 @@ describe("resolveAgent", () => {
       version: "1.2.3",
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.version).toBe("1.2.3");
   });
 
@@ -663,54 +442,11 @@ describe("resolveAgent", () => {
       sandbox: "readonly",
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.version).toBeUndefined();
   });
 
-  it("inherits version from built-in when extending", () => {
-    builtIns.set("versioned-base", {
-      name: "versioned-base",
-      description: "Base with version",
-      model: "opus",
-      tools: ["Read"],
-      prompt: "Base prompt.",
-      sandbox: "readonly",
-      version: "2.0.0",
-    });
-
-    const config: AgentConfig = {
-      name: "extends-versioned",
-      extends: "versioned-base",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.version).toBe("2.0.0");
-  });
-
-  it("overrides version from built-in when extending", () => {
-    builtIns.set("versioned-base2", {
-      name: "versioned-base2",
-      description: "Base with version",
-      model: "opus",
-      tools: ["Read"],
-      prompt: "Base prompt.",
-      sandbox: "readonly",
-      version: "1.0.0",
-    });
-
-    const config: AgentConfig = {
-      name: "override-version",
-      extends: "versioned-base2",
-      version: "3.0.0",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.version).toBe("3.0.0");
-  });
-
-  // ─── maxCost inheritance tests ───────────────────────────
-
-  it("parses maxCost field when present in custom agent", () => {
+  it("parses maxCost field when present", () => {
     const config: AgentConfig = {
       name: "budget-agent",
       description: "Agent with budget",
@@ -721,7 +457,7 @@ describe("resolveAgent", () => {
       maxCost: 5.0,
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.maxCost).toBe(5.0);
   });
 
@@ -735,60 +471,35 @@ describe("resolveAgent", () => {
       sandbox: "readonly",
     };
 
-    const resolved = resolveAgent(config, builtIns);
+    const resolved = resolveAgent(config);
     expect(resolved.maxCost).toBeUndefined();
   });
 
-  it("inherits maxCost from built-in when extending", () => {
-    builtIns.set("budget-base", {
-      name: "budget-base",
-      description: "Base with budget",
+  it("includes agents subfield in definition", () => {
+    const config: AgentConfig = {
+      name: "developer",
+      description: "Dev",
       model: "opus",
       tools: ["Read"],
-      prompt: "Base prompt.",
-      sandbox: "readonly",
-      maxCost: 10.0,
+      sandbox: "writable",
+      prompt: "You are a developer.",
+      agents: {
+        reviewer: {
+          description: "Code reviewer",
+          prompt: "Review code.",
+          tools: ["Read"],
+        },
+      },
+    };
+
+    const resolved = resolveAgent(config);
+    expect(resolved.definition.agents).toEqual({
+      reviewer: {
+        description: "Code reviewer",
+        prompt: "Review code.",
+        tools: ["Read"],
+      },
     });
-
-    const config: AgentConfig = {
-      name: "extends-budget",
-      extends: "budget-base",
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.maxCost).toBe(10.0);
-  });
-
-  it("overrides maxCost from built-in when extending", () => {
-    builtIns.set("budget-base2", {
-      name: "budget-base2",
-      description: "Base with budget",
-      model: "opus",
-      tools: ["Read"],
-      prompt: "Base prompt.",
-      sandbox: "readonly",
-      maxCost: 10.0,
-    });
-
-    const config: AgentConfig = {
-      name: "override-budget",
-      extends: "budget-base2",
-      maxCost: 2.5,
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.maxCost).toBe(2.5);
-  });
-
-  it("allows child to set maxCost even if parent has none", () => {
-    const config: AgentConfig = {
-      name: "child-with-budget",
-      extends: "developer",
-      maxCost: 15.0,
-    };
-
-    const resolved = resolveAgent(config, builtIns);
-    expect(resolved.maxCost).toBe(15.0);
   });
 });
 
@@ -859,33 +570,6 @@ prompt: ${path.join(PROMPTS_DIR, "arch.md")}
     await registry.load();
 
     expect(registry.get("unknown")).toBeUndefined();
-  });
-
-  it("custom agents extend built-ins", async () => {
-    await setupBuiltIns();
-
-    await writeYaml(
-      CUSTOM_DIR,
-      "developer",
-      `
-name: developer
-extends: developer
-model: sonnet
-tools:
-  - $inherited
-  - WebSearch
-`,
-    );
-
-    const registry = new AgentRegistry(BUILT_IN_DIR, CUSTOM_DIR);
-    await registry.load();
-
-    const dev = registry.get("developer");
-    expect(dev).toBeDefined();
-    expect(dev?.source).toBe("extended");
-    expect(dev?.definition.model).toBe("sonnet");
-    expect(dev?.definition.tools).toContain("WebSearch");
-    expect(dev?.definition.tools).toContain("Read");
   });
 
   it("custom agents add new agents", async () => {

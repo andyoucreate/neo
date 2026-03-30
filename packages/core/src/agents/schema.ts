@@ -19,9 +19,9 @@ export const agentToolSchema = z.enum([
   "NotebookEdit",
 ]);
 
-// ─── Agent tool entry (tool or $inherited token) ─────────
+// ─── Agent tool entry ─────────────────────────────────
 
-export const agentToolEntrySchema = z.union([agentToolSchema, z.literal("$inherited")]);
+export const agentToolEntrySchema = agentToolSchema;
 
 // ─── Agent sandbox enum ──────────────────────────────────
 
@@ -40,7 +40,6 @@ export const subagentDefinitionSchema = z.object({
 
 export const agentConfigSchema = z.object({
   name: z.string(),
-  extends: z.string().optional(),
   description: z.string().optional(),
   version: z.string().optional(),
   model: agentModelSchema.optional(),

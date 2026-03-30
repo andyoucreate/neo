@@ -145,52 +145,6 @@ async function handleAttach(name: string): Promise<void> {
   await renderSupervisorTui(name);
 }
 
-async function handleChildMode(
-  parentName: string,
-  objective: string | undefined,
-  criteriaStr: string | undefined,
-  budgetStr: string | undefined,
-): Promise<void> {
-  if (!objective) {
-    printError("--objective is required when using --parent");
-    process.exitCode = 1;
-    return;
-  }
-
-  if (!criteriaStr) {
-    printError("--criteria is required when using --parent");
-    process.exitCode = 1;
-    return;
-  }
-
-  const running = await isDaemonRunning(parentName);
-  if (!running) {
-    printError(`Parent supervisor "${parentName}" is not running.`);
-    printError("Start it first with: neo supervise --detach");
-    process.exitCode = 1;
-    return;
-  }
-
-  const criteria = criteriaStr
-    .split(",")
-    .map((s) => s.trim())
-    .filter(Boolean);
-  const budget = budgetStr ? Number.parseFloat(budgetStr) : undefined;
-
-  const { spawnChildFromCli } = await import("../child-mode.js");
-
-  const options: Parameters<typeof spawnChildFromCli>[0] = {
-    parentName,
-    objective,
-    acceptanceCriteria: criteria,
-  };
-  if (budget !== undefined) {
-    options.maxCostUsd = budget;
-  }
-
-  await spawnChildFromCli(options);
-}
-
 async function handleMessage(name: string, text: string): Promise<void> {
   const running = await isDaemonRunning(name);
   if (!running) {
@@ -248,30 +202,9 @@ export default defineCommand({
       type: "string",
       description: "Send a message to the supervisor inbox",
     },
-    parent: {
-      type: "string",
-      description: "Start as a child of an existing supervisor (registers via IPC)",
-    },
-    objective: {
-      type: "string",
-      description: "Objective for child supervisor (required with --parent)",
-    },
-    criteria: {
-      type: "string",
-      description: "Comma-separated acceptance criteria (required with --parent)",
-    },
-    budget: {
-      type: "string",
-      description: "Max cost in USD for child supervisor",
-    },
   },
   async run({ args }) {
     const name = args.name;
-
-    if (args.parent) {
-      await handleChildMode(args.parent, args.objective, args.criteria, args.budget);
-      return;
-    }
 
     if (args.status) {
       await handleStatus(name);

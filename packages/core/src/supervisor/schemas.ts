@@ -167,8 +167,7 @@ export type QueuedEvent =
   | { kind: "webhook"; data: WebhookIncomingEvent }
   | { kind: "message"; data: InboxMessage }
   | { kind: "run_complete"; runId: string; timestamp: string }
-  | { kind: "internal"; eventKind: InternalEventKind; timestamp: string }
-  | { kind: "child_supervisor"; message: ChildToParentMessage; timestamp: string };
+  | { kind: "internal"; eventKind: InternalEventKind; timestamp: string };
 
 // ─── Failure report (written to inbox.jsonl on run failure) ──
 
@@ -185,73 +184,3 @@ export const failureReportSchema = z.object({
 });
 
 export type FailureReport = z.infer<typeof failureReportSchema>;
-
-// ─── Focused supervisor child handle ─────────────────────
-
-export const childHandleStatusSchema = z.enum([
-  "running",
-  "blocked",
-  "complete",
-  "failed",
-  "stalled",
-]);
-
-export const childHandleSchema = z.object({
-  supervisorId: z.string(),
-  objective: z.string(),
-  depth: z.number().int().min(0).max(1),
-  startedAt: z.string(),
-  lastProgressAt: z.string(),
-  costUsd: z.number().default(0),
-  maxCostUsd: z.number().optional(),
-  sessionId: z.string().optional(),
-  status: childHandleStatusSchema,
-});
-
-export type ChildHandle = z.infer<typeof childHandleSchema>;
-
-// ─── IPC protocol (child → parent) ───────────────────────
-
-export const childToParentMessageSchema = z.discriminatedUnion("type", [
-  z.object({
-    type: z.literal("progress"),
-    supervisorId: z.string(),
-    summary: z.string(),
-    costDelta: z.number(),
-  }),
-  z.object({
-    type: z.literal("complete"),
-    supervisorId: z.string(),
-    summary: z.string(),
-    evidence: z.array(z.string()),
-  }),
-  z.object({
-    type: z.literal("blocked"),
-    supervisorId: z.string(),
-    reason: z.string(),
-    question: z.string(),
-    urgency: z.enum(["low", "high"]),
-  }),
-  z.object({
-    type: z.literal("failed"),
-    supervisorId: z.string(),
-    error: z.string(),
-  }),
-  z.object({
-    type: z.literal("session"),
-    supervisorId: z.string(),
-    sessionId: z.string(),
-  }),
-]);
-
-export type ChildToParentMessage = z.infer<typeof childToParentMessageSchema>;
-
-// ─── IPC protocol (parent → child) ───────────────────────
-
-export const parentToChildMessageSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("unblock"), answer: z.string() }),
-  z.object({ type: z.literal("stop") }),
-  z.object({ type: z.literal("inject"), context: z.string() }),
-]);
-
-export type ParentToChildMessage = z.infer<typeof parentToChildMessageSchema>;

@@ -18,9 +18,15 @@ export default defineCommand({
       description: "Task description to send to the supervisor",
       required: true,
     },
+    to: {
+      type: "string",
+      alias: "t",
+      description: "Target supervisor to route mission to",
+      default: DEFAULT_NAME,
+    },
     name: {
       type: "string",
-      description: "Supervisor instance name",
+      description: "Supervisor instance name (alias for --to)",
       default: DEFAULT_NAME,
     },
     detach: {
@@ -31,7 +37,10 @@ export default defineCommand({
     },
   },
   async run({ args }) {
-    const name = args.name as string;
+    // --to takes precedence over --name if specified, otherwise use --name or default
+    const to = args.to as string | undefined;
+    const nameArg = args.name as string | undefined;
+    const name = to ?? nameArg ?? DEFAULT_NAME;
     const task = args.task as string;
 
     let running = await isDaemonRunning(name);

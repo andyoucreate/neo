@@ -84,14 +84,19 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 
 // ─── Git/Clone Mocks ─────────────────────────────────────
 
-let mockSessionPath = "/tmp/mock-session";
-
 vi.mock("@/isolation/clone", () => ({
-  createSessionClone: () =>
+  createSessionClone: (options: {
+    repoPath: string;
+    branch: string;
+    baseBranch: string;
+    sessionDir: string;
+  }) =>
     Promise.resolve({
-      path: mockSessionPath,
-      branch: "feat/e2e-test",
-      repoPath: mockSessionPath,
+      // Use the unique sessionDir passed by orchestrator to avoid race conditions
+      // when concurrent dispatches share the same mock path
+      path: options.sessionDir,
+      branch: options.branch,
+      repoPath: options.sessionDir,
     }),
   removeSessionClone: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
@@ -217,9 +222,6 @@ beforeEach(async () => {
   // Create a real git repository for E2E testing
   await createTestRepo(TEST_REPO_DIR);
   await createTestFile(TEST_REPO_DIR, "README.md", "# E2E Test Repository\n");
-
-  // Point mock session path to the test repo
-  mockSessionPath = TEST_REPO_DIR;
 
   vi.useFakeTimers({ shouldAdvanceTime: true });
 });

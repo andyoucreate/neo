@@ -157,6 +157,7 @@ export async function markConsolidated(dir: string, ids: string[]): Promise<void
  * Uses a mutex to serialize concurrent calls and prevent race conditions.
  */
 export async function compactLogBuffer(dir: string): Promise<void> {
+  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: File compaction utility with many edge cases (empty file, malformed lines, size limits, atomic writes) — splitting would fragment the transactional logic
   return withWriteLock(dir, async () => {
     const filePath = bufferPath(dir);
     let content: string;

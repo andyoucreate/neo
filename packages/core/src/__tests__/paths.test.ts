@@ -1,13 +1,7 @@
 import { homedir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-  getFocusedSupervisorDir,
-  getFocusedSupervisorSessionPath,
-  getFocusedSupervisorsDir,
-  getWorkerStartedPath,
-  toRepoSlug,
-} from "@/paths";
+import { getWorkerStartedPath, toRepoSlug } from "@/paths";
 
 describe("toRepoSlug", () => {
   it("uses name when present", () => {
@@ -45,25 +39,6 @@ describe("toRepoSlug", () => {
 
   it("uses undefined name as absent", () => {
     expect(toRepoSlug({ name: undefined, path: "/foo/bar" })).toBe("bar");
-  });
-});
-
-describe("focused supervisor paths", () => {
-  it("getFocusedSupervisorsDir returns ~/.neo/supervisors/focused", () => {
-    const result = getFocusedSupervisorsDir();
-    expect(result).toBe(path.join(homedir(), ".neo", "supervisors", "focused"));
-  });
-
-  it("getFocusedSupervisorDir returns ~/.neo/supervisors/focused/<id>", () => {
-    const result = getFocusedSupervisorDir("sup_abc123");
-    expect(result).toBe(path.join(homedir(), ".neo", "supervisors", "focused", "sup_abc123"));
-  });
-
-  it("getFocusedSupervisorSessionPath returns ~/.neo/supervisors/focused/<id>/session.json", () => {
-    const result = getFocusedSupervisorSessionPath("sup_abc123");
-    expect(result).toBe(
-      path.join(homedir(), ".neo", "supervisors", "focused", "sup_abc123", "session.json"),
-    );
   });
 });
 
