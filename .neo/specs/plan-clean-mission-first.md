@@ -32,6 +32,9 @@
 | `packages/cli/src/` | `child-mode.ts` | Child mode entry point |
 | `packages/cli/src/daemon/` | `child-supervisor-worker.ts` | Child worker process |
 | `packages/cli/src/daemon/` | `child-supervisor-worker.test.ts` | Tests for deleted module |
+| `packages/cli/src/tui/components/` | `child-list.tsx` | TUI child list component |
+| `packages/cli/src/tui/components/` | `child-detail.tsx` | TUI child detail component |
+| `packages/cli/src/tui/components/` | `child-input.tsx` | TUI child input component |
 | `packages/agents/prompts/` | `focused-supervisor.md` | Focused supervisor prompt |
 
 ### Files to MODIFY (Phases A-D)
@@ -52,6 +55,7 @@
 | `packages/cli/src/index.ts` | Remove `child` subcommand. Add `missions` subcommand. |
 | `packages/cli/src/commands/supervise.ts` | Remove `--parent`, `--objective`, `--criteria`, `--budget` args. Add `--to` arg for `neo do`. |
 | `packages/cli/src/commands/do.ts` | Add `--to <supervisor>` for mission routing. |
+| `packages/cli/src/tui/supervisor-tui.tsx` | Remove all child-related imports and usage (ChildHandle, getFocusedSupervisorDir, getSupervisorChildrenPath, readChildrenFile, ChildDetail, ChildInput, ChildList). |
 
 ### Files to CREATE (Phases B-C)
 
@@ -182,7 +186,65 @@ Removes neo child command and child-mode infrastructure."
 
 ---
 
-## Task 3: Delete Focused Supervisor Prompt
+## Task 3: Delete TUI Child Components
+
+**Files:**
+- Delete: `packages/cli/src/tui/components/child-list.tsx`
+- Delete: `packages/cli/src/tui/components/child-detail.tsx`
+- Delete: `packages/cli/src/tui/components/child-input.tsx`
+- Modify: `packages/cli/src/tui/supervisor-tui.tsx`
+
+- [ ] **Step 1: Delete TUI child components**
+
+```bash
+rm packages/cli/src/tui/components/child-list.tsx
+rm packages/cli/src/tui/components/child-detail.tsx
+rm packages/cli/src/tui/components/child-input.tsx
+```
+
+- [ ] **Step 2: Clean supervisor-tui.tsx imports and usage**
+
+Remove these imports from `packages/cli/src/tui/supervisor-tui.tsx`:
+
+```typescript
+// Remove these imports:
+import type { ChildHandle } from "@neotx/core";
+import { getFocusedSupervisorDir, getSupervisorChildrenPath, readChildrenFile } from "@neotx/core";
+import { ChildDetail } from "./components/child-detail.js";
+import type { ChildInputMode } from "./components/child-input.js";
+import { ChildInput } from "./components/child-input.js";
+import { ChildList } from "./components/child-list.js";
+```
+
+Remove all state and effects related to children:
+- Remove `children` state
+- Remove `selectedChild` state
+- Remove `childInputMode` state
+- Remove `useEffect` that calls `readChildrenFile`
+- Remove `ChildList`, `ChildDetail`, `ChildInput` component usage
+- Remove any `MAX_CHILD_ACTIVITY` constant
+
+- [ ] **Step 3: Run typecheck to verify cleanup**
+
+```bash
+pnpm typecheck
+```
+
+Expected: Errors related to removed imports should be gone for TUI files.
+
+- [ ] **Step 4: Commit TUI cleanup**
+
+```bash
+git add -A
+git commit -m "refactor(cli): delete TUI child supervisor components
+
+Removes ChildList, ChildDetail, ChildInput components and cleans
+supervisor-tui.tsx of all child-related imports and usage."
+```
+
+---
+
+## Task 4: Delete Focused Supervisor Prompt (was Task 3)
 
 **Files:**
 - Delete: `packages/agents/prompts/focused-supervisor.md`
@@ -204,19 +266,19 @@ No longer needed in mission-first architecture."
 
 ---
 
-## Task 4: Clean Schemas — Remove Child Types
+## Task 5: Clean Schemas — Remove Child Types
 
 **Files:**
 - Modify: `packages/core/src/supervisor/schemas.ts`
 
 - [ ] **Step 1: Remove child types from schemas.ts**
 
-Open `packages/core/src/supervisor/schemas.ts` and remove:
+Open `packages/core/src/supervisor/schemas.ts` and remove these blocks (search by content, not line numbers):
 
-1. Lines 189-211: `childHandleStatusSchema`, `childHandleSchema`, `ChildHandle`
-2. Lines 213-247: `childToParentMessageSchema`, `ChildToParentMessage`
-3. Lines 249-257: `parentToChildMessageSchema`, `ParentToChildMessage`
-4. Line 171 in `QueuedEvent`: `| { kind: "child_supervisor"; message: ChildToParentMessage; timestamp: string }`
+1. Search for `// ─── Focused supervisor child handle` and remove everything from there to `export type ChildHandle`
+2. Search for `// ─── IPC protocol (child → parent)` and remove everything from there to `export type ChildToParentMessage`
+3. Search for `// ─── IPC protocol (parent → child)` and remove everything from there to `export type ParentToChildMessage`
+4. In `QueuedEvent` type, remove the line: `| { kind: "child_supervisor"; message: ChildToParentMessage; timestamp: string }`
 
 The `QueuedEvent` type should become:
 
@@ -248,7 +310,7 @@ and child_supervisor event kind from QueuedEvent."
 
 ---
 
-## Task 5: Clean Supervisor Index Exports
+## Task 6: Clean Supervisor Index Exports
 
 **Files:**
 - Modify: `packages/core/src/supervisor/index.ts`
@@ -297,7 +359,7 @@ git commit -m "refactor(core): remove child/focused exports from supervisor inde
 
 ---
 
-## Task 6: Clean Core Index Exports
+## Task 7: Clean Core Index Exports
 
 **Files:**
 - Modify: `packages/core/src/index.ts`
@@ -347,7 +409,7 @@ git commit -m "refactor(core): remove child/focused exports from core index"
 
 ---
 
-## Task 7: Clean Paths Module
+## Task 8: Clean Paths Module
 
 **Files:**
 - Modify: `packages/core/src/paths.ts`
@@ -397,7 +459,7 @@ git commit -m "refactor(core): remove child/focused path functions"
 
 ---
 
-## Task 8: Clean CLI Index — Remove Child Command
+## Task 9: Clean CLI Index — Remove Child Command
 
 **Files:**
 - Modify: `packages/cli/src/index.ts`
@@ -427,7 +489,7 @@ git commit -m "refactor(cli): remove child subcommand from CLI"
 
 ---
 
-## Task 9: Clean Supervise Command — Remove Child Args
+## Task 10: Clean Supervise Command — Remove Child Args
 
 **Files:**
 - Modify: `packages/cli/src/commands/supervise.ts`
@@ -489,7 +551,7 @@ git commit -m "refactor(cli): remove child supervisor args from supervise comman
 
 ---
 
-## Task 10: Clean Prompt Builder — Remove Child Rules
+## Task 11: Clean Prompt Builder — Remove Child Rules
 
 **Files:**
 - Modify: `packages/core/src/supervisor/prompt-builder.ts`
@@ -527,7 +589,7 @@ git commit -m "refactor(core): remove child/focused vocabulary from prompt build
 
 ---
 
-## Task 11: Clean Event Queue — Remove Child Event Kind
+## Task 12: Clean Event Queue — Remove Child Event Kind
 
 **Files:**
 - Modify: `packages/core/src/supervisor/event-queue.ts`
@@ -553,7 +615,7 @@ git commit -m "refactor(core): remove child_supervisor event kind from event que
 
 ---
 
-## Task 12: Clean Heartbeat — Remove Child IPC
+## Task 13: Clean Heartbeat — Remove Child IPC
 
 **Files:**
 - Modify: `packages/core/src/supervisor/heartbeat.ts`
@@ -579,7 +641,7 @@ git commit -m "refactor(core): remove child IPC handling from heartbeat"
 
 ---
 
-## Task 13: Clean Daemon — Remove Child Spawner Init
+## Task 14: Clean Daemon — Remove Child Spawner Init
 
 **Files:**
 - Modify: `packages/core/src/supervisor/daemon.ts`
@@ -605,7 +667,7 @@ git commit -m "refactor(core): remove child spawner from daemon"
 
 ---
 
-## Task 14: Clean Agent Schema — Remove Extends/$inherited
+## Task 15: Clean Agent Schema — Remove Extends/$inherited
 
 **Files:**
 - Modify: `packages/core/src/agents/schema.ts`
@@ -630,9 +692,9 @@ Remove line 43:
 extends: z.string().optional(),
 ```
 
-- [ ] **Step 3: Remove promptAppend (optional — depends on whether it's used elsewhere)**
+- [ ] **Step 3: Keep promptAppend for now**
 
-Check if `promptAppend` is still needed. If only used for inheritance, remove it.
+`promptAppend` is used for extending prompts and may be useful for future mission customization. Keep it in the schema. Only remove `extends` and `$inherited`.
 
 - [ ] **Step 4: Run typecheck**
 
@@ -651,7 +713,7 @@ git commit -m "refactor(core): remove extends/\$inherited from agent schema"
 
 ---
 
-## Task 15: Simplify Agent Resolver — No Inheritance
+## Task 16: Simplify Agent Resolver — No Inheritance
 
 **Files:**
 - Modify: `packages/core/src/agents/resolver.ts`
@@ -718,7 +780,14 @@ export function resolveAgent(config: AgentConfig): ResolvedAgent {
 
 - [ ] **Step 2: Update resolver calls to remove builtIns parameter**
 
-Search for `resolveAgent(` calls and remove the second parameter.
+Search for `resolveAgent(` calls and remove the second parameter. Files to check:
+- `packages/core/src/agents/registry.ts`
+- `packages/core/src/__tests__/agents.test.ts`
+
+Run this command to find all calls:
+```bash
+grep -rn "resolveAgent(" packages/core/src --include="*.ts" | grep -v "export function"
+```
 
 - [ ] **Step 3: Run tests**
 
@@ -739,7 +808,7 @@ Agents must define all fields. No extends, no \$inherited."
 
 ---
 
-## Task 16: Update Agent Tests
+## Task 17: Update Agent Tests
 
 **Files:**
 - Modify: `packages/core/src/__tests__/agents.test.ts`
@@ -765,7 +834,7 @@ git commit -m "test(core): update agent tests for no-inheritance resolver"
 
 ---
 
-## Task 17: Full Validation — Phase A Complete
+## Task 18: Full Validation — Phase A Complete
 
 - [ ] **Step 1: Run full build**
 
@@ -794,7 +863,7 @@ Expected: PASS (some tests may need adjustment).
 - [ ] **Step 4: Verify no legacy symbols remain**
 
 ```bash
-grep -r "child-supervisor\|focused.supervisor\|spawn_child_supervisor\|extends:\|\$inherited" packages/ --include="*.ts" --include="*.md" | grep -v node_modules | grep -v ".test.ts"
+grep -rE "child[-_]supervisor|focused[-_]supervisor|spawn_child|ChildHandle|ChildToParent|ParentToChild|getFocusedSupervisor|getSupervisorChildren|\$inherited" packages/*/src --include="*.ts" --include="*.tsx" | grep -v "node_modules" | grep -v ".test.ts"
 ```
 
 Expected: No matches (or only in test mocks).
@@ -813,7 +882,7 @@ git commit -m "chore(core): Phase A complete — all child/focused code removed
 
 ---
 
-## Task 18: Create Mission Types (Phase B)
+## Task 19: Create Mission Types (Phase B)
 
 **Files:**
 - Create: `packages/core/src/supervisor/mission-types.ts`
@@ -1009,7 +1078,7 @@ git commit -m "feat(core): add mission types — MissionRequest, MissionRun, Sup
 
 ---
 
-## Task 19: Create Mission Store (Phase B)
+## Task 20: Create Mission Store (Phase B)
 
 **Files:**
 - Create: `packages/core/src/supervisor/mission-store.ts`
@@ -1331,7 +1400,7 @@ git commit -m "feat(core): add MissionStore — JSONL persistence for missions"
 
 ---
 
-## Task 20: Export Mission Types from Index
+## Task 21: Export Mission Types from Index
 
 **Files:**
 - Modify: `packages/core/src/supervisor/index.ts`
@@ -1402,7 +1471,7 @@ git commit -m "feat(core): export mission types from core index"
 
 ---
 
-## Task 21: Add neo missions CLI Command (Phase C)
+## Task 22: Add neo missions CLI Command (Phase C)
 
 **Files:**
 - Create: `packages/cli/src/commands/missions.ts`
@@ -1692,7 +1761,7 @@ git commit -m "feat(cli): add neo missions command — list, show, tree, logs, d
 
 ---
 
-## Task 22: Add --to Flag to neo do (Phase C)
+## Task 23: Add --to Flag to neo do (Phase C)
 
 **Files:**
 - Modify: `packages/cli/src/commands/do.ts`
@@ -1717,7 +1786,15 @@ to: {
 
 - [ ] **Step 3: Update run function to use --to**
 
-The `--to` flag should be used when dispatching to a specific supervisor instance. Update the dispatch logic to pass this through.
+The `--to` flag routes to a specific supervisor instance. Update the message sending logic to use `getSupervisorInboxPath(args.to)` instead of hardcoded supervisor name:
+
+```typescript
+// In the run function, when writing to inbox:
+const inboxPath = getSupervisorInboxPath(args.to);
+await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
+```
+
+Note: This is a minimal implementation. Full MissionStore integration will be added in Phase D (observability pass).
 
 - [ ] **Step 4: Run build**
 
@@ -1736,7 +1813,7 @@ git commit -m "feat(cli): add --to flag to neo do for supervisor routing"
 
 ---
 
-## Task 23: Final Validation
+## Task 24: Final Validation
 
 - [ ] **Step 1: Run full build**
 
@@ -1809,12 +1886,12 @@ Child orchestration replaced by mission-first pattern."
 
 | Phase | Tasks | Description |
 |-------|-------|-------------|
-| A | 1-17 | Delete all child/focused modules and clean exports |
-| B | 18-20 | Create mission types and store |
-| C | 21-22 | Add neo missions CLI and --to flag |
-| D | 23 | Final validation |
+| A | 1-18 | Delete all child/focused modules (including TUI components) and clean exports |
+| B | 19-21 | Create mission types and store |
+| C | 22-23 | Add neo missions CLI and --to flag |
+| D | 24 | Final validation |
 
-**Total Tasks:** 23
+**Total Tasks:** 24
 
 **Key Risks:**
 1. Breaking imports in consumer code — mitigated by TypeScript compile checks
