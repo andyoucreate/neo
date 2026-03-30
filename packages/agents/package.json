@@ -1,6 +1,6 @@
 {
   "name": "@neotx/agents",
-  "version": "0.1.0-alpha.24",
+  "version": "0.1.0-alpha.25",
   "description": "Built-in agent definitions and prompts for @neotx/core",
   "type": "module",
   "license": "MIT",
