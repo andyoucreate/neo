@@ -101,32 +101,3 @@ export function getSupervisorLockPath(name: string): string {
 export function getSupervisorDecisionsPath(name: string): string {
   return path.join(getSupervisorDir(name), "decisions.jsonl");
 }
-
-/**
- * Path to the children registry file: ~/.neo/supervisors/<name>/children.json
- * Written by ChildRegistry, read by the TUI to display focused child supervisors.
- */
-export function getSupervisorChildrenPath(name: string): string {
-  return path.join(getSupervisorDir(name), "children.json");
-}
-
-/**
- * Directory for all focused supervisor instances: ~/.neo/supervisors/focused/
- */
-export function getFocusedSupervisorsDir(): string {
-  return path.join(getSupervisorsDir(), "focused");
-}
-
-/**
- * Directory for a specific focused supervisor: ~/.neo/supervisors/focused/<id>/
- */
-export function getFocusedSupervisorDir(supervisorId: string): string {
-  return path.join(getFocusedSupervisorsDir(), supervisorId);
-}
-
-/**
- * Session file for a focused supervisor: ~/.neo/supervisors/focused/<id>/session.json
- */
-export function getFocusedSupervisorSessionPath(supervisorId: string): string {
-  return path.join(getFocusedSupervisorDir(supervisorId), "session.json");
-}
