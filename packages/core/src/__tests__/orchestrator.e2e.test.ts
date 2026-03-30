@@ -17,47 +17,33 @@ import {
   type WebhookPayload,
 } from "./fixtures/e2e-setup.js";
 
-// ─── SDK Mock (dry-run mode) ─────────────────────────────
-
-interface MockMessage {
-  type: string;
-  subtype?: string;
-  session_id?: string;
-  result?: string;
-  total_cost_usd?: number;
-  duration_ms?: number;
-  num_turns?: number;
-}
+// ─── Session Mock (dry-run mode) ─────────────────────────
 
 let mockCallCounter = 0;
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  query: (_args: unknown) => {
-    // Generate unique session ID per query call to ensure isolation between concurrent runs
+// Mock the session module directly to avoid flaky dynamic import issues with SDK mock
+// This provides more reliable isolation as runSession is imported statically
+vi.mock("@/runner/session", () => ({
+  runSession: async () => {
     const callId = ++mockCallCounter;
     const uniqueSessionId = `e2e-session-${callId}-${Date.now()}`;
-
-    // Create messages with unique session ID for this specific call
-    const messages: MockMessage[] = [
-      { type: "system", subtype: "init", session_id: uniqueSessionId },
-      {
-        type: "result",
-        subtype: "success",
-        session_id: uniqueSessionId,
-        result: "E2E task completed successfully",
-        total_cost_usd: 0.02,
-        duration_ms: 500,
-        num_turns: 2,
-      },
-    ];
-
     return {
-      async *[Symbol.asyncIterator]() {
-        for (const msg of messages) {
-          yield msg;
-        }
-      },
+      sessionId: uniqueSessionId,
+      output: "E2E task completed successfully",
+      costUsd: 0.02,
+      durationMs: 500,
+      turnCount: 2,
     };
+  },
+  SessionError: class SessionError extends Error {
+    constructor(
+      message: string,
+      public readonly errorType: string,
+      public readonly sessionId: string,
+    ) {
+      super(message);
+      this.name = "SessionError";
+    }
   },
 }));
 
@@ -84,6 +70,19 @@ vi.mock("@/isolation/clone", () => ({
 
 vi.mock("@/isolation/git", () => ({
   pushSessionBranch: () => Promise.resolve(undefined),
+}));
+
+// Mock MemoryStore to avoid SQLite race conditions in concurrent tests
+vi.mock("@/supervisor/memory/index.js", () => ({
+  MemoryStore: class MockMemoryStore {
+    query() {
+      return [];
+    }
+    markAccessed() {
+      // No-op
+    }
+  },
+  formatMemoriesForPrompt: () => undefined,
 }));
 
 // ─── Test directories ────────────────────────────────────
