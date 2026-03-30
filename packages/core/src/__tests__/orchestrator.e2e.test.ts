@@ -33,9 +33,11 @@ let mockCallCounter = 0;
 
 vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: (_args: unknown) => {
-    // Generate unique session ID per query call to ensure isolation between concurrent runs
+    // Generate unique session ID per query call to ensure isolation between concurrent runs.
+    // Use both a counter and timestamp to guarantee uniqueness even if two calls happen
+    // in the same millisecond (which can occur on Node 24 with different microtask timing).
     const callId = ++mockCallCounter;
-    const uniqueSessionId = `e2e-session-${callId}-${Date.now()}`;
+    const uniqueSessionId = `e2e-session-${callId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
     // Create messages with unique session ID for this specific call
     const messages: MockMessage[] = [
@@ -84,6 +86,30 @@ vi.mock("@/isolation/clone", () => ({
 
 vi.mock("@/isolation/git", () => ({
   pushSessionBranch: () => Promise.resolve(undefined),
+}));
+
+// Mock MemoryStore to avoid better-sqlite3 native module issues on Node 24
+// The native module can have timing differences across Node versions
+vi.mock("@/supervisor/memory/store", () => ({
+  MemoryStore: class MockMemoryStore {
+    query() {
+      return [];
+    }
+    markAccessed() {}
+    write() {
+      return "mock-id";
+    }
+    delete() {
+      return true;
+    }
+    gc() {
+      return [];
+    }
+    stats() {
+      return { total: 0, byType: {}, byScope: {} };
+    }
+    close() {}
+  },
 }));
 
 // ─── Test directories ────────────────────────────────────

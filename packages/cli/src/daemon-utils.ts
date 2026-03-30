@@ -20,7 +20,10 @@ export async function readDaemonState(name: string): Promise<SupervisorDaemonSta
   try {
     const raw = await readFile(statePath, "utf-8");
     return supervisorDaemonStateSchema.parse(JSON.parse(raw));
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[daemon-utils] Failed to read daemon state: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }

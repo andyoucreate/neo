@@ -153,8 +153,11 @@ export class ConfigStore {
       }
 
       return parsed as Record<string, unknown>;
-    } catch {
+    } catch (err) {
       // Parse errors are silently ignored — missing/invalid files return null
+      console.debug(
+        `[ConfigStore] Failed to load config file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      );
       return null;
     }
   }

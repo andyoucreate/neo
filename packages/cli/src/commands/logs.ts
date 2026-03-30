@@ -122,8 +122,11 @@ async function followRunLog(runId: string): Promise<void> {
             ac.abort();
           }
         }
-      } catch {
+      } catch (err) {
         // Ignore read errors during follow
+        console.debug(
+          `[logs] Read error during follow: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     });
   } catch (err) {

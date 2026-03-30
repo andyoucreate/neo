@@ -283,9 +283,13 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch (_err) {
+    } catch (err) {
       // Non-critical: file may not exist or be temporarily unavailable during rotation
-      // Silently return — the watcher will retry on next change event
+      // biome-ignore lint/suspicious/noConsole: Log file read failures for debugging
+      console.debug(
+        `[EventQueue] readNewLines: file ${filePath} not available:`,
+        err instanceof Error ? err.message : String(err),
+      );
       return;
     }
 
@@ -306,8 +310,13 @@ export class EventQueue {
         } else {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
-      } catch (_err) {
+      } catch (err) {
         // Non-critical: skip malformed JSON lines (may be partial writes or corrupted entries)
+        // biome-ignore lint/suspicious/noConsole: Log JSON parse failures for debugging
+        console.debug(
+          `[EventQueue] readNewLines: malformed JSON line:`,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
   }
@@ -316,9 +325,14 @@ export class EventQueue {
     let content: string;
     try {
       content = await readFile(filePath, "utf-8");
-    } catch (_err) {
+    } catch (err) {
       // Non-critical on replay: file may not exist yet on first startup
       // Events will be captured when file is created and watcher triggers
+      // biome-ignore lint/suspicious/noConsole: Log replay file failures for debugging
+      console.debug(
+        `[EventQueue] replayFile: file ${filePath} not available:`,
+        err instanceof Error ? err.message : String(err),
+      );
       return;
     }
 
@@ -338,8 +352,13 @@ export class EventQueue {
           this.push({ kind: "message", data: parsed as unknown as InboxMessage });
         }
         unprocessed.push(line);
-      } catch (_err) {
+      } catch (err) {
         // Non-critical: skip malformed JSON lines during replay (may be partial writes)
+        // biome-ignore lint/suspicious/noConsole: Log JSON parse failures for debugging
+        console.debug(
+          `[EventQueue] replayFile: malformed JSON line:`,
+          err instanceof Error ? err.message : String(err),
+        );
       }
     }
   }
@@ -382,8 +401,13 @@ export class EventQueue {
               changed = true;
               return JSON.stringify(parsed);
             }
-          } catch (_err) {
+          } catch (err) {
             // Non-critical: keep malformed lines as-is (manual edits or corruption)
+            // biome-ignore lint/suspicious/noConsole: Log JSON parse failures for debugging
+            console.debug(
+              `[EventQueue] markInFile: malformed JSON line:`,
+              err instanceof Error ? err.message : String(err),
+            );
           }
           return line;
         });
