@@ -4,10 +4,9 @@ import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
-import { getSupervisorChildrenPath, getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
+import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
 import { isProcessAlive } from "@/shared/process";
 import { ActivityLog } from "./activity-log.js";
-import { ChildRegistry } from "./child-registry.js";
 import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
 import { HeartbeatLoop } from "./heartbeat.js";
@@ -23,8 +22,6 @@ export interface SupervisorDaemonOptions {
   config: GlobalConfig;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
-  /** Path to child-supervisor-worker.js for spawning child processes */
-  workerPath?: string | undefined;
 }
 
 /**
@@ -36,13 +33,11 @@ export class SupervisorDaemon {
   private readonly config: GlobalConfig;
   private readonly dir: string;
   private readonly defaultInstructionsPath: string | undefined;
-  private readonly workerPath: string | undefined;
   private webhookServer: WebhookServer | null = null;
   private eventQueue: EventQueue | null = null;
   private heartbeatLoop: HeartbeatLoop | null = null;
   private activityLog: ActivityLog | null = null;
   private decisionStore: DecisionStore | null = null;
-  private childRegistry: ChildRegistry | null = null;
   private sessionId = "";
 
   constructor(options: SupervisorDaemonOptions) {
@@ -50,7 +45,6 @@ export class SupervisorDaemon {
     this.config = options.config;
     this.dir = getSupervisorDir(options.name);
     this.defaultInstructionsPath = options.defaultInstructionsPath;
-    this.workerPath = options.workerPath;
   }
 
   async start(): Promise<void> {
@@ -157,18 +151,6 @@ export class SupervisorDaemon {
       `Supervisor "${this.name}" started on port ${this.config.supervisor.port}`,
     );
 
-    // Initialize child registry
-    this.childRegistry = new ChildRegistry({
-      onMessage: (message) => {
-        this.eventQueue?.push({
-          kind: "child_supervisor",
-          message,
-          timestamp: new Date().toISOString(),
-        });
-      },
-      childrenFilePath: getSupervisorChildrenPath(this.name),
-    });
-
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
     const directivesPath = path.join(this.dir, "directives.jsonl");
@@ -181,8 +163,6 @@ export class SupervisorDaemon {
       activityLog: this.activityLog,
       eventsPath,
       defaultInstructionsPath: this.defaultInstructionsPath,
-      childRegistry: this.childRegistry,
-      workerPath: this.workerPath,
       supervisorName: this.name,
       directivesPath,
     });
@@ -232,15 +212,10 @@ export class SupervisorDaemon {
       const parsed = JSON.parse(raw);
       const result = supervisorDaemonStateSchema.safeParse(parsed);
       if (!result.success) {
-        console.debug(`[SupervisorDaemon] Invalid state schema: ${result.error.message}`);
         return null;
       }
       return result.data;
-    } catch (err) {
-      // State file not found or corrupted — treat as no previous state
-      console.debug(
-        `[SupervisorDaemon] Failed to read state: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch (_err) {
       return null;
     }
   }
@@ -331,11 +306,7 @@ export class SupervisorDaemon {
       const raw = await readFile(lockPath, "utf-8");
       const pid = Number.parseInt(raw.trim(), 10);
       return Number.isNaN(pid) ? null : pid;
-    } catch (err) {
-      // Lock file not found or unreadable — no lock exists
-      console.debug(
-        `[SupervisorDaemon] Failed to read lock PID from ${lockPath}: ${err instanceof Error ? err.message : String(err)}`,
-      );
+    } catch (_err) {
       return null;
     }
   }

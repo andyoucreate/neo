@@ -63,6 +63,24 @@ export {
   memoryTypeSchema,
   memoryWriteInputSchema,
 } from "./memory/index.js";
+// ─── Mission store ─────────────────────────────────────
+export type { MissionQuery } from "./mission-store.js";
+export { MissionStore } from "./mission-store.js";
+// ─── Mission types ─────────────────────────────────────
+export type {
+  MissionPriority,
+  MissionRequest,
+  MissionRun,
+  MissionStatus,
+  SupervisorProfile,
+} from "./mission-types.js";
+export {
+  missionPrioritySchema,
+  missionRequestSchema,
+  missionRunSchema,
+  missionStatusSchema,
+  supervisorProfileSchema,
+} from "./mission-types.js";
 export type {
   ConsolidationPromptOptions,
   PromptOptions,
@@ -131,7 +149,6 @@ export {
   supervisorBlockedSchema,
   supervisorCompleteSchema,
 } from "./supervisor-tools.js";
-
 // ─── Other ──────────────────────────────────────────────
 export { WebhookServer } from "./webhook-server.js";
 // ─── Webhook events ──────────────────────────────────────

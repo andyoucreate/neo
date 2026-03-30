@@ -197,7 +197,6 @@ tools: [Read, Write, Edit, Bash]
 sandbox: writable
 prompt: "You are a full agent."
 maxTurns: 25
-extends: developer
 promptAppend: "Extra instructions."
 `,
     );
@@ -206,23 +205,26 @@ promptAppend: "Extra instructions."
     expect(config.name).toBe("full-agent");
     expect(config.maxTurns).toBe(25);
     expect(config.sandbox).toBe("writable");
-    expect(config.extends).toBe("developer");
     expect(config.promptAppend).toBe("Extra instructions.");
   });
 
-  it("loads agent with only required fields", async () => {
+  it("loads agent with minimal required fields", async () => {
     await writeYaml(
       BUILT_IN_DIR,
       "minimal-agent",
       `
 name: minimal-agent
-extends: developer
+description: "Minimal agent"
+model: opus
+tools: [Read]
+sandbox: readonly
+prompt: "You are a minimal agent."
 `,
     );
 
     const config = await loadAgentFile(path.join(BUILT_IN_DIR, "minimal-agent.yml"));
     expect(config.name).toBe("minimal-agent");
-    expect(config.extends).toBe("developer");
+    expect(config.description).toBe("Minimal agent");
   });
 
   // ─── maxCost schema validation tests ─────────────────────
@@ -568,33 +570,6 @@ prompt: ${path.join(PROMPTS_DIR, "arch.md")}
     await registry.load();
 
     expect(registry.get("unknown")).toBeUndefined();
-  });
-
-  it("custom agents extend built-ins", async () => {
-    await setupBuiltIns();
-
-    await writeYaml(
-      CUSTOM_DIR,
-      "developer",
-      `
-name: developer
-extends: developer
-model: sonnet
-tools:
-  - $inherited
-  - WebSearch
-`,
-    );
-
-    const registry = new AgentRegistry(BUILT_IN_DIR, CUSTOM_DIR);
-    await registry.load();
-
-    const dev = registry.get("developer");
-    expect(dev).toBeDefined();
-    expect(dev?.source).toBe("extended");
-    expect(dev?.definition.model).toBe("sonnet");
-    expect(dev?.definition.tools).toContain("WebSearch");
-    expect(dev?.definition.tools).toContain("Read");
   });
 
   it("custom agents add new agents", async () => {

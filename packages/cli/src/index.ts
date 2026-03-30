@@ -23,6 +23,7 @@ const main = defineCommand({
     supervise: () => import("./commands/supervise.js").then((m) => m.default),
     supervisor: () => import("./commands/supervisor/index.js").then((m) => m.default),
     memory: () => import("./commands/memory.js").then((m) => m.default),
+    missions: () => import("./commands/missions.js").then((m) => m.default),
     mcp: () => import("./commands/mcp.js").then((m) => m.default),
     guide: () => import("./commands/guide.js").then((m) => m.default),
     health: () => import("./commands/health.js").then((m) => m.default),
