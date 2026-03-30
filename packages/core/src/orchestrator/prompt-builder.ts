@@ -13,7 +13,10 @@ export async function loadRepoInstructions(repoPath: string): Promise<string | u
   const filePath = path.join(repoPath, INSTRUCTIONS_PATH);
   try {
     return await readFile(filePath, "utf-8");
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[prompt-builder] Failed to load repo instructions: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return undefined;
   }
 }

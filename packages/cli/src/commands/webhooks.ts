@@ -34,7 +34,10 @@ function formatTestResultsTable(results: WebhookTestResult[]): void {
 async function handleAdd(url: string, jsonOutput: boolean): Promise<void> {
   try {
     new URL(url);
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[webhooks] Invalid URL parse: ${err instanceof Error ? err.message : String(err)}`,
+    );
     printError(`Invalid URL: ${url}`);
     process.exitCode = 1;
     return;

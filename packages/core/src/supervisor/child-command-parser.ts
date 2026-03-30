@@ -84,7 +84,10 @@ export function parseChildSpawnCommand(text: string): ChildSpawnCommand | null {
     }
 
     return result;
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[child-command-parser] Failed to parse child:spawn JSON: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }

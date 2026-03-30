@@ -162,8 +162,11 @@ async function runDetached(params: DetachParams): Promise<void> {
       run.status = "failed";
       run.updatedAt = new Date().toISOString();
       await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch {
+    } catch (err) {
       // Best effort - run file update failed
+      console.debug(
+        `[run] Failed to update run file on spawn failure: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     printError(`Failed to spawn worker: ${spawnResult.error}`);
@@ -184,8 +187,11 @@ async function runDetached(params: DetachParams): Promise<void> {
       run.status = "failed";
       run.updatedAt = new Date().toISOString();
       await writeFile(runFilePath, JSON.stringify(run, null, 2), "utf-8");
-    } catch {
+    } catch (err) {
       // Best effort - run file update failed
+      console.debug(
+        `[run] Failed to update run file on worker startup failure: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     printError(

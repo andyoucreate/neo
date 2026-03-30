@@ -36,7 +36,10 @@ async function main(): Promise<void> {
   let acceptanceCriteria: string[];
   try {
     acceptanceCriteria = JSON.parse(criteriaRaw) as string[];
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[child-supervisor-worker] Criteria parse error: ${err instanceof Error ? err.message : String(err)}`,
+    );
     console.error("[child-supervisor-worker] Invalid NEO_CHILD_CRITERIA JSON");
     process.exit(1);
   }

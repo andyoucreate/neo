@@ -111,7 +111,10 @@ export class WebhookServer {
     let parsed: Record<string, unknown>;
     try {
       parsed = JSON.parse(body) as Record<string, unknown>;
-    } catch {
+    } catch (err) {
+      console.debug(
+        `[WebhookServer] Failed to parse JSON: ${err instanceof Error ? err.message : String(err)}`,
+      );
       this.sendJson(res, 400, { error: "Invalid JSON" });
       return;
     }

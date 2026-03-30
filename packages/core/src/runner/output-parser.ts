@@ -16,8 +16,11 @@ function extractJson(raw: string): unknown | undefined {
   // Strategy 1: Try parsing the entire string as JSON
   try {
     return JSON.parse(raw);
-  } catch {
-    // Not raw JSON, continue
+  } catch (err) {
+    // Not raw JSON, continue — expected when agent output contains prose before JSON
+    console.debug(
+      `[output-parser] Raw JSON parse failed, trying code block: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Strategy 2: Extract from markdown code blocks (```json ... ``` or ``` ... ```)
@@ -26,8 +29,11 @@ function extractJson(raw: string): unknown | undefined {
   if (match?.[1]) {
     try {
       return JSON.parse(match[1].trim());
-    } catch {
-      // Invalid JSON inside code block
+    } catch (err) {
+      // Invalid JSON inside code block — expected when code block contains non-JSON
+      console.debug(
+        `[output-parser] Code block JSON parse failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

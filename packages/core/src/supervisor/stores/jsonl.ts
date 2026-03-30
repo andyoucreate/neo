@@ -63,7 +63,12 @@ export class JsonlSupervisorStore implements SupervisorStore {
       const raw = await readFile(sessionPath, "utf-8");
       const parsed = JSON.parse(raw) as { sessionId: string };
       return parsed.sessionId;
-    } catch {
+    } catch (err) {
+      // Session file not found or corrupted — expected on first run
+      console.debug(
+        "[jsonl-store] getSessionId failed:",
+        err instanceof Error ? err.message : String(err),
+      );
       return undefined;
     }
   }
@@ -91,11 +96,20 @@ export class JsonlSupervisorStore implements SupervisorStore {
       return last.flatMap((line) => {
         try {
           return [JSON.parse(line) as ActivityEntry];
-        } catch {
+        } catch (err) {
+          console.debug(
+            "[jsonl-store] Failed to parse activity line:",
+            err instanceof Error ? err.message : String(err),
+          );
           return [];
         }
       });
-    } catch {
+    } catch (err) {
+      // Activity file not found — expected on first run
+      console.debug(
+        "[jsonl-store] getRecentActivity failed:",
+        err instanceof Error ? err.message : String(err),
+      );
       return [];
     }
   }
@@ -107,7 +121,12 @@ export class JsonlSupervisorStore implements SupervisorStore {
     try {
       const raw = await readFile(statePath, "utf-8");
       return JSON.parse(raw) as FocusedSupervisorState;
-    } catch {
+    } catch (err) {
+      // State file not found — expected on first run
+      console.debug(
+        "[jsonl-store] getState failed:",
+        err instanceof Error ? err.message : String(err),
+      );
       return null;
     }
   }
@@ -137,7 +156,12 @@ export class JsonlSupervisorStore implements SupervisorStore {
       const raw = await readFile(costPath, "utf-8");
       const parsed = JSON.parse(raw) as { totalCostUsd: number };
       return parsed.totalCostUsd;
-    } catch {
+    } catch (err) {
+      // Cost file not found — expected on first run
+      console.debug(
+        "[jsonl-store] getTotalCost failed:",
+        err instanceof Error ? err.message : String(err),
+      );
       return 0;
     }
   }

@@ -314,12 +314,18 @@ export class DirectiveStore {
           const raw = JSON.parse(line);
           const directive = directiveSchema.parse(raw);
           map.set(directive.id, directive);
-        } catch {
+        } catch (err) {
           // Skip malformed lines
+          console.debug(
+            `[DirectiveStore] Skipping malformed line: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
-    } catch {
+    } catch (err) {
       // File doesn't exist or can't be read
+      console.debug(
+        `[DirectiveStore] readAll failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     return map;

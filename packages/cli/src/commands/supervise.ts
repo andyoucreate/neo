@@ -61,7 +61,10 @@ async function handleKill(name: string): Promise<void> {
   try {
     process.kill(pid, "SIGTERM");
     printSuccess(`Sent SIGTERM to supervisor "${name}" (PID ${pid})`);
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[supervise] Failed to send SIGTERM: ${err instanceof Error ? err.message : String(err)}`,
+    );
     printError(`Failed to send signal to PID ${pid}. Cleaning up.`);
     const lockPath = getSupervisorLockPath(name);
     await rm(lockPath, { force: true });
@@ -82,8 +85,11 @@ async function handleKill(name: string): Promise<void> {
   try {
     process.kill(pid, "SIGKILL");
     printSuccess(`Daemon did not exit in time — sent SIGKILL (PID ${pid}).`);
-  } catch {
+  } catch (err) {
     // Already dead
+    console.debug(
+      `[supervise] SIGKILL not needed, process already terminated: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   // Clean up lock
