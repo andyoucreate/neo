@@ -78,14 +78,12 @@ export { Orchestrator } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────
 export {
   getDataDir,
-  getFocusedSupervisorDir,
   getJournalsDir,
   getRepoRunsDir,
   getRunDispatchPath,
   getRunLogPath,
   getRunsDir,
   getSupervisorActivityPath,
-  getSupervisorChildrenPath,
   getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorEventsPath,
@@ -122,32 +120,23 @@ export {
 } from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
-// ─── Decisions ─────────────────────────────────────────
-// ─── Supervisor children ───────────────────────────────
-// ─── Child supervisor ──────────────────────────────
+// ─── Supervisor (types) ────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
   AIAdapter,
   AIQueryOptions,
-  ChildHandle,
-  ChildSpawnCommand,
   Decision,
   DecisionInput,
   DecisionOption,
   Directive,
   DirectiveCreateInput,
   DirectiveTrigger,
-  FocusedLoopOptions,
   HeartbeatLoopOptions,
   InboxMessage,
   LogBufferEntry,
-  ParentToChildMessage,
   QueuedEvent,
   SessionHandle,
-  SpawnChildOptions,
-  SpawnChildResult,
-  SpawnChildSupervisorInput,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
   SupervisorMessage,
@@ -165,19 +154,13 @@ export {
   decisionOptionSchema,
   decisionSchema,
   EventQueue,
-  FocusedLoop,
   HeartbeatLoop,
   inboxMessageSchema,
   JsonlSupervisorStore,
-  parseChildSpawnCommand,
   parseDirectiveDuration,
-  readChildrenFile,
   readLogBuffer,
-  SPAWN_CHILD_SUPERVISOR_TOOL,
   StatusReader,
   SupervisorDaemon,
-  spawnChildSupervisor,
-  spawnChildSupervisorInputSchema,
   supervisorDaemonStateSchema,
   supervisorStatusSchema,
   WebhookServer,
