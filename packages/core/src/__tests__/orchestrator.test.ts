@@ -39,11 +39,18 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
 // ─── Git/Clone Mocks ───────────────────────────────────
 
 vi.mock("@/isolation/clone", () => ({
-  createSessionClone: () =>
+  createSessionClone: (options: {
+    repoPath: string;
+    branch: string;
+    baseBranch: string;
+    sessionDir: string;
+  }) =>
     Promise.resolve({
-      path: "/tmp/session",
-      branch: "feat/run-test",
-      repoPath: "/tmp/repo",
+      // Use the unique sessionDir passed by orchestrator to avoid race conditions
+      // when concurrent dispatches share the same mock path
+      path: options.sessionDir,
+      branch: options.branch,
+      repoPath: options.sessionDir,
     }),
   removeSessionClone: () => Promise.resolve(undefined),
   listSessionClones: () => Promise.resolve([]),
