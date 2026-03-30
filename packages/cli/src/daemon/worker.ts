@@ -183,8 +183,11 @@ async function updatePersistedRun(runPath: string, updates: Partial<PersistedRun
     const run = JSON.parse(raw) as PersistedRun;
     Object.assign(run, updates);
     await writeFile(runPath, JSON.stringify(run, null, 2), "utf-8");
-  } catch {
-    // Non-critical
+  } catch (err) {
+    // Non-critical — file may not exist yet
+    console.debug(
+      `[worker] Failed to update persisted run: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 }
 

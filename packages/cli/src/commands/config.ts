@@ -118,7 +118,10 @@ async function loadConfigFile(filePath: string): Promise<Record<string, unknown>
     const parsed = parseYaml(content);
     if (parsed === null || typeof parsed !== "object") return null;
     return parsed as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[config] Failed to load config file ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     return null;
   }
 }
@@ -151,7 +154,10 @@ async function handleGet(key: string): Promise<void> {
     } else {
       console.log(String(value));
     }
-  } catch {
+  } catch (err) {
+    console.debug(
+      `[config] Failed to get key ${key}: ${err instanceof Error ? err.message : String(err)}`,
+    );
     printError(`Key not found: ${key}`);
     process.exitCode = 1;
   }
@@ -188,8 +194,11 @@ async function handleSet(key: string, value: string, global: boolean): Promise<v
   let parsedValue: unknown;
   try {
     parsedValue = JSON.parse(value);
-  } catch {
-    // Check for boolean strings
+  } catch (err) {
+    // Not valid JSON — check for boolean strings or use as-is
+    console.debug(
+      `[config] Value is not JSON, parsing as primitive: ${err instanceof Error ? err.message : String(err)}`,
+    );
     if (value === "true") {
       parsedValue = true;
     } else if (value === "false") {

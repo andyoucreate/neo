@@ -105,8 +105,11 @@ export class ActivityLog {
         const rotatedPath = path.join(this.dir, `activity-${timestamp}.jsonl`);
         await rename(this.filePath, rotatedPath);
       }
-    } catch {
+    } catch (err) {
       // File doesn't exist yet — no rotation needed
+      console.debug(
+        `[ActivityLog] checkRotation skipped: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 }

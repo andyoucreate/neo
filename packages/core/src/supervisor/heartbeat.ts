@@ -433,9 +433,12 @@ export class HeartbeatLoop {
       try {
         await this.runHeartbeat();
         this.consecutiveFailures = 0;
-      } catch {
+      } catch (err) {
         // Error was already handled via handleHeartbeatError() in runHeartbeat()
         // We just need to track consecutive failures and evaluate circuit breaker
+        console.debug(
+          `[HeartbeatLoop] Heartbeat failed (handled by error boundary): ${err instanceof Error ? err.message : String(err)}`,
+        );
         this.consecutiveFailures++;
         const boundary = this.getErrorBoundary();
 

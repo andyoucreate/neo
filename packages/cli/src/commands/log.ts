@@ -192,8 +192,11 @@ export default defineCommand({
           runId,
         });
         store.close();
-      } catch {
+      } catch (err) {
         // Best-effort — don't crash CLI if store write fails
+        console.debug(
+          `[log] Failed to write to memory store: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     }
 
