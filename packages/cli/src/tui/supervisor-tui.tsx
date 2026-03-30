@@ -3,7 +3,6 @@ import { appendFile, mkdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import type {
   ActivityEntry,
-  ChildHandle,
   Decision,
   InboxMessage,
   SupervisorDaemonState,
@@ -11,29 +10,21 @@ import type {
 } from "@neotx/core";
 import {
   DecisionStore,
-  getFocusedSupervisorDir,
   getSupervisorActivityPath,
-  getSupervisorChildrenPath,
   getSupervisorDecisionsPath,
   getSupervisorDir,
   getSupervisorInboxPath,
   getSupervisorStatePath,
   loadGlobalConfig,
-  readChildrenFile,
   TaskStore,
 } from "@neotx/core";
 import { Box, Text, useApp, useInput, useStdout } from "ink";
 import TextInput from "ink-text-input";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChildDetail } from "./components/child-detail.js";
-import type { ChildInputMode } from "./components/child-input.js";
-import { ChildInput } from "./components/child-input.js";
-import { ChildList } from "./components/child-list.js";
 
 // ─── Constants ───────────────────────────────────────────
 
 const MAX_VISIBLE_ENTRIES = 24;
-const MAX_CHILD_ACTIVITY = 12;
 const POLL_INTERVAL_MS = 1_500;
 const ANIMATION_TICK_MS = 400;
 
@@ -204,15 +195,11 @@ function HeaderBar({
   name,
   frame,
   clock,
-  columnFocus,
-  childCount,
 }: {
   state: SupervisorDaemonState | null;
   name: string;
   frame: number;
   clock: string;
-  columnFocus: "left" | "right";
-  childCount: number;
 }) {
   if (!state) {
     return (
@@ -242,15 +229,6 @@ function HeaderBar({
       <Box justifyContent="space-between">
         <Logo />
         <Box gap={2}>
-          {childCount > 0 && (
-            <Box paddingX={1} gap={1}>
-              <Text dimColor>focus:</Text>
-              <Text color="#c084fc" bold>
-                {columnFocus === "left" ? "ROOT" : "CHILDREN"}
-              </Text>
-              <Text dimColor>(tab to switch)</Text>
-            </Box>
-          )}
           <LiveIndicator frame={frame} isRunning={isRunning} />
           <Box paddingX={1}>
             <Text dimColor>{clock}</Text>
@@ -702,35 +680,6 @@ async function readActivity(name: string, maxEntries: number): Promise<ActivityE
   }
 }
 
-async function readChildActivity(
-  supervisorId: string,
-  maxEntries: number,
-): Promise<ActivityEntry[]> {
-  const activityPath = path.join(getFocusedSupervisorDir(supervisorId), "activity.jsonl");
-  try {
-    const content = await readFile(activityPath, "utf-8");
-    const lines = content.trim().split("\n").filter(Boolean);
-    const lastLines = lines.slice(-maxEntries);
-    const entries: ActivityEntry[] = [];
-    for (const line of lastLines) {
-      try {
-        entries.push(JSON.parse(line) as ActivityEntry);
-      } catch (err) {
-        /* skip malformed line */
-        console.debug(
-          `[tui] Failed to parse child activity line: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-    }
-    return entries;
-  } catch (err) {
-    console.debug(
-      `[tui] Failed to read child activity: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    return [];
-  }
-}
-
 function readTasks(name: string): TaskEntry[] {
   try {
     const dir = getSupervisorDir(name);
@@ -834,17 +783,6 @@ export function SupervisorTui({ name }: { name: string }) {
   const [decisionAnswer, setDecisionAnswer] = useState("");
   const [focusMode, setFocusMode] = useState<"input" | "decisions">("input");
 
-  // Child supervisor state
-  const [children, setChildren] = useState<ChildHandle[]>([]);
-  const [selectedChildIndex, setSelectedChildIndex] = useState(0);
-  const [childActivity, setChildActivity] = useState<ActivityEntry[]>([]);
-  const [columnFocus, setColumnFocus] = useState<"left" | "right">("left");
-  const [childInputMode, setChildInputMode] = useState<ChildInputMode>("idle");
-  const [childInputValue, setChildInputValue] = useState("");
-
-  const hasChildren = children.length > 0;
-  const selectedChild = children[selectedChildIndex] as ChildHandle | undefined;
-
   // Track terminal resize
   useEffect(() => {
     function onResize() {
@@ -875,31 +813,21 @@ export function SupervisorTui({ name }: { name: string }) {
     decisionsLengthRef.current = decisions.length;
   }, [decisions.length]);
 
-  // Poll root state, activity, decisions, and children
+  // Poll root state, activity, and decisions
   useEffect(() => {
     let active = true;
 
     async function poll() {
       if (!active) return;
-      const [newState, newEntries, newDecisions, newChildren] = await Promise.all([
+      const [newState, newEntries, newDecisions] = await Promise.all([
         readState(name),
         readActivity(name, MAX_VISIBLE_ENTRIES),
         readDecisions(name),
-        readChildrenFile(getSupervisorChildrenPath(name)).catch((err) => {
-          // File not found is expected when no children exist - only log real errors
-          if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-            console.debug(`[TUI] readChildrenFile failed: ${err}`);
-          }
-          return [] as ChildHandle[];
-        }),
       ]);
       if (!active) return;
       setState(newState);
       setEntries(newEntries);
       setDecisions(newDecisions);
-      // Clamp selectedChildIndex if children list shrinks
-      setSelectedChildIndex((i) => Math.min(i, Math.max(0, newChildren.length - 1)));
-      setChildren(newChildren);
       setTasks(readTasks(name));
       // Reset decision index if out of bounds (using ref to avoid dep)
       if (newDecisions.length > 0 && decisionIndexRef.current >= newDecisions.length) {
@@ -922,33 +850,6 @@ export function SupervisorTui({ name }: { name: string }) {
       clearInterval(interval);
     };
   }, [name]);
-
-  // Poll child activity when selected child id changes
-  const selectedChildId = selectedChild?.supervisorId;
-  useEffect(() => {
-    if (!selectedChildId) {
-      setChildActivity([]);
-      return;
-    }
-
-    // Capture after guard - TypeScript doesn't narrow inside async closures
-    const childId = selectedChildId;
-    let active = true;
-
-    async function poll() {
-      if (!active) return;
-      const activity = await readChildActivity(childId, MAX_CHILD_ACTIVITY);
-      if (!active) return;
-      setChildActivity(activity);
-    }
-
-    poll();
-    const interval = setInterval(poll, POLL_INTERVAL_MS);
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [selectedChildId]);
 
   // Current decision being interacted with
   const currentDecision = decisions[decisionIndex] as Decision | undefined;
@@ -995,61 +896,6 @@ export function SupervisorTui({ name }: { name: string }) {
     [currentDecision, optionIndex, submitDecisionAnswer],
   );
 
-  const handleChildInputSubmit = useCallback(
-    async (value: string) => {
-      if (!selectedChild) return;
-      const id = selectedChild.supervisorId;
-      let text: string | null = null;
-      if (childInputMode === "inject" && value.trim()) {
-        text = `child:inject ${id} ${value.trim()}`;
-      } else if (childInputMode === "unblock" && value.trim()) {
-        text = `child:unblock ${id} ${value.trim()}`;
-      } else if (childInputMode === "kill" && value.trim().toLowerCase() === "stop") {
-        text = `child:stop ${id}`;
-      }
-      if (text) {
-        const message: InboxMessage = {
-          id: randomUUID(),
-          from: "tui",
-          text,
-          timestamp: new Date().toISOString(),
-        };
-        await writeToInbox(name, message);
-        setLastSent(text.slice(0, 40));
-      }
-      setChildInputMode("idle");
-      setChildInputValue("");
-    },
-    [name, selectedChild, childInputMode],
-  );
-
-  const handleRightColumnKey = useCallback(
-    (char: string, key: { upArrow: boolean; downArrow: boolean }) => {
-      if (key.upArrow) {
-        setSelectedChildIndex((i) => Math.max(0, i - 1));
-        return;
-      }
-      if (key.downArrow) {
-        if (children.length > 0) {
-          setSelectedChildIndex((i) => Math.min(children.length - 1, i + 1));
-        }
-        return;
-      }
-      if (char === "i") {
-        setChildInputMode("inject");
-        return;
-      }
-      if (char === "u" && selectedChild?.status === "blocked") {
-        setChildInputMode("unblock");
-        return;
-      }
-      if (char === "k") {
-        setChildInputMode("kill");
-      }
-    },
-    [children.length, selectedChild],
-  );
-
   const handleDecisionKey = useCallback(
     (key: {
       upArrow: boolean;
@@ -1072,13 +918,9 @@ export function SupervisorTui({ name }: { name: string }) {
     [currentHasOptions, handleOptionNav, decisions.length],
   );
 
-  // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Keyboard input handler with extensive keybinding logic; single handler maintains key priority/fallthrough clarity
-  useInput((char, key) => {
+  useInput((_char, key) => {
     if (key.tab) {
-      if (hasChildren && focusMode !== "decisions") {
-        setColumnFocus((c) => (c === "left" ? "right" : "left"));
-        setOptionIndex(0);
-      } else if (decisions.length > 0) {
+      if (decisions.length > 0) {
         setFocusMode((m) => (m === "input" ? "decisions" : "input"));
         setOptionIndex(0);
       }
@@ -1086,12 +928,7 @@ export function SupervisorTui({ name }: { name: string }) {
     }
 
     if (key.escape) {
-      if (childInputMode !== "idle") {
-        setChildInputMode("idle");
-        setChildInputValue("");
-      } else if (columnFocus === "right") {
-        setColumnFocus("left");
-      } else if (focusMode === "decisions") {
+      if (focusMode === "decisions") {
         setFocusMode("input");
       } else {
         exit();
@@ -1099,12 +936,7 @@ export function SupervisorTui({ name }: { name: string }) {
       return;
     }
 
-    if (columnFocus === "right" && childInputMode === "idle") {
-      handleRightColumnKey(char, key);
-      return;
-    }
-
-    if (focusMode === "decisions" && decisions.length > 0 && columnFocus === "left") {
+    if (focusMode === "decisions" && decisions.length > 0) {
       handleDecisionKey(key);
     }
   });
@@ -1140,7 +972,7 @@ export function SupervisorTui({ name }: { name: string }) {
 
   // Bottom panel: either decision input or chat input
   const bottomPanel =
-    focusMode === "decisions" && currentDecision && columnFocus === "left" ? (
+    focusMode === "decisions" && currentDecision ? (
       <DecisionInputPanel
         decision={currentDecision}
         optionIndex={optionIndex}
@@ -1158,64 +990,21 @@ export function SupervisorTui({ name }: { name: string }) {
         onChange={setInput}
         onSubmit={handleSubmit}
         lastSent={lastSent}
-        focus={columnFocus === "left" && focusMode === "input"}
+        focus={focusMode === "input"}
       />
     );
 
   return (
     <Box flexDirection="column">
-      <HeaderBar
-        state={state}
-        name={name}
-        frame={frame}
-        clock={clock}
-        columnFocus={columnFocus}
-        childCount={children.length}
-      />
+      <HeaderBar state={state} name={name} frame={frame} clock={clock} />
       <BudgetPanel state={state} dailyCap={dailyCap} costHistory={costHistory} />
       <Box flexDirection="row" flexGrow={1}>
-        {/* Left column */}
-        <Box
-          flexDirection="column"
-          flexGrow={1}
-          flexBasis={hasChildren ? "50%" : "100%"}
-          borderStyle={hasChildren && columnFocus === "left" ? "single" : undefined}
-          borderColor="#c084fc"
-        >
+        <Box flexDirection="column" flexGrow={1}>
           {focusMode !== "decisions" && <DecisionBanner decisions={decisions} frame={frame} />}
           <TaskPanel tasks={tasks} />
           <ActivityPanel entries={entries} maxVisible={leftActivityMaxVisible} />
           {bottomPanel}
         </Box>
-
-        {/* Right column — only when children exist */}
-        {hasChildren && (
-          <Box
-            flexDirection="column"
-            flexGrow={1}
-            flexBasis="50%"
-            borderStyle={columnFocus === "right" ? "single" : undefined}
-            borderColor="#c084fc"
-          >
-            <ChildList handles={children} selectedIndex={selectedChildIndex} />
-            {selectedChild && (
-              <>
-                <ChildDetail
-                  handle={selectedChild}
-                  activity={childActivity}
-                  maxActivityLines={MAX_CHILD_ACTIVITY}
-                />
-                <ChildInput
-                  handle={selectedChild}
-                  mode={childInputMode}
-                  value={childInputValue}
-                  onChange={setChildInputValue}
-                  onSubmit={handleChildInputSubmit}
-                />
-              </>
-            )}
-          </Box>
-        )}
       </Box>
 
       {/* Footer */}
@@ -1223,14 +1012,6 @@ export function SupervisorTui({ name }: { name: string }) {
         <Text dimColor>
           <Text bold>esc</Text> quit
         </Text>
-        {hasChildren && (
-          <>
-            <Text dimColor>·</Text>
-            <Text dimColor>
-              <Text bold>tab</Text> switch panel
-            </Text>
-          </>
-        )}
         <Text dimColor>·</Text>
         <Text dimColor>daemon keeps running</Text>
       </Box>
