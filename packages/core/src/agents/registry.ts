@@ -20,14 +20,10 @@ export class AgentRegistry {
 
     // Load built-in agents
     const builtInConfigs = await loadAgentsFromDir(this.builtInDir);
-    const builtInMap = new Map<string, AgentConfig>();
-    for (const config of builtInConfigs) {
-      builtInMap.set(config.name, config);
-    }
 
     // Resolve built-in agents
     for (const config of builtInConfigs) {
-      const resolved = resolveAgent(config, builtInMap);
+      const resolved = resolveAgent(config);
       // Force built-in source for agents loaded from the built-in dir
       this.agents.set(config.name, { ...resolved, source: "built-in" });
     }
@@ -47,7 +43,7 @@ export class AgentRegistry {
       }
 
       for (const config of customConfigs) {
-        const resolved = resolveAgent(config, builtInMap);
+        const resolved = resolveAgent(config);
         this.agents.set(config.name, resolved);
       }
     }
