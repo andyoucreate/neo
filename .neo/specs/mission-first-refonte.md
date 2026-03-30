@@ -284,32 +284,80 @@ export interface MissionStore {
 
 Default JSONL implementation (zero-infra).
 
+**Note:** Follows the existing codebase pattern where each store class has its own internal mutex for write locks (see `ActivityLog`, `DecisionStore`, `DirectiveStore`).
+
 ```typescript
 // packages/core/src/mission/stores/jsonl.ts
 
-import { appendFile, readFile } from "node:fs/promises";
-import { withWriteLock } from "@/shared/fs.js";
+import { appendFile, readFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import type { MissionQuery, MissionStore } from "../store.js";
 import type { MissionRequest, MissionRun } from "../schemas.js";
 
+/**
+ * JSONL-based mission store.
+ * Uses internal promise-based mutex for concurrent write safety.
+ * Pattern matches existing stores: ActivityLog, DecisionStore, DirectiveStore.
+ */
 export class JsonlMissionStore implements MissionStore {
   private readonly requestsPath: string;
   private readonly runsPath: string;
+  private readonly dataDir: string;
+
+  // Internal mutex for write operations (matches codebase pattern)
+  private requestsWriteLock: Promise<void> = Promise.resolve();
+  private runsWriteLock: Promise<void> = Promise.resolve();
 
   constructor(dataDir: string) {
-    this.requestsPath = `${dataDir}/missions/requests.jsonl`;
-    this.runsPath = `${dataDir}/missions/runs.jsonl`;
+    this.dataDir = dataDir;
+    this.requestsPath = path.join(dataDir, "missions", "requests.jsonl");
+    this.runsPath = path.join(dataDir, "missions", "runs.jsonl");
+  }
+
+  /**
+   * Ensures data directory exists before first write.
+   */
+  private async ensureDir(): Promise<void> {
+    await mkdir(path.dirname(this.requestsPath), { recursive: true });
+  }
+
+  /**
+   * Internal mutex wrapper following codebase pattern.
+   */
+  private async withRequestsLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.requestsWriteLock;
+    let resolve: () => void;
+    this.requestsWriteLock = new Promise((r) => (resolve = r));
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      resolve!();
+    }
+  }
+
+  private async withRunsLock<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.runsWriteLock;
+    let resolve: () => void;
+    this.runsWriteLock = new Promise((r) => (resolve = r));
+    try {
+      await prev;
+      return await fn();
+    } finally {
+      resolve!();
+    }
   }
 
   async createRequest(request: MissionRequest): Promise<void> {
-    await withWriteLock(this.requestsPath, async () => {
+    await this.ensureDir();
+    await this.withRequestsLock(async () => {
       await appendFile(this.requestsPath, JSON.stringify(request) + "\n");
     });
   }
 
   async getRequest(id: string): Promise<MissionRequest | null> {
-    // Read all, filter by ID (for JSONL simplicity)
     const lines = await this.readLines(this.requestsPath);
+    // Last write wins (JSONL append-only)
     for (const line of lines.reverse()) {
       const req = JSON.parse(line) as MissionRequest;
       if (req.id === id) return req;
@@ -318,7 +366,8 @@ export class JsonlMissionStore implements MissionStore {
   }
 
   async createRun(run: MissionRun): Promise<void> {
-    await withWriteLock(this.runsPath, async () => {
+    await this.ensureDir();
+    await this.withRunsLock(async () => {
       await appendFile(this.runsPath, JSON.stringify(run) + "\n");
     });
   }
@@ -337,7 +386,7 @@ export class JsonlMissionStore implements MissionStore {
     const existing = await this.getRun(id);
     if (!existing) throw new Error(`Mission run not found: ${id}`);
     const updated = { ...existing, ...updates, updatedAt: new Date().toISOString() };
-    await withWriteLock(this.runsPath, async () => {
+    await this.withRunsLock(async () => {
       await appendFile(this.runsPath, JSON.stringify(updated) + "\n");
     });
   }
@@ -400,12 +449,14 @@ export class JsonlMissionStore implements MissionStore {
   }
 
   async close(): Promise<void> {
-    // No cleanup needed for JSONL
+    // Wait for any pending writes to complete
+    await this.requestsWriteLock;
+    await this.runsWriteLock;
   }
 
-  private async readLines(path: string): Promise<string[]> {
+  private async readLines(filePath: string): Promise<string[]> {
     try {
-      const content = await readFile(path, "utf-8");
+      const content = await readFile(filePath, "utf-8");
       return content.trim().split("\n").filter(Boolean);
     } catch {
       return [];
@@ -436,6 +487,8 @@ neo do <description> -d           Start supervisor in background if not running 
 // packages/cli/src/commands/do.ts
 
 import { randomUUID } from "node:crypto";
+import { appendFile, mkdir } from "node:fs/promises";
+import path from "node:path";
 import { getSupervisorInboxPath, getDataDir } from "@neotx/core";
 import { defineCommand } from "citty";
 import { isDaemonRunning, startDaemonDetached } from "../daemon-utils.js";
@@ -508,11 +561,20 @@ export default defineCommand({
       source: "cli",
     };
 
-    // Persist to mission store
+    // Persist to mission store (store handles internal locking)
     const store = new JsonlMissionStore(getDataDir());
-    await store.createRequest(request);
+    try {
+      await store.createRequest(request);
+    } catch (err) {
+      printError(`Failed to create mission request: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+      return;
+    }
 
-    // Also write to inbox for supervisor pickup
+    // Write to inbox for supervisor pickup
+    // NOTE: The inbox is read by the supervisor daemon which handles its own locking.
+    // CLI writes are atomic (single appendFile call) — no cross-process lock needed
+    // because partial lines are handled by the supervisor's line-by-line parser.
     const inboxPath = getSupervisorInboxPath(targetSupervisor);
     const inboxMessage = {
       id: request.id,
@@ -522,7 +584,16 @@ export default defineCommand({
       missionRequestId: request.id,
       timestamp: request.createdAt,
     };
-    await appendFile(inboxPath, JSON.stringify(inboxMessage) + "\n", "utf-8");
+
+    try {
+      // Ensure supervisor directory exists
+      await mkdir(path.dirname(inboxPath), { recursive: true });
+      await appendFile(inboxPath, JSON.stringify(inboxMessage) + "\n", "utf-8");
+    } catch (err) {
+      printError(`Failed to send mission to inbox: ${err instanceof Error ? err.message : String(err)}`);
+      process.exitCode = 1;
+      return;
+    }
 
     printSuccess(`Mission sent to supervisor "${targetSupervisor}"`);
     console.log(`  ID: ${request.id.slice(0, 8)}`);
@@ -694,24 +765,32 @@ When the root supervisor receives a mission request, it must decide how to handl
 ```typescript
 // packages/core/src/mission/qualifier.ts
 
-import type { MissionRequest, MissionRun } from "./schemas.js";
+import { z } from "zod";
+import type { MissionRequest } from "./schemas.js";
 
-export interface QualificationResult {
-  /** Should this mission be delegated to a dedicated supervisor? */
-  delegate: boolean;
+/**
+ * Qualification result schema using discriminated union.
+ * Ensures supervisorName is present when delegate=true.
+ */
+export const qualificationResultSchema = z.discriminatedUnion("delegate", [
+  // When not delegating, supervisorName is forbidden
+  z.object({
+    delegate: z.literal(false),
+    acceptanceCriteria: z.array(z.string()),
+    complexity: z.enum(["trivial", "simple", "moderate", "complex"]),
+    reasoning: z.string(),
+  }),
+  // When delegating, supervisorName is required
+  z.object({
+    delegate: z.literal(true),
+    supervisorName: z.string().regex(/^[a-z][a-z0-9-]*$/),
+    acceptanceCriteria: z.array(z.string()),
+    complexity: z.enum(["trivial", "simple", "moderate", "complex"]),
+    reasoning: z.string(),
+  }),
+]);
 
-  /** If delegating, the name of the dedicated supervisor to spawn */
-  supervisorName?: string;
-
-  /** Derived acceptance criteria */
-  acceptanceCriteria: string[];
-
-  /** Estimated complexity (for logging/metrics) */
-  complexity: "trivial" | "simple" | "moderate" | "complex";
-
-  /** Reasoning (for activity log) */
-  reasoning: string;
-}
+export type QualificationResult = z.infer<typeof qualificationResultSchema>;
 
 /**
  * The root supervisor calls this after LLM analysis to validate delegation decision.
@@ -766,9 +845,38 @@ export function validateDelegationDecision(
 
 ### Qualification Tool for LLM
 
+**Note:** Follows the "Zod as single source of truth" principle. The JSON Schema is derived from the Zod schema using `zod-to-json-schema`.
+
 ```typescript
 // packages/core/src/mission/tools/qualify-mission.ts
 
+import { z } from "zod";
+import { zodToJsonSchema } from "zod-to-json-schema";
+
+/**
+ * Zod schema for LLM tool input (single source of truth).
+ */
+export const qualifyMissionInputSchema = z.object({
+  delegate: z.boolean().describe("Whether to delegate this mission to a dedicated supervisor"),
+  supervisorName: z.string()
+    .regex(/^[a-z][a-z0-9-]*$/)
+    .optional()
+    .describe("Name for the dedicated supervisor (if delegating). Use mission-{id} format."),
+  acceptanceCriteria: z.array(z.string())
+    .min(1)
+    .describe("List of measurable criteria that define when this mission is complete"),
+  complexity: z.enum(["trivial", "simple", "moderate", "complex"])
+    .describe("Estimated complexity level"),
+  reasoning: z.string()
+    .describe("Brief explanation of the qualification decision"),
+});
+
+export type QualifyMissionInput = z.infer<typeof qualifyMissionInputSchema>;
+
+/**
+ * Tool definition for the Claude SDK.
+ * JSON Schema derived from Zod schema.
+ */
 export const QUALIFY_MISSION_TOOL = {
   name: "qualify_mission",
   description: `Analyze a mission request and determine how to handle it.
@@ -784,34 +892,7 @@ Guidelines:
 
 Always provide acceptance criteria — measurable conditions that define "done".
 `,
-  input_schema: {
-    type: "object",
-    properties: {
-      delegate: {
-        type: "boolean",
-        description: "Whether to delegate this mission to a dedicated supervisor",
-      },
-      supervisorName: {
-        type: "string",
-        description: "Name for the dedicated supervisor (if delegating). Use mission-{id} format.",
-      },
-      acceptanceCriteria: {
-        type: "array",
-        items: { type: "string" },
-        description: "List of measurable criteria that define when this mission is complete",
-      },
-      complexity: {
-        type: "string",
-        enum: ["trivial", "simple", "moderate", "complex"],
-        description: "Estimated complexity level",
-      },
-      reasoning: {
-        type: "string",
-        description: "Brief explanation of the qualification decision",
-      },
-    },
-    required: ["delegate", "acceptanceCriteria", "complexity", "reasoning"],
-  },
+  input_schema: zodToJsonSchema(qualifyMissionInputSchema, { target: "openApi3" }),
 };
 ```
 
@@ -821,14 +902,19 @@ Always provide acceptance criteria — measurable conditions that define "done".
 
 ### Activity Types
 
-Extend the existing activity entry schema to include mission-specific types:
+**Strategy:** Extend the existing `ActivityEntry` schema (single unified type) rather than creating a parallel type. This avoids duplication and ensures all activity logs share the same structure.
 
 ```typescript
-// packages/core/src/mission/activity.ts
+// packages/core/src/supervisor/schemas.ts (modification)
 
 import { z } from "zod";
 
-export const missionActivityTypeSchema = z.enum([
+/**
+ * Extended activity entry type enum.
+ * Adds mission_* types to existing activity types.
+ * This is the SINGLE source of truth for activity types.
+ */
+export const activityEntryTypeSchema = z.enum([
   // Existing types (kept for compatibility)
   "heartbeat",
   "decision",
@@ -842,7 +928,7 @@ export const missionActivityTypeSchema = z.enum([
   "dispatch",
   "tool_use",
 
-  // New mission-specific types
+  // New mission-specific types (Phase 3)
   "mission_received",    // Mission request received
   "mission_qualified",   // Qualification complete
   "mission_delegated",   // Delegated to dedicated supervisor
@@ -855,21 +941,26 @@ export const missionActivityTypeSchema = z.enum([
   "mission_cancelled",   // Mission cancelled by user
 ]);
 
-export const missionActivityEntrySchema = z.object({
-  id: z.string().uuid(),
-  type: missionActivityTypeSchema,
+/**
+ * Unified activity entry schema.
+ * Mission-specific fields are optional — present only for mission_* types.
+ */
+export const activityEntrySchema = z.object({
+  id: z.string(),
+  type: activityEntryTypeSchema,
   summary: z.string(),
 
   // Mission context (optional, present for mission_* types)
   missionId: z.string().uuid().optional(),
   missionRequestId: z.string().uuid().optional(),
 
-  // Additional detail
+  // Additional detail (any type, for flexibility)
   detail: z.unknown().optional(),
-  timestamp: z.string().datetime(),
+  timestamp: z.string(),
 });
 
-export type MissionActivityEntry = z.infer<typeof missionActivityEntrySchema>;
+export type ActivityEntry = z.infer<typeof activityEntrySchema>;
+export type ActivityEntryType = z.infer<typeof activityEntryTypeSchema>;
 ```
 
 ### Activity Log Integration
@@ -988,38 +1079,67 @@ Fail-fast validation on startup:
 ```typescript
 // packages/core/src/config/validator.ts
 
+import { readFileSync, readdirSync, existsSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { parse as parseYaml } from "yaml";  // uses 'yaml' package (already in codebase)
+import type { GlobalConfig } from "./schema.js";
+
 export interface ConfigValidationError {
   path: string;
   message: string;
   severity: "error" | "warning";
 }
 
+/**
+ * Validates global config and agent YAML files.
+ * Called on startup to fail-fast on deprecated patterns.
+ */
 export function validateConfig(config: GlobalConfig): ConfigValidationError[] {
   const errors: ConfigValidationError[] = [];
+  const agentsDir = path.join(homedir(), ".neo", "agents");
 
-  // Check for deprecated inheritance patterns
-  for (const agentPath of glob.sync("~/.neo/agents/*.yml")) {
-    const content = parseYaml(readFileSync(agentPath, "utf-8"));
-    if (content.extends) {
-      errors.push({
-        path: agentPath,
-        message: `"extends" is no longer supported. Inline all configuration directly.`,
-        severity: "error",
-      });
-    }
-    if (content.tools?.includes("$inherited")) {
-      errors.push({
-        path: agentPath,
-        message: `"$inherited" in tools is no longer supported. List all tools explicitly.`,
-        severity: "error",
-      });
-    }
-    if (content.promptAppend) {
-      errors.push({
-        path: agentPath,
-        message: `"promptAppend" is no longer supported. Use "prompt" with full content.`,
-        severity: "error",
-      });
+  // Check for deprecated inheritance patterns in agent files
+  if (existsSync(agentsDir)) {
+    const files = readdirSync(agentsDir).filter((f) => f.endsWith(".yml") || f.endsWith(".yaml"));
+
+    for (const file of files) {
+      const agentPath = path.join(agentsDir, file);
+      try {
+        const raw = readFileSync(agentPath, "utf-8");
+        const content = parseYaml(raw) as Record<string, unknown>;
+
+        if (content.extends) {
+          errors.push({
+            path: agentPath,
+            message: `"extends" is no longer supported. Inline all configuration directly. Run: neo migrate agents`,
+            severity: "error",
+          });
+        }
+
+        const tools = content.tools as unknown[] | undefined;
+        if (tools?.includes("$inherited")) {
+          errors.push({
+            path: agentPath,
+            message: `"$inherited" in tools is no longer supported. List all tools explicitly. Run: neo migrate agents`,
+            severity: "error",
+          });
+        }
+
+        if (content.promptAppend) {
+          errors.push({
+            path: agentPath,
+            message: `"promptAppend" is no longer supported. Use "prompt" with full content. Run: neo migrate agents`,
+            severity: "error",
+          });
+        }
+      } catch (err) {
+        errors.push({
+          path: agentPath,
+          message: `Failed to parse YAML: ${err instanceof Error ? err.message : String(err)}`,
+          severity: "error",
+        });
+      }
     }
   }
 
@@ -1071,46 +1191,114 @@ export function validateConfig(config: GlobalConfig): ConfigValidationError[] {
 ```typescript
 // packages/cli/src/commands/migrate/agents.ts
 
+import { readFile, writeFile, readdir } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import path from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { defineCommand } from "citty";
+import { resolveAgent } from "@neotx/core";
+import { printSuccess, printError } from "../../output.js";
+
 export default defineCommand({
   meta: {
     name: "agents",
     description: "Migrate agent YAML files to flat format (no inheritance)",
   },
-  async run() {
-    const agentsDir = path.join(getDataDir(), "agents");
-    const files = await glob("**/*.yml", { cwd: agentsDir });
+  args: {
+    dryRun: {
+      type: "boolean",
+      description: "Show what would be migrated without making changes",
+      default: false,
+    },
+  },
+  async run({ args }) {
+    const agentsDir = path.join(homedir(), ".neo", "agents");
+
+    if (!existsSync(agentsDir)) {
+      console.log("No agents directory found at ~/.neo/agents");
+      return;
+    }
+
+    const files = (await readdir(agentsDir)).filter(
+      (f) => f.endsWith(".yml") || f.endsWith(".yaml")
+    );
+
+    if (files.length === 0) {
+      console.log("No agent YAML files found.");
+      return;
+    }
+
+    let migratedCount = 0;
+    let skippedCount = 0;
+    let errorCount = 0;
 
     for (const file of files) {
       const fullPath = path.join(agentsDir, file);
       const content = await readFile(fullPath, "utf-8");
-      const parsed = parseYaml(content);
 
-      if (!parsed.extends && !parsed.promptAppend && !parsed.tools?.includes("$inherited")) {
-        console.log(`  ✓ ${file} — already flat`);
+      let parsed: Record<string, unknown>;
+      try {
+        parsed = parseYaml(content) as Record<string, unknown>;
+      } catch (err) {
+        printError(`  ✗ ${file} — invalid YAML: ${err instanceof Error ? err.message : String(err)}`);
+        errorCount++;
         continue;
       }
 
-      // Resolve inheritance and flatten
-      const resolved = await resolveAgentWithInheritance(parsed);
-      const flattened = {
-        name: resolved.name,
-        description: resolved.definition.description,
-        model: resolved.definition.model,
-        prompt: resolved.definition.prompt,
-        tools: resolved.definition.tools,
-        sandbox: resolved.sandbox,
-        maxTurns: resolved.maxTurns,
-        maxCost: resolved.maxCost,
-        mcpServers: resolved.definition.mcpServers,
-      };
+      const tools = parsed.tools as unknown[] | undefined;
+      const needsMigration =
+        parsed.extends || parsed.promptAppend || tools?.includes("$inherited");
 
-      // Write backup
-      await writeFile(`${fullPath}.bak`, content);
+      if (!needsMigration) {
+        console.log(`  ✓ ${file} — already flat`);
+        skippedCount++;
+        continue;
+      }
 
-      // Write flattened
-      await writeFile(fullPath, stringifyYaml(flattened));
+      if (args.dryRun) {
+        console.log(`  → ${file} — would migrate (extends: ${!!parsed.extends}, promptAppend: ${!!parsed.promptAppend})`);
+        migratedCount++;
+        continue;
+      }
 
-      console.log(`  ✓ ${file} — migrated (backup: ${file}.bak)`);
+      try {
+        // Use the existing resolver to fully resolve the agent with inheritance
+        // NOTE: resolveAgent is the existing function in packages/core/src/agents/resolver.ts
+        // It handles extends, $inherited, promptAppend resolution
+        const resolved = await resolveAgent(parsed.name as string);
+
+        const flattened = {
+          name: resolved.name,
+          description: resolved.definition.description,
+          model: resolved.definition.model,
+          prompt: resolved.definition.prompt,
+          tools: resolved.definition.tools,
+          sandbox: resolved.sandbox,
+          maxTurns: resolved.maxTurns,
+          maxCost: resolved.maxCost,
+          mcpServers: resolved.definition.mcpServers,
+        };
+
+        // Write backup
+        await writeFile(`${fullPath}.bak`, content);
+
+        // Write flattened version
+        await writeFile(fullPath, stringifyYaml(flattened));
+
+        printSuccess(`  ✓ ${file} — migrated (backup: ${file}.bak)`);
+        migratedCount++;
+      } catch (err) {
+        printError(`  ✗ ${file} — migration failed: ${err instanceof Error ? err.message : String(err)}`);
+        errorCount++;
+      }
+    }
+
+    console.log("");
+    console.log(`Summary: ${migratedCount} migrated, ${skippedCount} already flat, ${errorCount} errors`);
+
+    if (args.dryRun && migratedCount > 0) {
+      console.log("\nRun without --dry-run to apply changes.");
     }
   },
 });
@@ -1118,7 +1306,92 @@ export default defineCommand({
 
 ---
 
-## Part 7: File Map
+## Part 7: Relationship with Existing Focused Supervisors
+
+### Clarification: MissionRun vs ChildHandle
+
+The existing `ChildHandle` (from `2026-03-28-mission-supervisor-design.md`) tracks **process-level state** for focused supervisors. `MissionRun` tracks **mission-level state** across the full lifecycle.
+
+**They coexist and are linked:**
+
+```
+MissionRun (persistent, survives restarts)
+├── id: uuid
+├── supervisorId: "mission-abc123"
+├── sessionId: "sdk-session-xyz"  ← stored here for crash recovery
+├── status: "running" | "blocked" | ...
+└── ...
+
+ChildHandle (runtime, in-memory + children.json)
+├── supervisorId: "mission-abc123"  ← same as MissionRun.supervisorId
+├── process: ChildProcess
+├── sessionId: "sdk-session-xyz"  ← copied from MissionRun on spawn
+└── status: "running" | "blocked" | ...
+```
+
+**Migration path (Phase 3):**
+
+1. When spawning a dedicated supervisor, create `MissionRun` first, then `ChildHandle`
+2. `ChildHandle.supervisorId` === `MissionRun.supervisorId`
+3. `ChildHandle.sessionId` is copied from `MissionRun.sessionId` on spawn
+4. On crash recovery, `MissionRun.sessionId` provides the resume point
+5. `ChildHandle` is ephemeral — reconstructed from `MissionRun` on restart
+
+### Session Persistence
+
+**Where sessionId is stored:**
+
+1. **Primary:** `MissionRun.sessionId` in `~/.neo/missions/runs.jsonl`
+2. **Runtime copy:** `ChildHandle.sessionId` in memory + `~/.neo/supervisors/{name}/children.json`
+3. **SDK backing:** `~/.claude/projects/{cwd}/{sessionId}.jsonl` (Claude SDK's native persistence)
+
+**Recovery flow:**
+
+```
+Supervisor crash → Daemon restarts →
+  1. Read MissionRun from runs.jsonl (gets sessionId)
+  2. Spawn new ChildProcess for same supervisorId
+  3. Pass sessionId to FocusedLoop → SDK resumes conversation
+```
+
+### Depth Limit Clarification
+
+The existing focused supervisor spec says "depth limit = 1" (root → focused).
+The mission-first spec says "max depth = 3".
+
+**Resolution:** These are compatible:
+
+- **Focused supervisor depth:** 1 (supervisor can spawn agents, but not other supervisors)
+- **Mission depth:** 3 (a mission can spawn sub-missions up to depth 3)
+- **Mapping:** Each sub-mission gets its own dedicated supervisor. Mission depth 3 = 3 dedicated supervisors in the tree.
+
+The `depth` field in `MissionRun` tracks mission nesting. The `depth` field in `ChildHandle` tracks supervisor nesting (always ≤ 1 for now).
+
+### Cost Tracking
+
+`MissionRun.costUsd` is accumulated via:
+
+1. **SDK callback:** `onCostUpdate` in the focused loop reports cost deltas
+2. **IPC message:** `{ type: "progress", costDelta: X }` sent to parent
+3. **ChildRegistry:** Accumulates `costDelta` into `ChildHandle.costUsd`
+4. **Store update:** `MissionStore.updateRun(id, { costUsd: newTotal })`
+
+This matches the existing `ChildHandle.costUsd` pattern but persists to JSONL.
+
+### Activity Log Path Resolution
+
+When `neo missions logs <id>` is called:
+
+1. Look up `MissionRun` by ID
+2. Get `supervisorId` from the run
+3. Resolve activity log path: `~/.neo/supervisors/{supervisorId}/activity.jsonl`
+4. Filter entries where `missionId === run.id`
+
+If the mission was handled by root, `supervisorId = "root"` and logs are in `~/.neo/supervisors/root/activity.jsonl`.
+
+---
+
+## Part 8: File Map (Updated)
 
 | File | Change |
 |------|--------|
@@ -1147,10 +1420,11 @@ export default defineCommand({
 | `packages/core/src/supervisor/prompt-builder.ts` | **Modify** — Add qualification instructions to root prompt |
 | `packages/core/src/agents/schema.ts` | **Modify** — Remove `$inherited` token (Phase 4) |
 | `packages/core/src/agents/resolver.ts` | **Modify** — Remove inheritance resolution (Phase 4) |
+| `packages/cli/src/commands/migrate/index.ts` | **New** — Migrate command group |
 
 ---
 
-## Part 8: Key Design Decisions
+## Part 9: Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
@@ -1166,7 +1440,7 @@ export default defineCommand({
 
 ---
 
-## Out of Scope
+## Part 10: Out of Scope
 
 - Web UI (reads from MissionStore — can be built separately)
 - Multi-repo missions (1 repo per mission is a hard constraint)
@@ -1176,7 +1450,7 @@ export default defineCommand({
 
 ---
 
-## Risks and Mitigations
+## Part 11: Risks and Mitigations
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
