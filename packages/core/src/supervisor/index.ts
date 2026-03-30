@@ -3,14 +3,6 @@ export { ActivityLog } from "./activity-log.js";
 // ─── AI Adapter ───────────────────────────────────────
 export { ClaudeAdapter } from "./adapters/claude.js";
 export type { AIAdapter, AIQueryOptions, SessionHandle, SupervisorMessage } from "./ai-adapter.js";
-// ─── Child command parser (add spawn export) ────────────
-export type { ChildSpawnCommand } from "./child-command-parser.js";
-export { parseChildSpawnCommand } from "./child-command-parser.js";
-// ─── Child spawner ──────────────────────────────────────
-export type { SpawnChildOptions, SpawnChildResult } from "./child-spawner.js";
-export { spawnChildSupervisor } from "./child-spawner.js";
-// ─── Children file ─────────────────────────────────────
-export { readChildrenFile, writeChildrenFile } from "./children-file.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 // ─── Decisions ─────────────────────────────────────────────
@@ -32,9 +24,6 @@ export {
   createFailureReport,
   writeFailureReport,
 } from "./failure-report.js";
-// ─── Focused Loop ─────────────────────────────────────
-export type { FocusedLoopOptions } from "./focused-loop.js";
-export { FocusedLoop } from "./focused-loop.js";
 export type { HeartbeatLoopOptions, WebhookEventEmitter } from "./heartbeat.js";
 export { HeartbeatLoop, shouldCompact, shouldConsolidate } from "./heartbeat.js";
 // ─── Heartbeat error boundary ──────────────────────────────
@@ -89,18 +78,15 @@ export {
 } from "./prompt-builder.js";
 export { StatusReader } from "./StatusReader.js";
 // ─── Status ─────────────────────────────────────────────
-// ─── Child schemas ─────────────────────────────────────
+// ─── Schemas (types) ───────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
   ActivityTypeFilter,
-  ChildHandle,
-  ChildToParentMessage,
   FailureReport,
   InboxMessage,
   InternalEventKind,
   LogBufferEntry,
-  ParentToChildMessage,
   QueuedEvent,
   SupervisorDaemonState,
   SupervisorStatus,
@@ -129,12 +115,6 @@ export {
   terminateGracefully,
   waitForExit,
 } from "./shutdown.js";
-// ─── Spawn child tool ───────────────────────────────────
-export type { SpawnChildSupervisorInput } from "./spawn-child-tool.js";
-export {
-  SPAWN_CHILD_SUPERVISOR_TOOL,
-  spawnChildSupervisorInputSchema,
-} from "./spawn-child-tool.js";
 // ─── JSONL Store ──────────────────────────────────────
 export { JsonlSupervisorStore } from "./stores/jsonl.js";
 // ─── Supervisor tools ──────────────────────────────────
