@@ -780,14 +780,22 @@ export function resolveAgent(config: AgentConfig): ResolvedAgent {
 
 - [ ] **Step 2: Update resolver calls to remove builtIns parameter**
 
-Search for `resolveAgent(` calls and remove the second parameter. Files to check:
-- `packages/core/src/agents/registry.ts`
-- `packages/core/src/__tests__/agents.test.ts`
+The function signature changes from `resolveAgent(config, builtIns)` to `resolveAgent(config)`.
+
+Files to update:
+- `packages/core/src/agents/registry.ts` — ~2 calls (likely in `resolve()` method)
+- `packages/core/src/__tests__/agents.test.ts` — ~22 test cases
+
+Strategy:
+1. Open `registry.ts` and remove the `builtIns` parameter from both the class property and `resolve()` calls
+2. Open `agents.test.ts` and update each test to remove the second parameter. Tests that tested inheritance behavior should be deleted or rewritten.
 
 Run this command to find all calls:
 ```bash
 grep -rn "resolveAgent(" packages/core/src --include="*.ts" | grep -v "export function"
 ```
+
+Expected: After update, all calls should be `resolveAgent(config)` with no second parameter.
 
 - [ ] **Step 3: Run tests**
 
@@ -1766,6 +1774,8 @@ git commit -m "feat(cli): add neo missions command — list, show, tree, logs, d
 **Files:**
 - Modify: `packages/cli/src/commands/do.ts`
 
+**Note:** This task adds `--to` as a new flag. If `do.ts` currently uses `--name` or another flag for supervisor targeting, keep the existing flag but add `--to` as an alias. This is NOT a breaking change — `--to` is additive.
+
 - [ ] **Step 1: Read current do.ts to understand structure**
 
 ```bash
@@ -1774,11 +1784,12 @@ cat packages/cli/src/commands/do.ts
 
 - [ ] **Step 2: Add --to argument**
 
-Add to the args object:
+Add to the args object (or modify existing supervisor targeting if present):
 
 ```typescript
 to: {
   type: "string",
+  alias: "t",
   description: "Target supervisor to route mission to (default: supervisor)",
   default: "supervisor",
 },
@@ -1794,7 +1805,7 @@ const inboxPath = getSupervisorInboxPath(args.to);
 await appendFile(inboxPath, `${JSON.stringify(message)}\n`, "utf-8");
 ```
 
-Note: This is a minimal implementation. Full MissionStore integration will be added in Phase D (observability pass).
+Note: This is a minimal implementation. Full MissionStore integration will be added in a future phase.
 
 - [ ] **Step 4: Run build**
 
