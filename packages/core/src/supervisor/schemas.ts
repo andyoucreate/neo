@@ -184,4 +184,3 @@ export const failureReportSchema = z.object({
 });
 
 export type FailureReport = z.infer<typeof failureReportSchema>;
-

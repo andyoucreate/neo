@@ -760,7 +760,6 @@ async function sendMessage(name: string, text: string): Promise<void> {
 
 // ─── Main Component ──────────────────────────────────────
 
-// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: Main TUI component with complex keyboard/state interactions; splitting would fragment cohesive UI logic
 export function SupervisorTui({ name }: { name: string }) {
   const { exit } = useApp();
   const { stdout } = useStdout();
