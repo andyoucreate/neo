@@ -108,6 +108,8 @@ export const supervisorConfigSchema = z
     activeWorkSkipMax: z.number().default(3),
     /** When true, supervisor answers pending decisions autonomously instead of waiting for human input */
     autoDecide: z.boolean().default(false),
+    /** Claude model used for supervisor heartbeats */
+    model: z.string().default("claude-sonnet-4-6"),
   })
   .default({
     port: 7777,
@@ -121,6 +123,7 @@ export const supervisorConfigSchema = z
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
     autoDecide: false,
+    model: "claude-sonnet-4-6",
   });
 
 // ─── Global config schema (~/.neo/config.yml) ───────────

@@ -20,6 +20,7 @@ export interface SessionOptions {
   resumeSessionId?: string | undefined;
   agents?: Record<string, unknown> | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
+  claudeCodePath?: string | undefined;
 }
 
 export interface SessionResult {
@@ -69,6 +70,9 @@ function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
     settingSources: ["user", "project", "local"],
     // Don't persist agent sessions — they are ephemeral clones.
     persistSession: false,
+    // Use the installed system claude if configured, instead of the SDK-bundled CLI.
+    // Needed when the bundled CLI version is incompatible with the current subscription.
+    ...(options.claudeCodePath ? { pathToClaudeCodeExecutable: options.claudeCodePath } : {}),
   };
 
   if (options.resumeSessionId) {

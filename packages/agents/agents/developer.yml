@@ -1,6 +1,6 @@
 name: developer
 description: "Executes implementation plans step by step or direct tasks in an isolated git clone. Spawns spec-reviewer and code-quality-reviewer subagents."
-model: opus
+model: sonnet
 tools:
   - Read
   - Write

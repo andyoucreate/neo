@@ -146,6 +146,7 @@ function makeConfig(repoPath: string): NeoConfig {
       idleSkipMax: 20,
       activeWorkSkipMax: 3,
       autoDecide: false,
+      model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
   };
@@ -708,6 +709,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         idleSkipMax: 20,
         activeWorkSkipMax: 3,
         autoDecide: false,
+        model: "claude-sonnet-4-5-20251001",
       },
       memory: { embeddings: true },
     };

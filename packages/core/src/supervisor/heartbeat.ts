@@ -1061,6 +1061,7 @@ export class HeartbeatLoop {
         // Don't persist session history — each heartbeat is a fresh conversation.
         // Without this, supervisor restarts could replay old messages.
         persistSession: false,
+        model: this.config.supervisor.model,
       };
 
       const stream = sdk.query({ prompt, options: queryOptions as never });

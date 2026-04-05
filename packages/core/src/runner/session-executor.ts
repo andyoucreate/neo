@@ -33,6 +33,7 @@ export interface SessionExecutionConfig {
   maxDurationMs: number;
   maxRetries: number;
   backoffBaseMs: number;
+  claudeCodePath?: string | undefined;
 }
 
 export interface SessionExecutionDeps {
@@ -180,6 +181,7 @@ export class SessionExecutor {
       ...(mcpServers ? { mcpServers } : {}),
       ...(onAttempt ? { onAttempt } : {}),
       ...(agent.maxTurns ? { maxTurns: agent.maxTurns } : {}),
+      ...(this.config.claudeCodePath ? { claudeCodePath: this.config.claudeCodePath } : {}),
     });
 
     // Post-session budget check (SDK provides cost only after session ends)

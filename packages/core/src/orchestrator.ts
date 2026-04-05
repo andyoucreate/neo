@@ -504,6 +504,7 @@ export class Orchestrator extends NeoEventEmitter {
         maxDurationMs: this.config.sessions.maxDurationMs,
         maxRetries: this.config.recovery.maxRetries,
         backoffBaseMs: this.config.recovery.backoffBaseMs,
+        ...(this.config.claudeCodePath ? { claudeCodePath: this.config.claudeCodePath } : {}),
       },
       (key: string) => {
         if (key === "costToday") return this._costToday;
