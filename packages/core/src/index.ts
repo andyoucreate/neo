@@ -94,6 +94,7 @@ export {
   getWorkerStartedPath,
   toRepoSlug,
 } from "@/paths";
+export { createSessionAdapter } from "@/runner/adapters/index";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
@@ -120,6 +121,9 @@ export {
 } from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
+export { createSupervisorAdapter } from "@/supervisor/adapters/index";
+// ─── AI Adapters ──────────────────────────────────────
+export type { AIProvider, SessionAdapter, SessionRunOptions } from "@/supervisor/ai-adapter";
 // ─── Supervisor (types) ────────────────────────────────
 export type {
   ActivityEntry,
