@@ -8,7 +8,9 @@ describe("createSupervisorAdapter", () => {
     expect(adapter).toBeInstanceOf(ClaudeAdapter);
   });
 
-  it("throws for codex provider (not yet implemented)", () => {
-    expect(() => createSupervisorAdapter("codex")).toThrow(/not yet implemented/i);
+  it("returns a CodexAdapter for codex provider", () => {
+    const adapter = createSupervisorAdapter("codex");
+    expect(adapter).toBeDefined();
+    expect(adapter.getSessionHandle()).toBeUndefined();
   });
 });
