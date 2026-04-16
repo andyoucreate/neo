@@ -33,6 +33,7 @@ export const defaultConfig: NeoConfig = {
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
     autoDecide: false,
+    provider: "claude",
     model: "claude-sonnet-4-6",
   },
   memory: { embeddings: true },

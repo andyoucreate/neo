@@ -61,6 +61,7 @@ function createConfig(overrides?: Partial<GlobalConfig["supervisor"]>): GlobalCo
       idleSkipMax: 3,
       activeWorkSkipMax: 2,
       autoDecide: false,
+      provider: "claude",
       model: "claude-sonnet-4-5-20251001",
       ...overrides,
     },
