@@ -62,7 +62,13 @@ export class ClaudeAdapter implements AIAdapter {
       }
 
       if (isResultMessage(message)) {
-        yield { kind: "end" };
+        yield {
+          kind: "end",
+          metadata: {
+            costUsd: message.total_cost_usd ?? 0,
+            turnCount: message.num_turns ?? 0,
+          },
+        };
       }
     }
   }
