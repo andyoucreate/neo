@@ -1,20 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
-import { homedir } from "node:os";
 import path from "node:path";
 import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
 import { RunStore } from "@/orchestrator/run-store";
 import { getDataDir, getRunsDir } from "@/paths";
-import {
-  isAssistantMessage,
-  isInitMessage,
-  isResultMessage,
-  isToolResultMessage,
-  isToolUseMessage,
-  type SDKStreamMessage,
-} from "@/sdk-types";
 import { isProcessAlive } from "@/shared/process";
+import type { AIAdapter, SupervisorMessage } from "@/supervisor/ai-adapter";
 import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
@@ -48,7 +40,6 @@ import {
   heartbeatEventSchema,
   heartbeatFailureEventSchema,
   type RunCompletedEvent,
-  type RunDispatchedEvent,
   runCompletedEventSchema,
   runDispatchedEventSchema,
   type SupervisorStartedEvent,
@@ -221,6 +212,8 @@ export interface HeartbeatLoopOptions {
   activityLog: ActivityLog;
   /** Path to the inbox/events directory for markProcessed() calls */
   eventsPath: string;
+  /** AI adapter for supervisor queries (injected by daemon) */
+  adapter: AIAdapter;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
   memoryDbPath?: string | undefined;
@@ -258,6 +251,7 @@ export class HeartbeatLoop {
   private readonly eventQueue: EventQueue;
   private readonly activityLog: ActivityLog;
   private readonly _eventsPath: string;
+  private readonly adapter: AIAdapter;
 
   private customInstructions: string | undefined;
   private readonly defaultInstructionsPath: string | undefined;
@@ -286,6 +280,7 @@ export class HeartbeatLoop {
     this.eventQueue = options.eventQueue;
     this.activityLog = options.activityLog;
     this._eventsPath = options.eventsPath;
+    this.adapter = options.adapter;
     this.defaultInstructionsPath = options.defaultInstructionsPath;
     this.memoryDbPath = options.memoryDbPath;
     this.onWebhookEvent = options.onWebhookEvent;
@@ -577,8 +572,8 @@ export class HeartbeatLoop {
         },
       );
 
-      // Call SDK with timeout + shutdown abort
-      const { costUsd, turnCount } = await this.callSdk(prompt, heartbeatId);
+      // Call adapter with timeout + shutdown abort
+      const { costUsd, turnCount } = await this.callAdapter(prompt, heartbeatId);
 
       // Warn if SDK stream completed without any turns — indicates silent timeout
       if (turnCount === 0) {
@@ -1019,15 +1014,15 @@ export class HeartbeatLoop {
   }
 
   /**
-   * Call the Claude SDK and stream results.
+   * Call the AI adapter and stream results.
    *
    * Uses Promise.race to enable non-blocking abort detection. The standard
    * `for await (const message of stream)` pattern only checks the abort signal
-   * AFTER each yield — if the SDK hangs (no messages), the abort never executes.
+   * AFTER each yield — if the adapter hangs (no messages), the abort never executes.
    * This implementation races each iterator.next() against an abort promise,
    * allowing immediate response to shutdown/timeout signals.
    */
-  private async callSdk(
+  private async callAdapter(
     prompt: string,
     heartbeatId: string,
   ): Promise<{ output: string; costUsd: number; turnCount: number }> {
@@ -1042,31 +1037,12 @@ export class HeartbeatLoop {
     let turnCount = 0;
 
     try {
-      const sdk = await import("@anthropic-ai/claude-agent-sdk");
-
-      // Build allowed tools list — include MCP tool patterns for configured servers
-      const allowedTools: string[] = ["Bash", "Read"];
-      if (this.config.mcpServers) {
-        for (const name of Object.keys(this.config.mcpServers)) {
-          allowedTools.push(`mcp__${name}__*`);
-        }
-      }
-
-      const queryOptions: Record<string, unknown> = {
-        cwd: homedir(),
-        allowedTools,
-        permissionMode: "bypassPermissions",
-        allowDangerouslySkipPermissions: true,
-        mcpServers: this.config.mcpServers ?? {},
-        // Don't persist session history — each heartbeat is a fresh conversation.
-        // Without this, supervisor restarts could replay old messages.
-        persistSession: false,
+      const stream = this.adapter.query({
+        prompt,
+        tools: [],
         model: this.config.supervisor.model,
-      };
+      });
 
-      const stream = sdk.query({ prompt, options: queryOptions as never });
-
-      // Create abort promise that resolves when signal fires
       const abortPromise = new Promise<{ aborted: true }>((resolve) => {
         if (abortController.signal.aborted) {
           resolve({ aborted: true });
@@ -1077,38 +1053,39 @@ export class HeartbeatLoop {
         });
       });
 
-      // Use Promise.race pattern for abortable stream iteration
       const iterator = stream[Symbol.asyncIterator]();
       try {
         while (true) {
           const raceResult = await Promise.race([iterator.next(), abortPromise]);
 
-          // Check if abort triggered
           if ("aborted" in raceResult) {
             await this.activityLog.log("heartbeat", "Heartbeat aborted", { heartbeatId });
             break;
           }
 
-          // Normal iterator result
-          const iterResult = raceResult as IteratorResult<unknown>;
+          const iterResult = raceResult as IteratorResult<SupervisorMessage>;
           if (iterResult.done) break;
 
-          const msg = iterResult.value as SDKStreamMessage;
+          const msg = iterResult.value;
 
-          if (isInitMessage(msg)) {
-            this.sessionId = msg.session_id;
+          if (msg.kind === "text" && msg.text) {
+            output += msg.text;
+            await this.activityLog.log("plan", msg.text, { heartbeatId });
           }
 
-          if (isResultMessage(msg)) {
-            output = msg.result ?? "";
-            costUsd = msg.total_cost_usd ?? 0;
-            turnCount = msg.num_turns ?? 0;
+          if (msg.kind === "tool_use") {
+            await this.activityLog.log("tool_use", `Tool: ${msg.toolName}`, {
+              heartbeatId,
+              input: msg.toolInput,
+            });
           }
 
-          await this.logStreamMessage(msg, heartbeatId);
+          if (msg.kind === "end") {
+            costUsd = msg.metadata?.costUsd ?? 0;
+            turnCount = msg.metadata?.turnCount ?? 0;
+          }
         }
       } finally {
-        // Properly cleanup iterator when done or aborted
         await iterator.return?.();
       }
     } finally {
@@ -1221,87 +1198,6 @@ export class HeartbeatLoop {
     }
 
     return undefined;
-  }
-
-  /** Route a single SDK stream message to the appropriate log handler. */
-  private async logStreamMessage(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (isAssistantMessage(msg)) {
-      await this.logContentBlocks(msg, heartbeatId);
-    } else if (isToolUseMessage(msg)) {
-      await this.logToolUse(msg, heartbeatId);
-    } else if (isToolResultMessage(msg)) {
-      await this.logToolResult(msg, heartbeatId);
-    }
-  }
-
-  /** Log thinking and plan blocks from assistant content — no truncation. */
-  private async logContentBlocks(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isAssistantMessage(msg)) return;
-    const content = msg.message?.content;
-    if (!content) return;
-
-    for (const block of content) {
-      if (block.type === "thinking" && block.thinking) {
-        await this.activityLog.log("thinking", block.thinking, { heartbeatId });
-      }
-      if (block.type === "text" && block.text) {
-        await this.activityLog.log("plan", block.text, { heartbeatId });
-        break; // Only log first text block per message
-      }
-    }
-  }
-
-  /** Log tool use events — distinguish MCP tools from built-in tools. */
-  private async logToolUse(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isToolUseMessage(msg)) return;
-    const toolName = msg.tool;
-    const isMcp = toolName.startsWith("mcp__");
-    await this.activityLog.log(
-      isMcp ? "tool_use" : "action",
-      isMcp ? toolName : `Tool use: ${toolName}`,
-      { heartbeatId, tool: toolName, input: msg.input },
-    );
-  }
-
-  /** Detect agent dispatches from bash tool results. */
-  private async logToolResult(msg: SDKStreamMessage, heartbeatId: string): Promise<void> {
-    if (!isToolResultMessage(msg)) return;
-    const result = msg.result ?? "";
-    const runMatch = /Run\s+(\S+)\s+dispatched/i.exec(result);
-    const runId = runMatch?.[1];
-    if (runId) {
-      await this.activityLog.log("dispatch", `Agent dispatched: ${runId}`, {
-        heartbeatId,
-        runId,
-      });
-
-      // Emit run dispatched webhook event
-      // Extract additional info from the result if available.
-      //
-      // Expected tool result formats from `neo run` command output:
-      //   - "Run <runId> dispatched"
-      //   - "agent: <name>" or "Agent: <name>" or "agent <name>"
-      //   - "repo: <path>" or "Repo: <path>" or "repo <path>"
-      //   - "branch: <name>" or "Branch: <name>" or "branch <name>"
-      //
-      // These patterns are best-effort extraction. If the format changes,
-      // values will default to "unknown" without breaking the event emission.
-      const agentMatch = /agent[:\s]+(\S+)/i.exec(result);
-      const repoMatch = /repo[:\s]+(\S+)/i.exec(result);
-      const branchMatch = /branch[:\s]+(\S+)/i.exec(result);
-
-      const agent = agentMatch?.[1] ?? "unknown";
-      const repo = repoMatch?.[1] ?? "unknown";
-      const branch = branchMatch?.[1] ?? "unknown";
-
-      await this.emitRunDispatched({
-        runId,
-        agent,
-        repo,
-        branch,
-        prompt: result.slice(0, 500),
-      });
-    }
   }
 
   private sleep(ms: number): Promise<void> {
@@ -1509,26 +1405,6 @@ export class HeartbeatLoop {
         todayUsd: opts.todayUsd,
         limitUsd: opts.limitUsd,
       },
-    };
-    await this.emitWebhookEvent(event);
-  }
-
-  /** Emit RunDispatchedEvent from tool result detection */
-  private async emitRunDispatched(opts: {
-    runId: string;
-    agent: string;
-    repo: string;
-    branch: string;
-    prompt: string;
-  }): Promise<void> {
-    const event: RunDispatchedEvent = {
-      type: "run_dispatched",
-      supervisorId: this.sessionId,
-      runId: opts.runId,
-      agent: opts.agent,
-      repo: opts.repo,
-      branch: opts.branch,
-      prompt: opts.prompt.slice(0, 500), // Truncate to schema max
     };
     await this.emitWebhookEvent(event);
   }

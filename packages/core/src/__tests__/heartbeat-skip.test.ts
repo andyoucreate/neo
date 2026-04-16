@@ -3,27 +3,28 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GlobalConfig } from "@/config";
 import { ActivityLog } from "@/supervisor/activity-log";
+import type {
+  AIAdapter,
+  AIQueryOptions,
+  SessionHandle,
+  SupervisorMessage,
+} from "@/supervisor/ai-adapter";
 import { EventQueue } from "@/supervisor/event-queue";
 import { HeartbeatLoop } from "@/supervisor/heartbeat";
 import type { SupervisorDaemonState } from "@/supervisor/schemas";
 
-// ─── Mocks ────────────────────────────────────────────────
+// ─── Mock Adapter ─────────────────────────────────────────
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  query: () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: "system", subtype: "init", session_id: "test-session" };
-      yield {
-        type: "result",
-        subtype: "success",
-        session_id: "test-session",
-        result: "Done",
-        total_cost_usd: 0.01,
-        num_turns: 1,
-      };
-    },
-  }),
-}));
+class MockAdapter implements AIAdapter {
+  getSessionHandle(): SessionHandle | undefined {
+    return undefined;
+  }
+  restoreSession(): void {}
+  async *query(_options: AIQueryOptions): AsyncIterable<SupervisorMessage> {
+    yield { kind: "text", text: "Done" };
+    yield { kind: "end", metadata: { costUsd: 0.01, turnCount: 1 } };
+  }
+}
 
 vi.mock("@/paths", () => ({
   getDataDir: () => "/tmp/heartbeat-skip-test/.neo",
@@ -126,6 +127,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // Access runHeartbeat via prototype (testing integration)
@@ -157,6 +159,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -191,6 +194,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // Mock active runs (simulate active work)
@@ -224,6 +228,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // Mock active runs
@@ -275,6 +280,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -318,6 +324,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -359,6 +366,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -389,6 +397,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -419,6 +428,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // Mock active runs
@@ -467,6 +477,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAdapter(),
       });
 
       // @ts-expect-error - accessing private method for testing
