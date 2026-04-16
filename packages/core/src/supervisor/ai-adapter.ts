@@ -1,15 +1,21 @@
+import type { McpServerConfig } from "@/config";
+import type { SandboxConfig } from "@/isolation/sandbox";
+import type { SDKStreamMessage } from "@/sdk-types";
 import type { ToolDefinition } from "./supervisor-tools.js";
+
+// ─── Provider type ──────────────────────────────────────
+
+export type AIProvider = "claude" | "codex";
 
 // ─── Session handles ──────────────────────────────────────
 
 /**
  * Opaque session handle — each adapter stores what it needs.
  * Persisted via SupervisorStore so it survives process restart.
- * Only "claude" is implemented now — others are reserved for future providers.
  */
-export type SessionHandle = { provider: "claude"; sessionId: string };
-// Future: | { provider: "openai"; threadId: string }
-// Future: | { provider: "gemini"; conversationId: string }
+export type SessionHandle =
+  | { provider: "claude"; sessionId: string }
+  | { provider: "codex"; threadId: string };
 
 // ─── Messages ────────────────────────────────────────────
 
@@ -20,6 +26,7 @@ export interface SupervisorMessage {
   toolName?: string;
   toolInput?: unknown;
   text?: string;
+  metadata?: { costUsd?: number; turnCount?: number };
 }
 
 // ─── Query options ────────────────────────────────────────
@@ -32,12 +39,12 @@ export interface AIQueryOptions {
   model?: string;
 }
 
-// ─── Interface ────────────────────────────────────────────
+// ─── Supervisor Adapter ──────────────────────────────────
 
 /**
  * Adapter interface for AI providers.
  * ClaudeAdapter is the default implementation.
- * Future: OpenAIAdapter, GeminiAdapter, OllamaAdapter.
+ * Future: CodexAdapter, OpenAIAdapter, GeminiAdapter.
  */
 export interface AIAdapter {
   /**
@@ -51,4 +58,24 @@ export interface AIAdapter {
 
   /** Restore a previously persisted session handle. */
   restoreSession(handle: SessionHandle): void;
+}
+
+// ─── Session Adapter (Runner) ────────────────────────────
+
+/** Options passed to a session runner for each agent execution. */
+export interface SessionRunOptions {
+  prompt: string;
+  cwd: string;
+  sandboxConfig: SandboxConfig;
+  mcpServers?: Record<string, McpServerConfig>;
+  env?: Record<string, string>;
+  maxTurns?: number;
+  resumeSessionId?: string;
+  model?: string;
+  adapterOptions?: Record<string, unknown>;
+}
+
+/** Low-level runner interface for provider-specific session execution. */
+export interface SessionAdapter {
+  runSession(options: SessionRunOptions): AsyncIterable<SDKStreamMessage>;
 }

@@ -31,7 +31,9 @@ export class ClaudeAdapter implements AIAdapter {
       options: {
         tools: sdkTools,
         ...(options.model ? { model: options.model } : {}),
-        ...(this.sessionHandle ? { resume: this.sessionHandle.sessionId } : {}),
+        ...(this.sessionHandle?.provider === "claude"
+          ? { resume: this.sessionHandle.sessionId }
+          : {}),
       },
     };
 
