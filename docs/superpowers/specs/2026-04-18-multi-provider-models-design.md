@@ -21,13 +21,14 @@ A TypeScript file lists every supported model and its adapter:
 
 export const SUPPORTED_MODELS: Record<string, string> = {
   // Anthropic — via claude CLI
-  "claude-sonnet-4-6": "claude",
+  "claude-opus-4-7": "claude",
   "claude-opus-4-6": "claude",
+  "claude-sonnet-4-6": "claude",
   "claude-haiku-4-5": "claude",
 
   // OpenAI — via codex CLI
-  "o3": "codex",
-  "o4-mini": "codex",
+  "gpt-5.4": "codex",
+  "gpt-5.4-mini": "codex",
 };
 
 export function getAdapter(model: string): string {
