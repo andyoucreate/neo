@@ -1,5 +1,5 @@
 name: architect
 description: "Analyzes feature requests, designs architecture, and writes implementation plans to .neo/specs/. Writes code in plans, NEVER modifies source files."
 sandbox: writable
-model: claude-opus-4-6
+model: opus
 prompt: ../prompts/architect.md
