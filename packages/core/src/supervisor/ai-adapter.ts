@@ -1,4 +1,4 @@
-import type { McpServerConfig, ProviderConfig } from "@/config";
+import type { McpServerConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import type { SDKStreamMessage } from "@/sdk-types";
 
@@ -28,7 +28,7 @@ export interface AgentRunOptions {
   maxTurns?: number;
   resumeSessionId?: string;
   model?: string;
-  providerConfig?: ProviderConfig;
+  providerArgs?: string[];
 }
 
 /** Provider-specific agent runner. Spawns a CLI agent and streams results. */

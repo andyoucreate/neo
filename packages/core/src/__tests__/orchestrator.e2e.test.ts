@@ -149,12 +149,7 @@ function makeConfig(repoPath: string): NeoConfig {
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
-    provider: {
-      adapter: "claude",
-      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-      args: [],
-      env: {},
-    },
+    models: { default: "claude-sonnet-4-6" },
   };
 }
 
@@ -717,12 +712,7 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         model: "claude-sonnet-4-5-20251001",
       },
       memory: { embeddings: true },
-      provider: {
-        adapter: "claude",
-        models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-        args: [],
-        env: {},
-      },
+      models: { default: "claude-sonnet-4-6" },
     };
   }
 

@@ -1,10 +1,9 @@
-import type { ProviderConfig } from "@/config";
 import type { AgentRunner } from "@/supervisor/ai-adapter";
 import { ClaudeAgentRunner } from "./claude-session.js";
 import { CodexAgentRunner } from "./codex-session.js";
 
 export interface AgentRunnerFactory {
-  create(config: ProviderConfig): AgentRunner;
+  create(): AgentRunner;
 }
 
 const registry = new Map<string, AgentRunnerFactory>();
@@ -17,14 +16,14 @@ registry.set("codex", {
   create: () => new CodexAgentRunner(),
 });
 
-export function createAgentRunner(config: ProviderConfig): AgentRunner {
-  const factory = registry.get(config.adapter);
+export function createAgentRunner(adapterName: string): AgentRunner {
+  const factory = registry.get(adapterName);
   if (!factory) {
     throw new Error(
-      `Unknown adapter "${config.adapter}". Available: ${[...registry.keys()].join(", ")}`,
+      `Unknown adapter "${adapterName}". Available: ${[...registry.keys()].join(", ")}`,
     );
   }
-  return factory.create(config);
+  return factory.create();
 }
 
 export function registerAdapter(name: string, factory: AgentRunnerFactory): void {

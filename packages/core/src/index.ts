@@ -16,8 +16,8 @@ export { Semaphore } from "@/concurrency/semaphore";
 export type {
   GlobalConfig,
   McpServerConfig,
+  ModelsConfig,
   NeoConfig,
-  ProviderConfig,
   RepoConfig,
   RepoConfigInput,
 } from "@/config";
@@ -29,8 +29,8 @@ export {
   loadConfig,
   loadGlobalConfig,
   mcpServerConfigSchema,
+  modelsConfigSchema,
   neoConfigSchema,
-  providerConfigSchema,
   removeRepoFromGlobalConfig,
   repoConfigSchema,
   repoOverrideConfigSchema,
@@ -70,6 +70,13 @@ export type { MiddlewareChain, SDKHooks } from "@/middleware/chain";
 export { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 export type { LoopDetectionMiddleware } from "@/middleware/loop-detection";
 export { loopDetection } from "@/middleware/loop-detection";
+export {
+  getAdapter,
+  listModels,
+  MODEL_ALIASES,
+  resolveModel,
+  SUPPORTED_MODELS,
+} from "@/models";
 export type { OrchestratorOptions } from "@/orchestrator";
 export { Orchestrator } from "@/orchestrator";
 // ─── Paths ─────────────────────────────────────────────

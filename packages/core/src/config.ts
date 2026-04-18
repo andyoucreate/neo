@@ -11,8 +11,8 @@ export type {
   GitStrategy,
   GlobalConfig,
   McpServerConfig,
+  ModelsConfig,
   NeoConfig,
-  ProviderConfig,
   RepoConfig,
   RepoConfigInput,
   RepoOverrideConfig,
@@ -26,8 +26,8 @@ export {
   globalConfigSchema,
   journalConfigSchema,
   mcpServerConfigSchema,
+  modelsConfigSchema,
   neoConfigSchema,
-  providerConfigSchema,
   recoveryConfigSchema,
   repoConfigSchema,
   repoOverrideConfigSchema,
@@ -53,12 +53,7 @@ const DEFAULT_GLOBAL_CONFIG = {
     dailyCapUsd: 500,
     alertThresholdPct: 80,
   },
-  provider: {
-    adapter: "claude",
-    models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-    args: [],
-    env: {},
-  },
+  models: { default: "claude-sonnet-4-6" },
 };
 
 // ─── YAML loader helper ─────────────────────────────────
