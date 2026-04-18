@@ -46,7 +46,7 @@ export default defineCommand({
 
     printTable(
       ["NAME", "MODEL", "SANDBOX", "SOURCE"],
-      agents.map((a) => [a.name, a.definition.model, a.sandbox, a.source]),
+      agents.map((a) => [a.name, a.definition.model ?? "(default)", a.sandbox, a.source]),
     );
   },
 });
