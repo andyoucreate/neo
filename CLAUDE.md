@@ -6,12 +6,12 @@
 
 # What this project does
 Orchestration framework for autonomous developer agents. Wraps the Claude Agent SDK with clone isolation, 3-level recovery, DAG workflows, concurrency control, budget guards, and approval gates.
-Extracted from the Voltaire Network dispatch-service (in archive/) which runs in production.
+Extracted from the Voltaire Network dispatch-service (now removed — patterns were absorbed into core).
 
 # Stack
 - Monorepo: 3 packages — @neotx/core (engine), neotx (thin wrapper), @neotx/agents (prompts + YAML)
 - Biome for lint+format (not ESLint) — config in biome.json
-- @anthropic-ai/claude-agent-sdk is the only runtime AI dependency
+- Runtime deps: @anthropic-ai/claude-agent-sdk, better-sqlite3 (in-process), chokidar; @openai/codex-sdk is an optional peer dep
 
 # Commands
 pnpm build && pnpm typecheck && pnpm test   # full validation pass
@@ -22,7 +22,7 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 - Each agent session gets an isolated git clone (`git clone --local`) — no shared state, no mutex needed
 - One clone per workflow run — all steps share it. Parallel writable steps are forbidden
 - Events are the integration primitive — orchestrator extends EventEmitter, everything emits typed events
-- JSONL append-only journals for cost + events — monthly rotation, no database
+- JSONL append-only journals for cost + events — monthly rotation; in-process SQLite (better-sqlite3) for memory store, task store, and heartbeat
 - Middleware converts to SDK hooks format via buildSDKHooks() — not a custom hook system
 
 # Patterns to follow
@@ -35,11 +35,9 @@ pnpm build && pnpm typecheck && pnpm test   # full validation pass
 # Do NOT
 - Do not merge branches automatically — neo creates branches/PRs but NEVER merges (destructive, irreversible). **Exception:** in `autoDecide` mode, the supervisor MAY merge branches when it judges the PR is ready (CI green, review passed)
 - Do not use exec() for git commands — use execFile() to prevent shell injection
-- Do not add infrastructure dependencies (SQLite, Redis, etc.) — zero-infra is a hard constraint (ADR-007)
+- Do not add external infrastructure dependencies (Redis, Postgres, Docker, etc.) — in-process SQLite is acceptable, external servers are not
 - Do not put business logic in CLI commands — CLI is a thin wrapper over @neotx/core
 
 # Key references
-- Design plans: docs/plans/00-vision.md through 08-supervisor-skills.md
-- Implementation prompts: docs/PROMPTS.md (one per phase, designed for /oneshot agents)
-- Roadmap: docs/ROADMAP.md (phases 0-12 with dependency graph)
-- Dispatch service (reference): archive/dispatch-service/src/ (patterns to extract, not copy)
+- Design plans: docs/superpowers/plans/ (implementation plans, date-prefixed)
+- Design specs: docs/superpowers/specs/ (technical design documents)
