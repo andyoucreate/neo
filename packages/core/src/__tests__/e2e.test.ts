@@ -109,14 +109,7 @@ async function writeAgentFixtures(): Promise<void> {
     path.join(AGENTS_DIR, "developer.yml"),
     `name: developer
 description: "Implementation worker"
-model: sonnet
-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
+model: claude-sonnet-4-6
 sandbox: writable
 prompt: ../prompts/developer.md
 `,
@@ -126,12 +119,7 @@ prompt: ../prompts/developer.md
     path.join(AGENTS_DIR, "reviewer.yml"),
     `name: reviewer
 description: "Code reviewer"
-model: sonnet
-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
+model: claude-sonnet-4-6
 sandbox: readonly
 prompt: ../prompts/reviewer.md
 `,
@@ -141,11 +129,7 @@ prompt: ../prompts/reviewer.md
     path.join(AGENTS_DIR, "architect.yml"),
     `name: architect
 description: "Strategic planner"
-model: opus
-tools:
-  - Read
-  - Glob
-  - Grep
+model: claude-opus-4-6
 sandbox: readonly
 prompt: ../prompts/architect.md
 `,
@@ -261,7 +245,6 @@ describe("e2e: agent registry", () => {
     const dev = registry.get("developer");
     expect(dev?.definition.prompt).toBe(DEVELOPER_PROMPT);
     expect(dev?.sandbox).toBe("writable");
-    expect(dev?.definition.tools).toContain("Bash");
   });
 
   it("custom agents override built-in agents", async () => {
@@ -270,11 +253,8 @@ describe("e2e: agent registry", () => {
     await writeFile(
       path.join(customDir, "developer.yml"),
       `name: developer
-description: "Custom developer with fewer tools"
-model: haiku
-tools:
-  - Read
-  - Write
+description: "Custom developer override"
+model: claude-haiku-4-6
 sandbox: writable
 prompt: "Custom prompt"
 `,
@@ -284,8 +264,8 @@ prompt: "Custom prompt"
     await registry.load();
 
     const dev = registry.get("developer");
-    expect(dev?.definition.model).toBe("haiku");
-    expect(dev?.definition.tools).toEqual(["Read", "Write"]);
+    expect(dev?.source).toBe("custom");
+    expect(dev?.definition.description).toBe("Custom developer override");
   });
 });
 

@@ -1,12 +1,7 @@
 // Re-export Zod-derived config types (single source of truth)
 
 // Re-export Zod-derived agent types (single source of truth)
-export type {
-  AgentConfig,
-  AgentModel,
-  AgentTool,
-  AgentToolEntry,
-} from "@/agents/schema";
+export type { AgentConfig } from "@/agents/schema";
 export type { GitStrategy, McpServerConfig, NeoConfig, RepoConfig } from "@/config";
 
 // ─── Subagent Definition (SDK-compatible) ────────────────

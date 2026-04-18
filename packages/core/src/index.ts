@@ -5,13 +5,7 @@ export const VERSION = "0.1.0";
 export { loadAgentFile } from "@/agents/loader";
 export { AgentRegistry } from "@/agents/registry";
 export { resolveAgent } from "@/agents/resolver";
-export {
-  agentConfigSchema,
-  agentModelSchema,
-  agentSandboxSchema,
-  agentToolEntrySchema,
-  agentToolSchema,
-} from "@/agents/schema";
+export { agentConfigSchema, agentSandboxSchema } from "@/agents/schema";
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
