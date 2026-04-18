@@ -31,11 +31,24 @@ export const SUPPORTED_MODELS: Record<string, string> = {
   "gpt-5.4-mini": "codex",
 };
 
+// Short aliases → canonical model ID
+export const MODEL_ALIASES: Record<string, string> = {
+  "opus": "claude-opus-4-7",
+  "sonnet": "claude-sonnet-4-6",
+  "haiku": "claude-haiku-4-5",
+};
+};
+
+export function resolveModel(model: string): string {
+  return MODEL_ALIASES[model] ?? model;
+}
+
 export function getAdapter(model: string): string {
-  const adapter = SUPPORTED_MODELS[model];
+  const resolved = resolveModel(model);
+  const adapter = SUPPORTED_MODELS[resolved];
   if (!adapter) {
     throw new Error(
-      `Unknown model "${model}". Supported: ${Object.keys(SUPPORTED_MODELS).join(", ")}`,
+      `Unknown model "${model}". Supported: ${[...Object.keys(SUPPORTED_MODELS), ...Object.keys(MODEL_ALIASES)].join(", ")}`,
     );
   }
   return adapter;
