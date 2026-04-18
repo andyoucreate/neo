@@ -4,6 +4,7 @@ import { mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
+import { getAdapter } from "@/models";
 import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
 import { createAgentRunner } from "@/runner/adapters/index";
 import { isProcessAlive } from "@/shared/process";
@@ -155,9 +156,8 @@ export class SupervisorDaemon {
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
     const directivesPath = path.join(this.dir, "directives.jsonl");
-    const supervisorAdapter = this.config.supervisor.adapter ?? this.config.provider.adapter;
-    const providerConfig = { ...this.config.provider, adapter: supervisorAdapter };
-    const adapter = createAgentRunner(providerConfig);
+    const adapterName = getAdapter(this.config.supervisor.model);
+    const adapter = createAgentRunner(adapterName);
     this.heartbeatLoop = new HeartbeatLoop({
       config: this.config,
       supervisorDir: this.dir,

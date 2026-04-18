@@ -42,7 +42,7 @@ const NEO_CONFIG_KEYS: SchemaKeyMap = {
     "supervisor",
     "memory",
     "mcpServers",
-    "provider",
+    "models",
     "idempotency",
   ]),
   concurrency: new Set(["maxSessions", "maxPerRepo", "queueMax"]),
@@ -63,11 +63,10 @@ const NEO_CONFIG_KEYS: SchemaKeyMap = {
     "idleSkipMax",
     "activeWorkSkipMax",
     "autoDecide",
-    "adapter",
     "model",
   ]),
   memory: new Set(["embeddings"]),
-  provider: new Set(["adapter", "models", "args", "env"]),
+  models: new Set(["default"]),
   idempotency: new Set(["enabled", "key", "ttlMs"]),
 };
 

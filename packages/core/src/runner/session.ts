@@ -1,4 +1,4 @@
-import type { McpServerConfig, ProviderConfig } from "@/config";
+import type { McpServerConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
 import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
@@ -20,7 +20,7 @@ export interface SessionOptions {
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
-  providerConfig?: ProviderConfig | undefined;
+  providerArgs?: string[] | undefined;
   adapter?: AgentRunner | undefined;
 }
 
@@ -63,7 +63,7 @@ function buildRunOptions(options: SessionOptions): AgentRunOptions {
   if (options.env) runOptions.env = options.env;
   if (options.maxTurns !== undefined) runOptions.maxTurns = options.maxTurns;
   if (options.resumeSessionId !== undefined) runOptions.resumeSessionId = options.resumeSessionId;
-  if (options.providerConfig) runOptions.providerConfig = options.providerConfig;
+  if (options.providerArgs?.length) runOptions.providerArgs = options.providerArgs;
 
   return runOptions;
 }

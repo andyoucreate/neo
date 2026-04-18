@@ -69,12 +69,7 @@ function createConfig(overrides?: Partial<GlobalConfig["supervisor"]>): GlobalCo
     },
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
     memory: { embeddings: true },
-    provider: {
-      adapter: "claude",
-      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-      args: [],
-      env: {},
-    },
+    models: { default: "claude-sonnet-4-6" },
   };
 }
 

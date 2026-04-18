@@ -6,7 +6,6 @@ import { AgentRegistry } from "@/agents/registry";
 import { resolveAgent } from "@/agents/resolver";
 import type { AgentConfig } from "@/agents/schema";
 import { validateAgentModels } from "@/agents/validation";
-import type { ProviderConfig } from "@/config/schema";
 import type { ResolvedAgent } from "@/types";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_agents_test__");
@@ -484,16 +483,6 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
 // ─── validateAgentModels ─────────────────────────────────
 
 describe("validateAgentModels", () => {
-  const provider: ProviderConfig = {
-    adapter: "claude",
-    models: {
-      default: "claude-sonnet-4-6",
-      available: ["claude-sonnet-4-6", "claude-opus-4-6"],
-    },
-    args: [],
-    env: {},
-  };
-
   it("passes for agents with valid models", () => {
     const agents: ResolvedAgent[] = [
       {
@@ -503,7 +492,7 @@ describe("validateAgentModels", () => {
         source: "built-in",
       },
     ];
-    expect(() => validateAgentModels(agents, provider)).not.toThrow();
+    expect(() => validateAgentModels(agents)).not.toThrow();
   });
 
   it("passes for agents without model (uses default)", () => {
@@ -515,10 +504,10 @@ describe("validateAgentModels", () => {
         source: "built-in",
       },
     ];
-    expect(() => validateAgentModels(agents, provider)).not.toThrow();
+    expect(() => validateAgentModels(agents)).not.toThrow();
   });
 
-  it("throws for agent with model not in available list", () => {
+  it("throws for agent with unsupported model", () => {
     const agents: ResolvedAgent[] = [
       {
         name: "dev",
@@ -527,8 +516,6 @@ describe("validateAgentModels", () => {
         source: "built-in",
       },
     ];
-    expect(() => validateAgentModels(agents, provider)).toThrow(
-      'Agent "dev" specifies model "gpt-4o"',
-    );
+    expect(() => validateAgentModels(agents)).toThrow('Agent "dev" specifies model "gpt-4o"');
   });
 });

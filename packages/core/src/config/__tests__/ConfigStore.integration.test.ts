@@ -34,15 +34,9 @@ afterEach(async () => {
 
 // ─── Helper functions ────────────────────────────────────────
 
-const DEFAULT_PROVIDER = {
-  adapter: "claude",
-  models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-};
-
 function writeGlobalConfig(content: Record<string, unknown>): Promise<void> {
   const configPath = path.join(MOCK_HOME, ".neo", "config.yml");
-  const withProvider = { provider: DEFAULT_PROVIDER, ...content };
-  return writeFile(configPath, stringifyYaml(withProvider), "utf-8");
+  return writeFile(configPath, stringifyYaml(content), "utf-8");
 }
 
 function writeRepoConfig(content: Record<string, unknown>): Promise<void> {

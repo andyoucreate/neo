@@ -38,7 +38,7 @@ describe("loadGlobalConfig", () => {
   it("loads existing config", async () => {
     await writeFile(
       CONFIG_PATH,
-      `repos:\n  - path: /my/repo\nbudget:\n  dailyCapUsd: 100\nprovider:\n  adapter: claude\n  models:\n    default: claude-sonnet-4-6\n    available:\n      - claude-sonnet-4-6\n`,
+      `repos:\n  - path: /my/repo\nbudget:\n  dailyCapUsd: 100\n`,
       "utf-8",
     );
     const config = await loadGlobalConfig();

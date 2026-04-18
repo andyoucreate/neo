@@ -175,12 +175,7 @@ function makeConfig(repoPath: string, overrides?: Partial<NeoConfig>): NeoConfig
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
-    provider: {
-      adapter: "claude",
-      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
-      args: [],
-      env: {},
-    },
+    models: { default: "claude-sonnet-4-6" },
     ...overrides,
   };
 }

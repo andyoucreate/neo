@@ -1,12 +1,13 @@
-import type { ProviderConfig } from "@/config/schema";
+import { SUPPORTED_MODELS } from "@/models";
 import type { ResolvedAgent } from "@/types";
 
-export function validateAgentModels(agents: ResolvedAgent[], provider: ProviderConfig): void {
+export function validateAgentModels(agents: ResolvedAgent[]): void {
+  const supported = Object.keys(SUPPORTED_MODELS);
   for (const agent of agents) {
-    if (agent.definition.model && !provider.models.available.includes(agent.definition.model)) {
+    if (agent.definition.model && !SUPPORTED_MODELS[agent.definition.model]) {
       throw new Error(
         `Agent "${agent.name}" specifies model "${agent.definition.model}" ` +
-          `which is not in provider.models.available: [${provider.models.available.join(", ")}]`,
+          `which is not supported. Supported models: [${supported.join(", ")}]`,
       );
     }
   }
