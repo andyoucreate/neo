@@ -55,10 +55,8 @@ function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions
     },
     prompt: "Do something",
     sandboxConfig: {
-      allowedTools: ["Read", "Write"],
-      readablePaths: ["/tmp/test"],
-      writablePaths: [],
       writable: false,
+      paths: { readable: ["/tmp/test"], writable: [] },
     },
     initTimeoutMs: 5_000,
     maxDurationMs: 60_000,
@@ -128,15 +126,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-budget", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-equal",
@@ -183,15 +178,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-over", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-exceed",
@@ -236,15 +228,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-under", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-under",
@@ -283,15 +272,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-no-limit", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-no-limit",
@@ -649,15 +635,12 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         createAsyncIterator(successMessages("session-expensive", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-type-check",
@@ -708,15 +691,12 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         createAsyncIterator(successMessages(expectedSessionId, sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-traceable",
