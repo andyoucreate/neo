@@ -233,7 +233,7 @@ maxCost: -1.0
 // ─── resolveAgent ────────────────────────────────────────
 
 describe("resolveAgent", () => {
-  it.skip("resolves a complete agent config", () => {
+  it("resolves a complete agent config", () => {
     const config: AgentConfig = {
       name: "db-migrator",
       description: "Database migration specialist",
@@ -252,7 +252,7 @@ describe("resolveAgent", () => {
     expect(resolved.maxTurns).toBe(20);
   });
 
-  it.skip("applies promptAppend to prompt", () => {
+  it("applies promptAppend to prompt", () => {
     const config: AgentConfig = {
       name: "dev-extra",
       description: "Developer",
@@ -266,7 +266,7 @@ describe("resolveAgent", () => {
     expect(resolved.definition.prompt).toBe("You are a developer.\n\nAlways use Vitest.");
   });
 
-  it.skip("carries mcpServers from agent config into definition", () => {
+  it("carries mcpServers from agent config into definition", () => {
     const config: AgentConfig = {
       name: "dev-notion",
       description: "Dev with MCP",
@@ -280,7 +280,7 @@ describe("resolveAgent", () => {
     expect(resolved.definition.mcpServers).toEqual(["notion", "github"]);
   });
 
-  it.skip("omits mcpServers from definition when none defined", () => {
+  it("omits mcpServers from definition when none defined", () => {
     const config: AgentConfig = {
       name: "no-mcp",
       description: "Developer",
@@ -293,7 +293,7 @@ describe("resolveAgent", () => {
     expect(resolved.definition.mcpServers).toBeUndefined();
   });
 
-  it.skip("parses version field when present", () => {
+  it("parses version field when present", () => {
     const config: AgentConfig = {
       name: "versioned-agent",
       description: "Agent with version",
@@ -307,7 +307,7 @@ describe("resolveAgent", () => {
     expect(resolved.version).toBe("1.2.3");
   });
 
-  it.skip("allows version field to be optional", () => {
+  it("allows version field to be optional", () => {
     const config: AgentConfig = {
       name: "no-version-agent",
       description: "Agent without version",
@@ -320,7 +320,7 @@ describe("resolveAgent", () => {
     expect(resolved.version).toBeUndefined();
   });
 
-  it.skip("parses maxCost field when present", () => {
+  it("parses maxCost field when present", () => {
     const config: AgentConfig = {
       name: "budget-agent",
       description: "Agent with budget",
@@ -334,7 +334,7 @@ describe("resolveAgent", () => {
     expect(resolved.maxCost).toBe(5.0);
   });
 
-  it.skip("allows maxCost field to be optional", () => {
+  it("allows maxCost field to be optional", () => {
     const config: AgentConfig = {
       name: "no-budget-agent",
       description: "Agent without budget",
@@ -345,6 +345,18 @@ describe("resolveAgent", () => {
 
     const resolved = resolveAgent(config);
     expect(resolved.maxCost).toBeUndefined();
+  });
+
+  it("resolves agent without model (uses provider default)", () => {
+    const config: AgentConfig = {
+      name: "no-model-agent",
+      description: "Agent without explicit model",
+      prompt: "You are an agent.",
+      sandbox: "readonly",
+    };
+
+    const resolved = resolveAgent(config);
+    expect(resolved.definition.model).toBeUndefined();
   });
 });
 

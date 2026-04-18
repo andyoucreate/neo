@@ -48,8 +48,7 @@ function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions
       definition: {
         description: "Test agent",
         prompt: "You are a test agent.",
-        tools: ["Read", "Write"],
-        model: "sonnet",
+        model: "claude-sonnet-4-6",
       },
       sandbox: "readonly",
       source: "built-in",
@@ -147,8 +146,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -203,8 +201,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -257,8 +254,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -305,8 +301,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent without budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -672,8 +667,7 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -732,8 +726,7 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         definition: {
           description: "Agent",
           prompt: "Test",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",

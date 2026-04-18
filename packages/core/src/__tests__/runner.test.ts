@@ -47,8 +47,7 @@ function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions
       definition: {
         description: "Test agent",
         prompt: "You are a test agent.",
-        tools: ["Read", "Write"],
-        model: "sonnet",
+        model: "claude-sonnet-4-6",
       },
       sandbox: "writable",
       source: "built-in",

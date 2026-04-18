@@ -172,7 +172,6 @@ export class SessionExecutor {
       sandboxConfig,
       hooks,
       env: agentEnv,
-      agents: agent.definition.agents,
       initTimeoutMs: this.config.initTimeoutMs,
       maxDurationMs: this.config.maxDurationMs,
       maxRetries: this.config.maxRetries,

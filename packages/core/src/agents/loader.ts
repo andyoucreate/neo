@@ -52,21 +52,5 @@ export async function loadAgentFile(filePath: string): Promise<AgentConfig> {
     }
   }
 
-  // If agents have prompt paths ending in .md, resolve them
-  if (config.agents) {
-    for (const [name, subagent] of Object.entries(config.agents)) {
-      if (subagent.prompt.endsWith(".md")) {
-        const subagentPromptPath = path.resolve(path.dirname(filePath), subagent.prompt);
-        try {
-          subagent.prompt = await readFile(subagentPromptPath, "utf-8");
-        } catch (err) {
-          throw new Error(
-            `Subagent "${name}" prompt file not found: ${subagentPromptPath} (referenced in ${filePath}). Error: ${err instanceof Error ? err.message : String(err)}`,
-          );
-        }
-      }
-    }
-  }
-
   return config;
 }

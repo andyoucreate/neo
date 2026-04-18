@@ -785,8 +785,7 @@ describe("e2e: readonly agent", () => {
       definition: {
         description: "Code reviewer",
         prompt: "Review code",
-        tools: ["Read", "Glob", "Grep"],
-        model: "sonnet",
+        model: "claude-sonnet-4-6",
       },
       sandbox: "readonly",
       source: "built-in",

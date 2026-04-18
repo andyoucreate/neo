@@ -623,28 +623,29 @@ describe("buildSandboxConfig", () => {
       definition: {
         description: "Test",
         prompt: "You are a test agent.",
-        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-        model: "opus",
+        model: "claude-opus-4-6",
       },
       sandbox,
       source: "built-in",
     };
   }
 
-  it("writable agent gets all tools and write paths", () => {
+  it("writable agent gets write paths (tools TBD in Task 4)", () => {
     const config = buildSandboxConfig(makeAgent("writable"), "/tmp/session");
 
     expect(config.writable).toBe(true);
-    expect(config.allowedTools).toEqual(["Read", "Write", "Edit", "Bash", "Glob", "Grep"]);
+    // allowedTools is [] temporarily — full tool resolution is handled in Task 4
+    expect(config.allowedTools).toEqual([]);
     expect(config.writablePaths).toEqual(["/tmp/session"]);
     expect(config.readablePaths).toEqual(["/tmp/session"]);
   });
 
-  it("readonly agent has write tools filtered out", () => {
+  it("readonly agent has no write paths (tools TBD in Task 4)", () => {
     const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/session");
 
     expect(config.writable).toBe(false);
-    expect(config.allowedTools).toEqual(["Read", "Bash", "Glob", "Grep"]);
+    // allowedTools is [] temporarily — full tool resolution is handled in Task 4
+    expect(config.allowedTools).toEqual([]);
     expect(config.writablePaths).toEqual([]);
     expect(config.readablePaths).toEqual(["/tmp/session"]);
   });

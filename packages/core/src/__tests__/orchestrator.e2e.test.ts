@@ -159,8 +159,7 @@ function makeAgent(): ResolvedAgent {
     definition: {
       description: "E2E test developer agent",
       prompt: "You are a test agent for E2E testing.",
-      tools: ["Read", "Write", "Edit", "Bash"],
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
     },
     sandbox: "writable",
     source: "built-in",

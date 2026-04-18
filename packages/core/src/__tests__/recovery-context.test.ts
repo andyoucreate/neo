@@ -55,8 +55,7 @@ describe("runWithRecovery - failure context injection", () => {
         definition: {
           description: "Test",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -107,8 +106,7 @@ describe("runWithRecovery - failure context injection", () => {
         definition: {
           description: "Test",
           prompt: "Test prompt",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",

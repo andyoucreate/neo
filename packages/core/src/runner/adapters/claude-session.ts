@@ -1,8 +1,8 @@
 import type { SDKStreamMessage } from "@/sdk-types";
-import type { SessionAdapter, SessionRunOptions } from "@/supervisor/ai-adapter";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 
-export class ClaudeSessionAdapter implements SessionAdapter {
-  async *runSession(options: SessionRunOptions): AsyncIterable<SDKStreamMessage> {
+export class ClaudeAgentRunner implements AgentRunner {
+  async *run(options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
     const sdk = await import("@anthropic-ai/claude-agent-sdk");
 
     const queryOptions: Record<string, unknown> = {
@@ -33,11 +33,8 @@ export class ClaudeSessionAdapter implements SessionAdapter {
       queryOptions.env = { ...process.env, ...options.env };
     }
 
-    // Pass through Claude-specific options (agents, claudeCodePath, hooks)
+    // Pass through Claude-specific options (claudeCodePath, hooks)
     if (options.adapterOptions) {
-      if (options.adapterOptions.agents) {
-        queryOptions.agents = options.adapterOptions.agents;
-      }
       if (options.adapterOptions.claudeCodePath) {
         queryOptions.pathToClaudeCodeExecutable = options.adapterOptions.claudeCodePath;
       }

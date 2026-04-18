@@ -1,12 +1,23 @@
 import type { AgentConfig } from "@/agents/schema";
 import type { AgentDefinition, ResolvedAgent } from "@/types";
 
-/**
- * Resolve an agent config into a ResolvedAgent.
- * All fields must be defined — no inheritance.
- * TODO(Task 2): update resolver logic for provider-agnostic schema (no tools, no model enum)
- */
 export function resolveAgent(config: AgentConfig): ResolvedAgent {
+  if (!config.description) {
+    throw new Error(
+      `Agent "${config.name}" is missing "description". Add a 'description' field to the agent YAML.`,
+    );
+  }
+  if (!config.sandbox) {
+    throw new Error(
+      `Agent "${config.name}" is missing "sandbox". Add a 'sandbox' field ('writable' or 'readonly').`,
+    );
+  }
+  if (!config.prompt) {
+    throw new Error(
+      `Agent "${config.name}" is missing "prompt". Add a 'prompt' field or 'promptFile' reference.`,
+    );
+  }
+
   let prompt = config.prompt;
   if (config.promptAppend) {
     prompt = `${prompt}\n\n${config.promptAppend}`;
@@ -15,8 +26,7 @@ export function resolveAgent(config: AgentConfig): ResolvedAgent {
   const definition: AgentDefinition = {
     description: config.description,
     prompt,
-    tools: [],
-    model: config.model ?? "",
+    ...(config.model ? { model: config.model } : {}),
     ...(config.mcpServers?.length ? { mcpServers: config.mcpServers } : {}),
   };
 

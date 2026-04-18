@@ -88,7 +88,7 @@ export {
   getWorkerStartedPath,
   toRepoSlug,
 } from "@/paths";
-export { createSessionAdapter } from "@/runner/adapters/index";
+export { createAgentRunner } from "@/runner/adapters/index";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
@@ -115,15 +115,12 @@ export {
 } from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
-export { createSupervisorAdapter } from "@/supervisor/adapters/index";
 // ─── AI Adapters ──────────────────────────────────────
-export type { AIProvider, SessionAdapter, SessionRunOptions } from "@/supervisor/ai-adapter";
+export type { AgentRunner, AgentRunOptions, AIProvider } from "@/supervisor/ai-adapter";
 // ─── Supervisor (types) ────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
-  AIAdapter,
-  AIQueryOptions,
   Decision,
   DecisionInput,
   DecisionOption,
@@ -139,10 +136,8 @@ export type {
   MissionRun,
   MissionStatus,
   QueuedEvent,
-  SessionHandle,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
-  SupervisorMessage,
   SupervisorProfile,
   SupervisorStatus,
   WebhookIncomingEvent,
@@ -152,7 +147,6 @@ export {
   ActivityLog,
   activityEntrySchema,
   appendLogBuffer,
-  ClaudeAdapter,
   DecisionStore,
   DirectiveStore,
   decisionOptionSchema,
@@ -234,7 +228,6 @@ export type {
   StepCompleteEvent,
   StepResult,
   StepStartEvent,
-  SubagentDefinition,
   TaskResult,
 } from "@/types";
 // ─── Webhook Config ────────────────────────────────────

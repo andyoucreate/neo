@@ -1,9 +1,9 @@
 import type { McpServerConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
-import type { SessionAdapter, SessionRunOptions } from "@/supervisor/ai-adapter";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 import type { ResolvedAgent } from "@/types";
-import { ClaudeSessionAdapter } from "./adapters/claude-session.js";
+import { ClaudeAgentRunner } from "./adapters/claude-session.js";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -20,10 +20,9 @@ export interface SessionOptions {
   maxDurationMs: number;
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
-  agents?: Record<string, unknown> | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
   claudeCodePath?: string | undefined;
-  adapter?: SessionAdapter | undefined;
+  adapter?: AgentRunner | undefined;
 }
 
 export interface SessionResult {
@@ -54,13 +53,12 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
   return new SessionError(message, isTimeout ? "timeout" : "unknown", sessionId);
 }
 
-function buildRunOptions(options: SessionOptions): SessionRunOptions {
-  const runOptions: SessionRunOptions = {
+function buildRunOptions(options: SessionOptions): AgentRunOptions {
+  const runOptions: AgentRunOptions = {
     prompt: options.prompt,
     cwd: options.sessionPath ?? options.repoPath ?? process.cwd(),
     sandboxConfig: options.sandboxConfig,
     adapterOptions: {
-      ...(options.agents ? { agents: options.agents } : {}),
       ...(options.claudeCodePath ? { claudeCodePath: options.claudeCodePath } : {}),
       ...(options.hooks ? { hooks: options.hooks } : {}),
     },
@@ -78,7 +76,7 @@ function buildRunOptions(options: SessionOptions): SessionRunOptions {
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
   const { initTimeoutMs, maxDurationMs, onEvent } = options;
-  const adapter = options.adapter ?? new ClaudeSessionAdapter();
+  const adapter = options.adapter ?? new ClaudeAgentRunner();
   const runOptions = buildRunOptions(options);
 
   const startTime = Date.now();
@@ -97,7 +95,7 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
     let costUsd = 0;
     let turnCount = 0;
 
-    const stream = adapter.runSession(runOptions);
+    const stream = adapter.run(runOptions);
 
     for await (const message of stream) {
       checkAborted(abortController.signal);

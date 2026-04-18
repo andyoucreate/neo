@@ -16,9 +16,6 @@ export interface SandboxConfig {
   writable: boolean;
 }
 
-/** Tools that modify the filesystem */
-const WRITE_TOOLS = new Set(["Write", "Edit", "NotebookEdit"]);
-
 /**
  * Build an SDK-compatible sandbox configuration for an agent.
  *
@@ -29,9 +26,7 @@ export function buildSandboxConfig(agent: ResolvedAgent, sessionPath?: string): 
   const isWritable = agent.sandbox === "writable";
   const absSession = sessionPath ? resolve(sessionPath) : undefined;
 
-  const allowedTools = isWritable
-    ? agent.definition.tools
-    : agent.definition.tools.filter((t) => !WRITE_TOOLS.has(t));
+  const allowedTools: string[] = [];
 
   const readablePaths = absSession ? [absSession] : [];
   const writablePaths = isWritable && absSession ? [absSession] : [];
