@@ -5,13 +5,8 @@ export const VERSION = "0.1.0";
 export { loadAgentFile } from "@/agents/loader";
 export { AgentRegistry } from "@/agents/registry";
 export { resolveAgent } from "@/agents/resolver";
-export {
-  agentConfigSchema,
-  agentModelSchema,
-  agentSandboxSchema,
-  agentToolEntrySchema,
-  agentToolSchema,
-} from "@/agents/schema";
+export { agentConfigSchema, agentSandboxSchema } from "@/agents/schema";
+export { validateAgentModels } from "@/agents/validation";
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
@@ -22,6 +17,7 @@ export type {
   GlobalConfig,
   McpServerConfig,
   NeoConfig,
+  ProviderConfig,
   RepoConfig,
   RepoConfigInput,
 } from "@/config";
@@ -34,6 +30,7 @@ export {
   loadGlobalConfig,
   mcpServerConfigSchema,
   neoConfigSchema,
+  providerConfigSchema,
   removeRepoFromGlobalConfig,
   repoConfigSchema,
   repoOverrideConfigSchema,
@@ -94,6 +91,7 @@ export {
   getWorkerStartedPath,
   toRepoSlug,
 } from "@/paths";
+export { createAgentRunner } from "@/runner/adapters/index";
 export type { ParsedOutput } from "@/runner/output-parser";
 // ─── Runner ────────────────────────────────────────────
 export { parseOutput } from "@/runner/output-parser";
@@ -120,12 +118,18 @@ export {
 } from "@/runner/session-executor";
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
+// ─── AI Adapters ──────────────────────────────────────
+export type {
+  AgentRunner,
+  AgentRunOptions,
+  ClaudeSessionHandle,
+  CodexSessionHandle,
+  SessionHandle,
+} from "@/supervisor/ai-adapter";
 // ─── Supervisor (types) ────────────────────────────────
 export type {
   ActivityEntry,
   ActivityQueryOptions,
-  AIAdapter,
-  AIQueryOptions,
   Decision,
   DecisionInput,
   DecisionOption,
@@ -141,10 +145,8 @@ export type {
   MissionRun,
   MissionStatus,
   QueuedEvent,
-  SessionHandle,
   SupervisorDaemonOptions,
   SupervisorDaemonState,
-  SupervisorMessage,
   SupervisorProfile,
   SupervisorStatus,
   WebhookIncomingEvent,
@@ -154,7 +156,6 @@ export {
   ActivityLog,
   activityEntrySchema,
   appendLogBuffer,
-  ClaudeAdapter,
   DecisionStore,
   DirectiveStore,
   decisionOptionSchema,
@@ -236,7 +237,6 @@ export type {
   StepCompleteEvent,
   StepResult,
   StepStartEvent,
-  SubagentDefinition,
   TaskResult,
 } from "@/types";
 // ─── Webhook Config ────────────────────────────────────

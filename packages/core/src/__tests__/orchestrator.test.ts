@@ -126,6 +126,12 @@ function makeConfig(overrides?: Partial<NeoConfig>): NeoConfig {
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
+    provider: {
+      adapter: "claude",
+      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      args: [],
+      env: {},
+    },
     ...overrides,
   };
 }
@@ -136,8 +142,7 @@ function makeAgent(overrides?: Partial<ResolvedAgent>): ResolvedAgent {
     definition: {
       description: "Test developer agent",
       prompt: "You are a test agent.",
-      tools: ["Read", "Write", "Edit", "Bash"],
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
     },
     sandbox: "writable",
     source: "built-in",
@@ -984,8 +989,7 @@ describe("MCP server resolution", () => {
         definition: {
           description: "Dev with MCP",
           prompt: "Dev with Notion",
-          tools: ["Read", "Write"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
           mcpServers: ["notion"],
         },
       }),
@@ -1016,8 +1020,7 @@ describe("readonly agent", () => {
         definition: {
           description: "Reviewer",
           prompt: "Review code",
-          tools: ["Read", "Glob", "Grep"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
       }),
     );

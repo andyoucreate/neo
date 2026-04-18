@@ -497,21 +497,13 @@ export class Orchestrator extends NeoEventEmitter {
       timestamp: new Date().toISOString(),
     });
 
-    // Create SessionExecutor with config and context value getter
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: this.config.sessions.initTimeoutMs,
-        maxDurationMs: this.config.sessions.maxDurationMs,
-        maxRetries: this.config.recovery.maxRetries,
-        backoffBaseMs: this.config.recovery.backoffBaseMs,
-        ...(this.config.claudeCodePath ? { claudeCodePath: this.config.claudeCodePath } : {}),
-      },
-      (key: string) => {
-        if (key === "costToday") return this._costToday;
-        if (key === "budgetCapUsd") return this.config.budget.dailyCapUsd;
-        return undefined;
-      },
-    );
+    // Create SessionExecutor with config
+    const executor = new SessionExecutor({
+      initTimeoutMs: this.config.sessions.initTimeoutMs,
+      maxDurationMs: this.config.sessions.maxDurationMs,
+      maxRetries: this.config.recovery.maxRetries,
+      backoffBaseMs: this.config.recovery.backoffBaseMs,
+    });
 
     // Build execution input
     const strategy = input.gitStrategy ?? repoConfig.gitStrategy ?? "branch";

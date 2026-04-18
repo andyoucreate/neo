@@ -1,54 +1,37 @@
-import type { ToolDefinition } from "./supervisor-tools.js";
+import type { McpServerConfig, ProviderConfig } from "@/config";
+import type { SandboxConfig } from "@/isolation/sandbox";
+import type { SDKStreamMessage } from "@/sdk-types";
 
-// ─── Session handles ──────────────────────────────────────
+// ─── Session Handles ─────────────────────────────────────
 
-/**
- * Opaque session handle — each adapter stores what it needs.
- * Persisted via SupervisorStore so it survives process restart.
- * Only "claude" is implemented now — others are reserved for future providers.
- */
-export type SessionHandle = { provider: "claude"; sessionId: string };
-// Future: | { provider: "openai"; threadId: string }
-// Future: | { provider: "gemini"; conversationId: string }
-
-// ─── Messages ────────────────────────────────────────────
-
-export type SupervisorMessageKind = "text" | "tool_use" | "end";
-
-export interface SupervisorMessage {
-  kind: SupervisorMessageKind;
-  toolName?: string;
-  toolInput?: unknown;
-  text?: string;
+export interface ClaudeSessionHandle {
+  adapter: "claude";
+  sessionId: string;
 }
 
-// ─── Query options ────────────────────────────────────────
+export interface CodexSessionHandle {
+  adapter: "codex";
+  threadId: string;
+}
 
-export interface AIQueryOptions {
+export type SessionHandle = ClaudeSessionHandle | CodexSessionHandle;
+
+// ─── Agent Runner ───────────────────────────────────────
+
+/** Options passed to an agent runner for each execution (runner or supervisor). */
+export interface AgentRunOptions {
   prompt: string;
-  tools: ToolDefinition[];
-  sessionHandle?: SessionHandle;
-  systemPrompt?: string;
+  cwd: string;
+  sandboxConfig: SandboxConfig;
+  mcpServers?: Record<string, McpServerConfig>;
+  env?: Record<string, string>;
+  maxTurns?: number;
+  resumeSessionId?: string;
   model?: string;
+  providerConfig?: ProviderConfig;
 }
 
-// ─── Interface ────────────────────────────────────────────
-
-/**
- * Adapter interface for AI providers.
- * ClaudeAdapter is the default implementation.
- * Future: OpenAIAdapter, GeminiAdapter, OllamaAdapter.
- */
-export interface AIAdapter {
-  /**
-   * Execute one turn of the supervisor conversation.
-   * Returns an async iterable of structured messages.
-   */
-  query(options: AIQueryOptions): AsyncIterable<SupervisorMessage>;
-
-  /** Returns the current session handle (undefined before first turn). */
-  getSessionHandle(): SessionHandle | undefined;
-
-  /** Restore a previously persisted session handle. */
-  restoreSession(handle: SessionHandle): void;
+/** Provider-specific agent runner. Spawns a CLI agent and streams results. */
+export interface AgentRunner {
+  run(options: AgentRunOptions): AsyncIterable<SDKStreamMessage>;
 }

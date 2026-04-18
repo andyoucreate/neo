@@ -1,0 +1,4 @@
+name: plan-reviewer
+description: "Review implementation plan for completeness, spec alignment, and buildability."
+sandbox: readonly
+prompt: ../prompts/subagents/plan-reviewer.md

@@ -1,24 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter } from "@/supervisor/adapters/claude";
+import type { SDKStreamMessage } from "@/sdk-types";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 
-describe("ClaudeAdapter", () => {
-  it("starts with no session handle", () => {
-    const adapter = new ClaudeAdapter();
-    expect(adapter.getSessionHandle()).toBeUndefined();
-  });
+describe("AgentRunner interface", () => {
+  it("can be implemented with a mock", async () => {
+    const mockRunner: AgentRunner = {
+      async *run(_options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
+        yield { type: "system", subtype: "init", session_id: "test" } as SDKStreamMessage;
+        yield { type: "result", subtype: "success" } as SDKStreamMessage;
+      },
+    };
 
-  it("restores a claude session handle", () => {
-    const adapter = new ClaudeAdapter();
-    const handle = { provider: "claude" as const, sessionId: "ses_abc123" };
-    adapter.restoreSession(handle);
-    expect(adapter.getSessionHandle()).toEqual(handle);
-  });
+    const messages: SDKStreamMessage[] = [];
+    for await (const msg of mockRunner.run({
+      prompt: "test",
+      cwd: "/tmp",
+      sandboxConfig: { writable: true, paths: { readable: [], writable: [] } },
+    })) {
+      messages.push(msg);
+    }
 
-  it("rejects non-claude session handles", () => {
-    const adapter = new ClaudeAdapter();
-    expect(() =>
-      // @ts-expect-error intentional wrong type for testing
-      adapter.restoreSession({ provider: "openai", threadId: "t_1" }),
-    ).toThrow("ClaudeAdapter only accepts claude session handles");
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ type: "system", subtype: "init" });
+    expect(messages[1]).toMatchObject({ type: "result", subtype: "success" });
   });
 });

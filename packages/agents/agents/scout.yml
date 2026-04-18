@@ -1,12 +1,5 @@
 name: scout
 description: "Autonomous codebase explorer. Deep-dives into a repository to surface bugs, improvements, security issues, tech debt, and optimization opportunities. Produces actionable decisions for the supervisor."
-model: opus
-tools:
-  - Read
-  - Glob
-  - Grep
-  - Bash
-  - WebSearch
-  - WebFetch
 sandbox: readonly
+model: claude-opus-4-6
 prompt: ../prompts/scout.md

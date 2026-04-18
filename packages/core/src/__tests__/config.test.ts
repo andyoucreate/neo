@@ -2,9 +2,19 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, assert, beforeEach, describe, expect, it } from "vitest";
 import { loadConfig } from "@/config";
+import { neoConfigSchema } from "@/config/schema";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_config_test__");
 const CONFIG_PATH = path.join(TMP_DIR, "config.yml");
+
+const VALID_PROVIDER_YAML = `
+provider:
+  adapter: claude
+  models:
+    default: claude-sonnet-4-6
+    available:
+      - claude-sonnet-4-6
+`;
 
 beforeEach(async () => {
   await mkdir(TMP_DIR, { recursive: true });
@@ -59,7 +69,13 @@ mcpServers:
     env:
       DEBUG: "true"
 
-claudeCodePath: /usr/local/bin/claude
+provider:
+  adapter: claude
+  models:
+    default: claude-sonnet-4-6
+    available:
+      - claude-sonnet-4-6
+      - claude-opus-4-6
 
 idempotency:
   enabled: false
@@ -102,7 +118,8 @@ idempotency:
       env: { DEBUG: "true" },
     });
 
-    expect(config.claudeCodePath).toBe("/usr/local/bin/claude");
+    expect(config.provider.adapter).toBe("claude");
+    expect(config.provider.models.default).toBe("claude-sonnet-4-6");
 
     expect(config.idempotency?.enabled).toBe(false);
     expect(config.idempotency?.key).toBe("prompt");
@@ -113,6 +130,7 @@ idempotency:
     await writeConfig(`
 repos:
   - path: /my/repo
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -140,6 +158,7 @@ repos:
     await writeConfig(`
 concurrency:
   maxSessions: 5
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -167,6 +186,7 @@ repos:
   - path: /repo-b
     defaultBranch: develop
     branchPrefix: hotfix
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -187,6 +207,7 @@ mcpServers:
   myserver:
     type: http
     url: https://example.com/mcp
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -209,6 +230,7 @@ mcpServers:
     args: [mcp-server]
     env:
       PORT: "3000"
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -230,6 +252,7 @@ mcpServers:
   bad:
     type: websocket
     url: ws://localhost
+${VALID_PROVIDER_YAML}
 `);
 
     await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
@@ -239,6 +262,7 @@ mcpServers:
     await writeConfig(`
 repos:
   - path: /my/repo
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -273,6 +297,7 @@ repos:
   - path: /my/repo
 budget:
   dailyCapUsd: 0
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -283,6 +308,7 @@ budget:
     await writeConfig(`
 repos:
   - name: bad-repo
+${VALID_PROVIDER_YAML}
 `);
 
     await expect(loadConfig(CONFIG_PATH)).rejects.toThrow();
@@ -292,6 +318,7 @@ repos:
     await writeConfig(`
 repos:
   - path: /my/repo
+${VALID_PROVIDER_YAML}
 `);
 
     const config = await loadConfig(CONFIG_PATH);
@@ -301,5 +328,68 @@ repos:
     expect(config.supervisor.compactionIntervalMs).toBe(3_600_000);
     expect(config.supervisor.eventTimeoutMs).toBe(300_000);
     expect(config.supervisor.heartbeatTimeoutMs).toBe(300_000);
+  });
+});
+
+describe("provider config", () => {
+  it("parses valid provider config", () => {
+    const config = neoConfigSchema.parse({
+      provider: {
+        adapter: "claude",
+        models: {
+          default: "claude-sonnet-4-6",
+          available: ["claude-sonnet-4-6", "claude-opus-4-6"],
+        },
+      },
+    });
+    expect(config.provider.adapter).toBe("claude");
+    expect(config.provider.models.default).toBe("claude-sonnet-4-6");
+    expect(config.provider.args).toEqual([]);
+    expect(config.provider.env).toEqual({});
+  });
+
+  it("rejects models.default not in models.available", () => {
+    expect(() =>
+      neoConfigSchema.parse({
+        provider: {
+          adapter: "claude",
+          models: { default: "gpt-4o", available: ["claude-sonnet-4-6"] },
+        },
+      }),
+    ).toThrow("models.default must be in models.available");
+  });
+
+  it("rejects empty models.available", () => {
+    expect(() =>
+      neoConfigSchema.parse({
+        provider: {
+          adapter: "claude",
+          models: { default: "claude-sonnet-4-6", available: [] },
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("accepts provider.args and provider.env", () => {
+    const config = neoConfigSchema.parse({
+      provider: {
+        adapter: "codex",
+        models: { default: "o3", available: ["o3"] },
+        args: ["--full-auto"],
+        env: { OPENAI_API_KEY: "sk-test" },
+      },
+    });
+    expect(config.provider.args).toEqual(["--full-auto"]);
+    expect(config.provider.env).toEqual({ OPENAI_API_KEY: "sk-test" });
+  });
+
+  it("supervisor.adapter is optional", () => {
+    const config = neoConfigSchema.parse({
+      provider: {
+        adapter: "claude",
+        models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      },
+    });
+    expect(config.supervisor.adapter).toBeUndefined();
   });
 });

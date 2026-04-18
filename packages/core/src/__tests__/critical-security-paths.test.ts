@@ -48,18 +48,15 @@ function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions
       definition: {
         description: "Test agent",
         prompt: "You are a test agent.",
-        tools: ["Read", "Write"],
-        model: "sonnet",
+        model: "claude-sonnet-4-6",
       },
       sandbox: "readonly",
       source: "built-in",
     },
     prompt: "Do something",
     sandboxConfig: {
-      allowedTools: ["Read", "Write"],
-      readablePaths: ["/tmp/test"],
-      writablePaths: [],
       writable: false,
+      paths: { readable: ["/tmp/test"], writable: [] },
     },
     initTimeoutMs: 5_000,
     maxDurationMs: 60_000,
@@ -129,15 +126,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-budget", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-equal",
@@ -147,8 +141,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -185,15 +178,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-over", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-exceed",
@@ -203,8 +193,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -239,15 +228,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-under", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-under",
@@ -257,8 +243,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -287,15 +272,12 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         createAsyncIterator(successMessages("session-no-limit", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-no-limit",
@@ -305,8 +287,7 @@ describe("SessionExecutor budget check (lines 186-192)", () => {
         definition: {
           description: "Agent without budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -654,15 +635,12 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         createAsyncIterator(successMessages("session-expensive", sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-budget-type-check",
@@ -672,8 +650,7 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         definition: {
           description: "Agent with budget limit",
           prompt: "You are a test agent.",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",
@@ -714,15 +691,12 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         createAsyncIterator(successMessages(expectedSessionId, sessionCost)),
     });
 
-    const executor = new SessionExecutor(
-      {
-        initTimeoutMs: 5_000,
-        maxDurationMs: 60_000,
-        maxRetries: 1,
-        backoffBaseMs: 10,
-      },
-      () => undefined,
-    );
+    const executor = new SessionExecutor({
+      initTimeoutMs: 5_000,
+      maxDurationMs: 60_000,
+      maxRetries: 1,
+      backoffBaseMs: 10,
+    });
 
     const input: SessionExecutionInput = {
       runId: "run-traceable",
@@ -732,8 +706,7 @@ describe("Integration: SessionExecutor budget_exceeded error properties", () => 
         definition: {
           description: "Agent",
           prompt: "Test",
-          tools: ["Read"],
-          model: "sonnet",
+          model: "claude-sonnet-4-6",
         },
         sandbox: "readonly",
         source: "built-in",

@@ -175,6 +175,12 @@ function makeConfig(repoPath: string, overrides?: Partial<NeoConfig>): NeoConfig
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
+    provider: {
+      adapter: "claude",
+      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      args: [],
+      env: {},
+    },
     ...overrides,
   };
 }
@@ -185,8 +191,7 @@ function makeAgent(): ResolvedAgent {
     definition: {
       description: "E2E test developer agent",
       prompt: "You are a test agent for E2E testing.",
-      tools: ["Read", "Write", "Edit", "Bash"],
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
     },
     sandbox: "writable",
     source: "built-in",

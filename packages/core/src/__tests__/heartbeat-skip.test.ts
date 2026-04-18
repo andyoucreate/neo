@@ -2,28 +2,31 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GlobalConfig } from "@/config";
+import type { SDKStreamMessage } from "@/sdk-types";
 import { ActivityLog } from "@/supervisor/activity-log";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 import { EventQueue } from "@/supervisor/event-queue";
 import { HeartbeatLoop } from "@/supervisor/heartbeat";
 import type { SupervisorDaemonState } from "@/supervisor/schemas";
 
-// ─── Mocks ────────────────────────────────────────────────
+// ─── Mock Agent Runner ───────────────────────────────────
 
-vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
-  query: () => ({
-    async *[Symbol.asyncIterator]() {
-      yield { type: "system", subtype: "init", session_id: "test-session" };
-      yield {
-        type: "result",
-        subtype: "success",
-        session_id: "test-session",
-        result: "Done",
-        total_cost_usd: 0.01,
-        num_turns: 1,
-      };
-    },
-  }),
-}));
+class MockAgentRunner implements AgentRunner {
+  async *run(_options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
+    yield {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "Done" }] },
+    } as SDKStreamMessage;
+    yield {
+      type: "result",
+      subtype: "success",
+      session_id: "mock",
+      result: "",
+      total_cost_usd: 0.01,
+      num_turns: 1,
+    } as SDKStreamMessage;
+  }
+}
 
 vi.mock("@/paths", () => ({
   getDataDir: () => "/tmp/heartbeat-skip-test/.neo",
@@ -66,6 +69,12 @@ function createConfig(overrides?: Partial<GlobalConfig["supervisor"]>): GlobalCo
     },
     idempotency: { enabled: true, key: "prompt", ttlMs: 60_000 },
     memory: { embeddings: true },
+    provider: {
+      adapter: "claude",
+      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      args: [],
+      env: {},
+    },
   };
 }
 
@@ -125,6 +134,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // Access runHeartbeat via prototype (testing integration)
@@ -156,6 +166,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -190,6 +201,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // Mock active runs (simulate active work)
@@ -223,6 +235,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // Mock active runs
@@ -274,6 +287,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -317,6 +331,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -358,6 +373,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -388,6 +404,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing
@@ -418,6 +435,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // Mock active runs
@@ -466,6 +484,7 @@ describe("heartbeat skip integration", () => {
         eventQueue,
         activityLog,
         eventsPath: EVENTS_PATH,
+        adapter: new MockAgentRunner(),
       });
 
       // @ts-expect-error - accessing private method for testing

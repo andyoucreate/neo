@@ -149,6 +149,12 @@ function makeConfig(repoPath: string): NeoConfig {
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
+    provider: {
+      adapter: "claude",
+      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      args: [],
+      env: {},
+    },
   };
 }
 
@@ -158,8 +164,7 @@ function makeAgent(): ResolvedAgent {
     definition: {
       description: "E2E test developer agent",
       prompt: "You are a test agent for E2E testing.",
-      tools: ["Read", "Write", "Edit", "Bash"],
-      model: "sonnet",
+      model: "claude-sonnet-4-6",
     },
     sandbox: "writable",
     source: "built-in",
@@ -712,6 +717,12 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         model: "claude-sonnet-4-5-20251001",
       },
       memory: { embeddings: true },
+      provider: {
+        adapter: "claude",
+        models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+        args: [],
+        env: {},
+      },
     };
   }
 

@@ -1,7 +1,9 @@
-import type { McpServerConfig } from "@/config";
+import type { McpServerConfig, ProviderConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 import type { ResolvedAgent } from "@/types";
+import { ClaudeAgentRunner } from "./adapters/claude-session.js";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -11,16 +13,15 @@ export interface SessionOptions {
   repoPath?: string;
   sessionPath?: string;
   sandboxConfig: SandboxConfig;
-  hooks?: Record<string, unknown>;
   mcpServers?: Record<string, McpServerConfig>;
   env?: Record<string, string>;
   initTimeoutMs: number;
   maxDurationMs: number;
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
-  agents?: Record<string, unknown> | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
-  claudeCodePath?: string | undefined;
+  providerConfig?: ProviderConfig | undefined;
+  adapter?: AgentRunner | undefined;
 }
 
 export interface SessionResult {
@@ -51,55 +52,28 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
   return new SessionError(message, isTimeout ? "timeout" : "unknown", sessionId);
 }
 
-// ─── Query Options Builder ──────────────────────────────
-
-function buildQueryOptions(options: SessionOptions): Record<string, unknown> {
-  const { sessionPath, sandboxConfig } = options;
-
-  const queryOptions: Record<string, unknown> = {
-    // Always pass cwd: session clone for writable agents, repo root for readonly.
-    // Without this, readonly agents default to process.cwd() and may write to main tree.
-    cwd: sessionPath ?? options.repoPath,
-    ...(options.maxTurns ? { maxTurns: options.maxTurns } : {}),
-    allowedTools: sandboxConfig.allowedTools,
-    // Workers run detached without a TTY — bypass interactive permission prompts.
-    // Required pair: permissionMode alone is not enough, SDK also needs the flag.
-    permissionMode: "bypassPermissions",
-    allowDangerouslySkipPermissions: true,
-    // Load project-level CLAUDE.md so agents inherit project rules and conventions.
-    settingSources: ["user", "project", "local"],
-    // Don't persist agent sessions — they are ephemeral clones.
-    persistSession: false,
-    // Use the installed system claude if configured, instead of the SDK-bundled CLI.
-    // Needed when the bundled CLI version is incompatible with the current subscription.
-    ...(options.claudeCodePath ? { pathToClaudeCodeExecutable: options.claudeCodePath } : {}),
+function buildRunOptions(options: SessionOptions): AgentRunOptions {
+  const runOptions: AgentRunOptions = {
+    prompt: options.prompt,
+    cwd: options.sessionPath ?? options.repoPath ?? process.cwd(),
+    sandboxConfig: options.sandboxConfig,
   };
 
-  if (options.resumeSessionId) {
-    queryOptions.resume = options.resumeSessionId;
-  }
+  if (options.mcpServers) runOptions.mcpServers = options.mcpServers;
+  if (options.env) runOptions.env = options.env;
+  if (options.maxTurns !== undefined) runOptions.maxTurns = options.maxTurns;
+  if (options.resumeSessionId !== undefined) runOptions.resumeSessionId = options.resumeSessionId;
+  if (options.providerConfig) runOptions.providerConfig = options.providerConfig;
 
-  if (options.mcpServers && Object.keys(options.mcpServers).length > 0) {
-    queryOptions.mcpServers = options.mcpServers;
-  }
-
-  if (options.agents && Object.keys(options.agents).length > 0) {
-    queryOptions.agents = options.agents;
-  }
-
-  if (options.env && Object.keys(options.env).length > 0) {
-    // Merge with process.env so PATH, HOME, etc. are preserved.
-    // Custom vars override process.env if there's a conflict.
-    queryOptions.env = { ...process.env, ...options.env };
-  }
-
-  return queryOptions;
+  return runOptions;
 }
 
 // ─── Session Runner ─────────────────────────────────────
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
-  const { prompt, initTimeoutMs, maxDurationMs, onEvent } = options;
+  const { initTimeoutMs, maxDurationMs, onEvent } = options;
+  const adapter = options.adapter ?? new ClaudeAgentRunner();
+  const runOptions = buildRunOptions(options);
 
   const startTime = Date.now();
   let sessionId = "";
@@ -113,16 +87,11 @@ export async function runSession(options: SessionOptions): Promise<SessionResult
   }, maxDurationMs);
 
   try {
-    const sdk = await import("@anthropic-ai/claude-agent-sdk");
-    const queryOptions = buildQueryOptions(options);
-
     let output = "";
     let costUsd = 0;
     let turnCount = 0;
 
-    // The prompt is already assembled by the orchestrator (agent prompt +
-    // repo instructions + git strategy context + task). Session just passes it through.
-    const stream = sdk.query({ prompt, options: queryOptions as never });
+    const stream = adapter.run(runOptions);
 
     for await (const message of stream) {
       checkAborted(abortController.signal);

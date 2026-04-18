@@ -1,24 +1,5 @@
 name: architect
-description: "Analyzes feature requests, designs architecture, and writes implementation plans to .neo/specs/. Spawns plan-reviewer subagent. Writes code in plans, NEVER modifies source files."
-model: opus
-tools:
-  - Read
-  - Write
-  - Edit
-  - Bash
-  - Glob
-  - Grep
-  - WebSearch
-  - WebFetch
-  - Agent
+description: "Analyzes feature requests, designs architecture, and writes implementation plans to .neo/specs/. Writes code in plans, NEVER modifies source files."
 sandbox: writable
+model: claude-opus-4-6
 prompt: ../prompts/architect.md
-agents:
-  plan-reviewer:
-    description: "Review implementation plan for completeness, spec alignment, and buildability."
-    prompt: ../prompts/subagents/plan-reviewer.md
-    tools:
-      - Read
-      - Grep
-      - Glob
-    model: sonnet

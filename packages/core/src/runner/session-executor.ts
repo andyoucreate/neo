@@ -1,6 +1,5 @@
 import type { GitStrategy, McpServerConfig, RepoConfig } from "@/config";
 import { buildSandboxConfig } from "@/isolation/sandbox";
-import { buildMiddlewareChain, buildSDKHooks } from "@/middleware/chain";
 import {
   buildFullPrompt,
   buildGitStrategyInstructions,
@@ -10,7 +9,7 @@ import {
 import { type ParsedOutput, parseOutput } from "@/runner/output-parser";
 import { runWithRecovery } from "@/runner/recovery";
 import { SessionError } from "@/runner/session";
-import type { Middleware, MiddlewareContext, ResolvedAgent, StepResult } from "@/types";
+import type { Middleware, ResolvedAgent, StepResult } from "@/types";
 
 // ─── Types ─────────────────────────────────────────────
 
@@ -33,7 +32,6 @@ export interface SessionExecutionConfig {
   maxDurationMs: number;
   maxRetries: number;
   backoffBaseMs: number;
-  claudeCodePath?: string | undefined;
 }
 
 export interface SessionExecutionDeps {
@@ -47,32 +45,6 @@ export interface SessionExecutionResult extends StepResult {
   parsed: ParsedOutput;
 }
 
-// ─── Middleware context builder ────────────────────────
-
-function buildMiddlewareContext(
-  runId: string,
-  step: string,
-  agent: string,
-  repo: string,
-  getContextValue: (key: string) => unknown,
-): MiddlewareContext {
-  const store = new Map<string, unknown>();
-  return {
-    runId,
-    step,
-    agent,
-    repo,
-    get: ((key: string) => {
-      const value = getContextValue(key);
-      if (value !== undefined) return value;
-      return store.get(key);
-    }) as MiddlewareContext["get"],
-    set: ((key: string, value: unknown) => {
-      store.set(key, value);
-    }) as MiddlewareContext["set"],
-  };
-}
-
 // ─── SessionExecutor ───────────────────────────────────
 
 /**
@@ -80,10 +52,7 @@ function buildMiddlewareContext(
  * Extracted from Orchestrator for better testability and separation of concerns.
  */
 export class SessionExecutor {
-  constructor(
-    private readonly config: SessionExecutionConfig,
-    private readonly getContextValue: (key: string) => unknown,
-  ) {}
+  constructor(private readonly config: SessionExecutionConfig) {}
 
   /**
    * Execute an agent session with the given input and dependencies.
@@ -106,7 +75,7 @@ export class SessionExecutor {
       startedAt,
     } = input;
 
-    const { middleware, mcpServers, memoryContext, onAttempt } = deps;
+    const { mcpServers, memoryContext, onAttempt } = deps;
 
     // Validate writable agents have a branch
     if (agent.sandbox === "writable" && !branch) {
@@ -119,17 +88,6 @@ export class SessionExecutor {
 
     // Build sandbox config for agent
     const sandboxConfig = buildSandboxConfig(agent, sessionPath);
-
-    // Build middleware chain and SDK hooks
-    const chain = buildMiddlewareChain(middleware);
-    const middlewareContext = buildMiddlewareContext(
-      runId,
-      "execute",
-      agent.name,
-      repoPath,
-      this.getContextValue,
-    );
-    const hooks = buildSDKHooks(chain, middlewareContext, middleware);
 
     // Build the full prompt
     const repoInstructions = await loadRepoInstructions(repoPath);
@@ -170,9 +128,7 @@ export class SessionExecutor {
       prompt: fullPrompt,
       repoPath,
       sandboxConfig,
-      hooks,
       env: agentEnv,
-      agents: agent.definition.agents,
       initTimeoutMs: this.config.initTimeoutMs,
       maxDurationMs: this.config.maxDurationMs,
       maxRetries: this.config.maxRetries,
@@ -181,7 +137,6 @@ export class SessionExecutor {
       ...(mcpServers ? { mcpServers } : {}),
       ...(onAttempt ? { onAttempt } : {}),
       ...(agent.maxTurns ? { maxTurns: agent.maxTurns } : {}),
-      ...(this.config.claudeCodePath ? { claudeCodePath: this.config.claudeCodePath } : {}),
     });
 
     // Post-session budget check (SDK provides cost only after session ends)

@@ -28,7 +28,7 @@ export type SupervisorCompleteInput = z.infer<typeof supervisorCompleteSchema>;
 export type SupervisorBlockedInput = z.infer<typeof supervisorBlockedSchema>;
 export type CriteriaResult = z.infer<typeof criteriaResultSchema>;
 
-// ─── Tool definitions (passed to AIAdapter) ──────────────
+// ─── Tool definitions ─────────────────────────────────────
 
 export interface ToolDefinition {
   name: string;
