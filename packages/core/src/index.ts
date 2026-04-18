@@ -17,6 +17,7 @@ export type {
   GlobalConfig,
   McpServerConfig,
   NeoConfig,
+  ProviderConfig,
   RepoConfig,
   RepoConfigInput,
 } from "@/config";
@@ -29,6 +30,7 @@ export {
   loadGlobalConfig,
   mcpServerConfigSchema,
   neoConfigSchema,
+  providerConfigSchema,
   removeRepoFromGlobalConfig,
   repoConfigSchema,
   repoOverrideConfigSchema,
