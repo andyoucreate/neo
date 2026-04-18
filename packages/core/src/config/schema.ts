@@ -181,7 +181,12 @@ export const globalConfigSchema = z.object({
 
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
 
-  provider: providerConfigSchema,
+  provider: providerConfigSchema.default({
+    adapter: "claude",
+    models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+    args: [],
+    env: {},
+  }),
 
   idempotency: z
     .object({
