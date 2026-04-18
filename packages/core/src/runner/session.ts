@@ -1,9 +1,10 @@
 import type { McpServerConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
+import { getAdapter, resolveModel } from "@/models";
+import { createAgentRunner } from "@/runner/adapters/index";
 import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
 import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 import type { ResolvedAgent } from "@/types";
-import { ClaudeAgentRunner } from "./adapters/claude-session.js";
 
 // ─── Types ──────────────────────────────────────────────
 
@@ -20,7 +21,8 @@ export interface SessionOptions {
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
-  providerArgs?: string[] | undefined;
+  /** Default model from config (models.default) — used when agent has no model */
+  defaultModel?: string | undefined;
   adapter?: AgentRunner | undefined;
 }
 
@@ -53,18 +55,21 @@ function toSessionError(error: unknown, isTimeout: boolean, sessionId: string): 
 }
 
 function buildRunOptions(options: SessionOptions): AgentRunOptions {
+  const model = resolveModel(
+    options.agent.definition.model ?? options.defaultModel ?? "claude-sonnet-4-6",
+  );
+
   const runOptions: AgentRunOptions = {
     prompt: options.prompt,
     cwd: options.sessionPath ?? options.repoPath ?? process.cwd(),
     sandboxConfig: options.sandboxConfig,
+    model,
   };
 
   if (options.mcpServers) runOptions.mcpServers = options.mcpServers;
   if (options.env) runOptions.env = options.env;
   if (options.maxTurns !== undefined) runOptions.maxTurns = options.maxTurns;
   if (options.resumeSessionId !== undefined) runOptions.resumeSessionId = options.resumeSessionId;
-  if (options.providerArgs?.length) runOptions.providerArgs = options.providerArgs;
-
   return runOptions;
 }
 
@@ -72,7 +77,19 @@ function buildRunOptions(options: SessionOptions): AgentRunOptions {
 
 export async function runSession(options: SessionOptions): Promise<SessionResult> {
   const { initTimeoutMs, maxDurationMs, onEvent } = options;
-  const adapter = options.adapter ?? new ClaudeAgentRunner();
+
+  // Resolve adapter from agent model → catalog → registry
+  let adapter: AgentRunner;
+  if (options.adapter) {
+    adapter = options.adapter;
+  } else {
+    const model = resolveModel(
+      options.agent.definition.model ?? options.defaultModel ?? "claude-sonnet-4-6",
+    );
+    const adapterName = getAdapter(model);
+    adapter = createAgentRunner(adapterName);
+  }
+
   const runOptions = buildRunOptions(options);
 
   const startTime = Date.now();

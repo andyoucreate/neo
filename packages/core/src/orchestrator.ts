@@ -503,6 +503,7 @@ export class Orchestrator extends NeoEventEmitter {
       maxDurationMs: this.config.sessions.maxDurationMs,
       maxRetries: this.config.recovery.maxRetries,
       backoffBaseMs: this.config.recovery.backoffBaseMs,
+      defaultModel: this.config.models.default,
     });
 
     // Build execution input

@@ -104,7 +104,6 @@ export class CodexAgentRunner implements AgentRunner {
       webSearchEnabled: true,
       skipGitRepoCheck: true,
       networkAccessEnabled: true,
-      ...(options.providerArgs?.length ? { additionalDirectories: options.providerArgs } : {}),
     });
 
     const { events } = await thread.runStreamed(options.prompt);

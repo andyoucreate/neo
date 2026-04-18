@@ -32,6 +32,8 @@ export interface SessionExecutionConfig {
   maxDurationMs: number;
   maxRetries: number;
   backoffBaseMs: number;
+  /** Default model from config (models.default) — passed to session for adapter resolution */
+  defaultModel?: string;
 }
 
 export interface SessionExecutionDeps {
@@ -137,6 +139,7 @@ export class SessionExecutor {
       ...(mcpServers ? { mcpServers } : {}),
       ...(onAttempt ? { onAttempt } : {}),
       ...(agent.maxTurns ? { maxTurns: agent.maxTurns } : {}),
+      ...(this.config.defaultModel ? { defaultModel: this.config.defaultModel } : {}),
     });
 
     // Post-session budget check (SDK provides cost only after session ends)

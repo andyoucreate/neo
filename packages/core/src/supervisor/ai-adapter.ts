@@ -28,7 +28,6 @@ export interface AgentRunOptions {
   maxTurns?: number;
   resumeSessionId?: string;
   model?: string;
-  providerArgs?: string[];
 }
 
 /** Provider-specific agent runner. Spawns a CLI agent and streams results. */
