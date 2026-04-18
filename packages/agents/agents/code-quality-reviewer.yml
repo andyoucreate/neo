@@ -1,0 +1,4 @@
+name: code-quality-reviewer
+description: "Review code quality, patterns, and test coverage. Use ONLY after spec-reviewer approves."
+sandbox: readonly
+prompt: ../prompts/subagents/code-quality-reviewer.md

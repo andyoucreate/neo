@@ -1,8 +1,13 @@
 // ─── Components ──────────────────────────────────────────
 export { ActivityLog } from "./activity-log.js";
-// ─── AI Adapter ───────────────────────────────────────
-export { ClaudeAdapter } from "./adapters/claude.js";
-export type { AIAdapter, AIQueryOptions, SessionHandle, SupervisorMessage } from "./ai-adapter.js";
+// ─── Agent Runner ─────────────────────────────────────
+export type {
+  AgentRunner,
+  AgentRunOptions,
+  ClaudeSessionHandle,
+  CodexSessionHandle,
+  SessionHandle,
+} from "./ai-adapter.js";
 export type { SupervisorDaemonOptions } from "./daemon.js";
 export { SupervisorDaemon } from "./daemon.js";
 // ─── Decisions ─────────────────────────────────────────────

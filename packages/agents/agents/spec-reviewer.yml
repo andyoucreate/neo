@@ -1,0 +1,4 @@
+name: spec-reviewer
+description: "Verify implementation matches task specification exactly. Use after completing each task to ensure nothing is missing or extra."
+sandbox: readonly
+prompt: ../prompts/subagents/spec-reviewer.md

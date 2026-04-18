@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { parseConfigWithWarnings, parseRepoConfigWithWarnings } from "../parser";
 
+const VALID_PROVIDER = {
+  adapter: "claude",
+  models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+};
+
 describe("parseConfigWithWarnings", () => {
   describe("unknown keys", () => {
     it("warns about unknown top-level keys", () => {
       const input = {
         repos: [],
+        provider: VALID_PROVIDER,
         unknownKey: "value",
         anotherUnknown: 123,
       };
@@ -29,6 +35,7 @@ describe("parseConfigWithWarnings", () => {
     it("warns about unknown nested keys", () => {
       const input = {
         repos: [],
+        provider: VALID_PROVIDER,
         concurrency: {
           maxSessions: 10,
           unknownConcurrencyKey: true,
@@ -49,6 +56,7 @@ describe("parseConfigWithWarnings", () => {
     it("warns about deeply nested unknown keys", () => {
       const input = {
         repos: [],
+        provider: VALID_PROVIDER,
         supervisor: {
           port: 8080,
           unknownSupervisorKey: "value",
@@ -70,6 +78,7 @@ describe("parseConfigWithWarnings", () => {
     it("returns empty warnings for valid config", () => {
       const input = {
         repos: [{ path: "/test/repo" }],
+        provider: VALID_PROVIDER,
         concurrency: {
           maxSessions: 10,
           maxPerRepo: 5,
@@ -87,6 +96,7 @@ describe("parseConfigWithWarnings", () => {
     it("applies defaults for missing fields", () => {
       const input = {
         repos: [],
+        provider: VALID_PROVIDER,
       };
 
       const result = parseConfigWithWarnings(input);
@@ -101,6 +111,7 @@ describe("parseConfigWithWarnings", () => {
     it("throws for invalid repo config", () => {
       const input = {
         repos: [{ name: "missing-path" }],
+        provider: VALID_PROVIDER,
       };
 
       expect(() => parseConfigWithWarnings(input)).toThrow();
@@ -111,6 +122,7 @@ describe("parseConfigWithWarnings", () => {
     it("does not fail on warnings - only informs", () => {
       const input = {
         repos: [{ path: "/valid/path" }],
+        provider: VALID_PROVIDER,
         unknownKey: "ignored",
         concurrency: {
           maxSessions: 5,

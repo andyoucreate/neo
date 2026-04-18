@@ -8,7 +8,6 @@ export class ClaudeAgentRunner implements AgentRunner {
     const queryOptions: Record<string, unknown> = {
       cwd: options.cwd,
       ...(options.maxTurns ? { maxTurns: options.maxTurns } : {}),
-      allowedTools: options.sandboxConfig.allowedTools,
       // Workers run detached without a TTY — bypass interactive permission prompts.
       // Required pair: permissionMode alone is not enough, SDK also needs the flag.
       permissionMode: "bypassPermissions",
@@ -31,16 +30,6 @@ export class ClaudeAgentRunner implements AgentRunner {
       // Merge with process.env so PATH, HOME, etc. are preserved.
       // Custom vars override process.env if there's a conflict.
       queryOptions.env = { ...process.env, ...options.env };
-    }
-
-    // Pass through Claude-specific options (claudeCodePath, hooks)
-    if (options.adapterOptions) {
-      if (options.adapterOptions.claudeCodePath) {
-        queryOptions.pathToClaudeCodeExecutable = options.adapterOptions.claudeCodePath;
-      }
-      if (options.adapterOptions.hooks) {
-        queryOptions.hooks = options.adapterOptions.hooks;
-      }
     }
 
     if (options.model) {

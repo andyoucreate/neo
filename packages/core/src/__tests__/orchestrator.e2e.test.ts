@@ -146,10 +146,15 @@ function makeConfig(repoPath: string): NeoConfig {
       idleSkipMax: 20,
       activeWorkSkipMax: 3,
       autoDecide: false,
-      provider: "claude",
       model: "claude-sonnet-4-5-20251001",
     },
     memory: { embeddings: true },
+    provider: {
+      adapter: "claude",
+      models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+      args: [],
+      env: {},
+    },
   };
 }
 
@@ -709,10 +714,15 @@ describe("orchestrator E2E: webhook delivery verification", () => {
         idleSkipMax: 20,
         activeWorkSkipMax: 3,
         autoDecide: false,
-        provider: "claude",
         model: "claude-sonnet-4-5-20251001",
       },
       memory: { embeddings: true },
+      provider: {
+        adapter: "claude",
+        models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+        args: [],
+        env: {},
+      },
     };
   }
 

@@ -5,8 +5,14 @@ import path from "node:path";
 import { ConfigStore, ConfigWatcher, type GlobalConfig } from "@/config";
 import { RunStore } from "@/orchestrator/run-store";
 import { getDataDir, getRunsDir } from "@/paths";
+import {
+  isAssistantMessage,
+  isResultMessage,
+  isToolUseMessage,
+  type SDKStreamMessage,
+} from "@/sdk-types";
 import { isProcessAlive } from "@/shared/process";
-import type { AIAdapter, SupervisorMessage } from "@/supervisor/ai-adapter";
+import type { AgentRunner } from "@/supervisor/ai-adapter";
 import { type TaskEntry, TaskStore } from "@/supervisor/task-store";
 import type { PersistedRun } from "@/types";
 import type { ActivityLog } from "./activity-log.js";
@@ -212,8 +218,8 @@ export interface HeartbeatLoopOptions {
   activityLog: ActivityLog;
   /** Path to the inbox/events directory for markProcessed() calls */
   eventsPath: string;
-  /** AI adapter for supervisor queries (injected by daemon) */
-  adapter: AIAdapter;
+  /** Agent runner for supervisor queries (injected by daemon) */
+  adapter: AgentRunner;
   /** Path to bundled default SUPERVISOR.md (e.g. from @neotx/agents) */
   defaultInstructionsPath?: string | undefined;
   memoryDbPath?: string | undefined;
@@ -251,7 +257,7 @@ export class HeartbeatLoop {
   private readonly eventQueue: EventQueue;
   private readonly activityLog: ActivityLog;
   private readonly _eventsPath: string;
-  private readonly adapter: AIAdapter;
+  private readonly adapter: AgentRunner;
 
   private customInstructions: string | undefined;
   private readonly defaultInstructionsPath: string | undefined;
@@ -1037,9 +1043,10 @@ export class HeartbeatLoop {
     let turnCount = 0;
 
     try {
-      const stream = this.adapter.query({
+      const stream = this.adapter.run({
         prompt,
-        tools: [],
+        cwd: this.supervisorDir,
+        sandboxConfig: { writable: true, paths: { readable: [], writable: [] } },
         model: this.config.supervisor.model,
       });
 
@@ -1063,26 +1070,30 @@ export class HeartbeatLoop {
             break;
           }
 
-          const iterResult = raceResult as IteratorResult<SupervisorMessage>;
+          const iterResult = raceResult as IteratorResult<SDKStreamMessage>;
           if (iterResult.done) break;
 
           const msg = iterResult.value;
 
-          if (msg.kind === "text" && msg.text) {
-            output += msg.text;
-            await this.activityLog.log("plan", msg.text, { heartbeatId });
+          if (isAssistantMessage(msg)) {
+            for (const block of msg.message?.content ?? []) {
+              if (block.type === "text" && block.text) {
+                output += block.text;
+                await this.activityLog.log("plan", block.text, { heartbeatId });
+              }
+            }
           }
 
-          if (msg.kind === "tool_use") {
-            await this.activityLog.log("tool_use", `Tool: ${msg.toolName}`, {
+          if (isToolUseMessage(msg)) {
+            await this.activityLog.log("tool_use", `Tool: ${msg.tool}`, {
               heartbeatId,
-              input: msg.toolInput,
+              input: msg.input,
             });
           }
 
-          if (msg.kind === "end") {
-            costUsd = msg.metadata?.costUsd ?? 0;
-            turnCount = msg.metadata?.turnCount ?? 0;
+          if (isResultMessage(msg)) {
+            costUsd = msg.total_cost_usd ?? 0;
+            turnCount = msg.num_turns ?? 0;
           }
         }
       } finally {

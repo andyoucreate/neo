@@ -1,95 +1,119 @@
-import { execFile } from "node:child_process";
-import { createInterface } from "node:readline";
+import type {
+  Codex as CodexClass,
+  ItemCompletedEvent,
+  ThreadEvent,
+  TurnCompletedEvent,
+  Usage,
+} from "@openai/codex-sdk";
 import type { SDKStreamMessage } from "@/sdk-types";
-import type { SessionAdapter, SessionRunOptions } from "@/supervisor/ai-adapter";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 
-interface CodexJsonlEvent {
-  type: string;
-  id?: string;
-  message?: {
-    content?: Array<{ type: string; text?: string }>;
-  };
-  usage?: {
-    total_cost_usd?: number;
-    turns?: number;
-  };
+function estimateCost(usage: Usage): number {
+  const inputCost = (usage.input_tokens - usage.cached_input_tokens) * 0.0000015;
+  const cachedCost = usage.cached_input_tokens * 0.00000075;
+  const outputCost = usage.output_tokens * 0.000006;
+  return inputCost + cachedCost + outputCost;
 }
 
-function mapCodexEvent(event: CodexJsonlEvent): SDKStreamMessage {
+function mapThreadEvent(event: ThreadEvent): SDKStreamMessage | null {
   switch (event.type) {
-    case "session.start":
+    case "thread.started":
       return {
         type: "system",
         subtype: "init",
-        session_id: event.id ?? "unknown",
+        session_id: event.thread_id,
       } as SDKStreamMessage;
 
-    case "message.completed":
-      return {
-        type: "assistant",
-        message: { content: event.message?.content ?? [] },
-      } as SDKStreamMessage;
+    case "item.completed": {
+      const item = (event as ItemCompletedEvent).item;
 
-    case "session.completed":
+      if (item.type === "agent_message") {
+        return {
+          type: "assistant",
+          message: { content: [{ type: "text", text: item.text }] },
+        } as SDKStreamMessage;
+      }
+
+      if (item.type === "command_execution") {
+        return {
+          type: "assistant",
+          subtype: "tool_use",
+          tool: "Bash",
+          input: { command: item.command },
+        } as SDKStreamMessage;
+      }
+
+      if (item.type === "mcp_tool_call") {
+        return {
+          type: "assistant",
+          subtype: "tool_use",
+          tool: `${item.server}/${item.tool}`,
+          input: item.arguments,
+        } as SDKStreamMessage;
+      }
+
+      return null;
+    }
+
+    case "turn.completed": {
+      const usage = (event as TurnCompletedEvent).usage;
       return {
         type: "result",
         subtype: "success",
-        session_id: event.id ?? "unknown",
+        session_id: "codex",
         result: "",
-        total_cost_usd: event.usage?.total_cost_usd ?? 0,
-        num_turns: event.usage?.turns ?? 0,
+        total_cost_usd: estimateCost(usage),
+        num_turns: 1,
+      } as SDKStreamMessage;
+    }
+
+    case "turn.failed":
+      return {
+        type: "result",
+        subtype: "error",
+        session_id: "codex",
+        result: event.error.message,
+        total_cost_usd: 0,
+        num_turns: 0,
       } as SDKStreamMessage;
 
     default:
-      return { type: event.type } as SDKStreamMessage;
+      return null;
   }
 }
 
-export class CodexSessionAdapter implements SessionAdapter {
-  async *runSession(options: SessionRunOptions): AsyncIterable<SDKStreamMessage> {
-    const args = ["exec", "--json", "--full-auto"];
+export class CodexAgentRunner implements AgentRunner {
+  private codex: CodexClass | undefined;
 
-    if (!options.sandboxConfig.writable) {
-      args.push("--sandbox", "read-only");
-    } else {
-      args.push("--sandbox", "workspace-write");
+  private async getCodex(): Promise<CodexClass> {
+    if (!this.codex) {
+      const { Codex } = await import("@openai/codex-sdk");
+      this.codex = new Codex();
     }
+    return this.codex;
+  }
 
-    if (options.model) {
-      args.push("--model", options.model);
-    }
+  async *run(options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
+    const codex = await this.getCodex();
 
-    args.push(options.prompt);
-
-    const child = execFile("codex", args, {
-      cwd: options.cwd,
-      env: options.env ? { ...process.env, ...options.env } : undefined,
+    const thread = codex.startThread({
+      ...(options.model ? { model: options.model } : {}),
+      workingDirectory: options.cwd,
+      sandboxMode: options.sandboxConfig.writable ? "workspace-write" : "read-only",
+      approvalPolicy: "never",
+      webSearchEnabled: true,
+      skipGitRepoCheck: true,
+      networkAccessEnabled: true,
+      ...(options.providerConfig?.args?.length
+        ? { additionalDirectories: options.providerConfig.args }
+        : {}),
     });
 
-    if (!child.stdout) {
-      throw new Error("codex exec: stdout is null");
+    const { events } = await thread.runStreamed(options.prompt);
+
+    for await (const event of events) {
+      const mapped = mapThreadEvent(event as ThreadEvent);
+      if (mapped) yield mapped;
     }
-
-    const rl = createInterface({ input: child.stdout });
-
-    for await (const line of rl) {
-      if (!line.trim()) continue;
-      try {
-        const event = JSON.parse(line) as CodexJsonlEvent;
-        yield mapCodexEvent(event);
-      } catch {
-        // Skip non-JSON lines
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      child.on("close", (code) => {
-        if (code !== 0 && code !== null) {
-          reject(new Error(`codex exec exited with code ${code}`));
-        } else {
-          resolve();
-        }
-      });
-    });
   }
 }

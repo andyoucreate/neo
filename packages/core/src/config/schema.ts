@@ -73,6 +73,22 @@ export const sessionsConfigSchema = z
   })
   .default({ initTimeoutMs: 120_000, maxDurationMs: 3_600_000, dir: "/tmp/neo-sessions" });
 
+// ─── Provider config schema ──────────────────────────────────
+
+const providerModelsSchema = z.object({
+  default: z.string(),
+  available: z.array(z.string()).min(1),
+});
+
+export const providerConfigSchema = z.object({
+  adapter: z.string(),
+  models: providerModelsSchema.refine((m) => m.available.includes(m.default), {
+    message: "models.default must be in models.available",
+  }),
+  args: z.array(z.string()).default([]),
+  env: z.record(z.string(), z.string()).default({}),
+});
+
 // ─── Journal config schema ───────────────────────────────
 
 export const journalConfigSchema = z
@@ -108,8 +124,8 @@ export const supervisorConfigSchema = z
     activeWorkSkipMax: z.number().default(3),
     /** When true, supervisor answers pending decisions autonomously instead of waiting for human input */
     autoDecide: z.boolean().default(false),
-    /** AI provider for supervisor heartbeats */
-    provider: z.enum(["claude", "codex"]).default("claude"),
+    /** Override adapter for supervisor heartbeats (defaults to global provider.adapter) */
+    adapter: z.string().optional(),
     /** Claude model used for supervisor heartbeats */
     model: z.string().default("claude-sonnet-4-6"),
   })
@@ -125,7 +141,6 @@ export const supervisorConfigSchema = z
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
     autoDecide: false,
-    provider: "claude",
     model: "claude-sonnet-4-6",
   });
 
@@ -165,7 +180,8 @@ export const globalConfigSchema = z.object({
     .default({ embeddings: true }),
 
   mcpServers: z.record(z.string(), mcpServerConfigSchema).optional(),
-  claudeCodePath: z.string().optional(),
+
+  provider: providerConfigSchema,
 
   idempotency: z
     .object({
@@ -201,3 +217,4 @@ export type RepoConfig = z.infer<typeof repoConfigSchema>;
 export type RepoConfigInput = z.input<typeof repoConfigSchema>;
 export type McpServerConfig = z.infer<typeof mcpServerConfigSchema>;
 export type RepoOverrideConfig = z.infer<typeof repoOverrideConfigSchema>;
+export type ProviderConfig = z.infer<typeof providerConfigSchema>;

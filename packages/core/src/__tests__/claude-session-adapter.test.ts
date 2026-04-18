@@ -14,22 +14,20 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   }),
 }));
 
-import { ClaudeSessionAdapter } from "@/runner/adapters/claude-session";
+import { ClaudeAgentRunner } from "@/runner/adapters/claude-session";
 import type { SDKStreamMessage } from "@/sdk-types";
 
-describe("ClaudeSessionAdapter", () => {
+describe("ClaudeAgentRunner", () => {
   it("yields SDKStreamMessages from Claude SDK", async () => {
-    const adapter = new ClaudeSessionAdapter();
+    const runner = new ClaudeAgentRunner();
     const messages: SDKStreamMessage[] = [];
 
-    const stream = adapter.runSession({
+    const stream = runner.run({
       prompt: "test prompt",
       cwd: "/tmp/test",
       sandboxConfig: {
-        allowedTools: ["Bash", "Read"],
-        readablePaths: [],
-        writablePaths: [],
         writable: false,
+        paths: { readable: [], writable: [] },
       },
     });
 

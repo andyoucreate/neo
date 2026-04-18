@@ -1,62 +1,52 @@
-import { Readable } from "node:stream";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("node:child_process", () => ({
-  execFile: vi.fn((_cmd: string, _args: string[], _opts: unknown) => {
-    const jsonlLines = `${[
-      JSON.stringify({ type: "session.start", id: "codex-session-1" }),
-      JSON.stringify({
-        type: "message.completed",
-        message: { content: [{ type: "text", text: "fixed the bug" }] },
-      }),
-      JSON.stringify({
-        type: "session.completed",
-        usage: { total_cost_usd: 0.03, turns: 2 },
-      }),
-    ].join("\n")}\n`;
+const mockEvents = vi.fn();
+const mockRunStreamed = vi.fn(() => Promise.resolve({ events: mockEvents() }));
+const mockThread = { runStreamed: mockRunStreamed, id: "thread_123" };
+const mockStartThread = vi.fn(() => mockThread);
 
-    const stdout = Readable.from([jsonlLines]);
-    const child = {
-      stdout,
-      stderr: Readable.from([]),
-      on: vi.fn((event: string, cb: (code: number) => void) => {
-        if (event === "close") {
-          setTimeout(() => cb(0), 10);
-        }
-        return child;
-      }),
-      kill: vi.fn(),
-    };
-    return child;
-  }),
+vi.mock("@openai/codex-sdk", () => ({
+  Codex: vi.fn(() => ({ startThread: mockStartThread })),
 }));
 
-import { CodexSessionAdapter } from "@/runner/adapters/codex-session";
+import { CodexAgentRunner } from "@/runner/adapters/codex-session";
 import type { SDKStreamMessage } from "@/sdk-types";
 
-describe("CodexSessionAdapter", () => {
-  it("maps codex exec JSONL output to SDKStreamMessages", async () => {
-    const adapter = new CodexSessionAdapter();
+describe("CodexAgentRunner", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it("maps SDK ThreadEvents to SDKStreamMessages", async () => {
+    mockEvents.mockReturnValue(
+      (async function* () {
+        yield { type: "thread.started", thread_id: "t_1" };
+        yield {
+          type: "item.completed",
+          item: { id: "i_0", type: "agent_message", text: "hello" },
+        };
+        yield {
+          type: "turn.completed",
+          usage: { input_tokens: 100, cached_input_tokens: 0, output_tokens: 50 },
+        };
+      })(),
+    );
+
+    const runner = new CodexAgentRunner();
     const messages: SDKStreamMessage[] = [];
 
-    const stream = adapter.runSession({
-      prompt: "fix the bug",
-      cwd: "/tmp/test-repo",
-      sandboxConfig: {
-        allowedTools: ["Bash", "Read"],
-        readablePaths: [],
-        writablePaths: [],
-        writable: false,
-      },
-    });
-
-    for await (const msg of stream) {
+    for await (const msg of runner.run({
+      prompt: "test",
+      cwd: "/tmp",
+      sandboxConfig: { writable: true, paths: { readable: [], writable: [] } },
+    })) {
       messages.push(msg);
     }
 
     expect(messages).toHaveLength(3);
-    expect(messages[0]).toMatchObject({ type: "system", subtype: "init" });
+    expect(messages[0]).toMatchObject({ type: "system", subtype: "init", session_id: "t_1" });
     expect(messages[1]).toMatchObject({ type: "assistant" });
-    expect(messages[2]).toMatchObject({ type: "result" });
+    expect(messages[2]).toMatchObject({ type: "result", subtype: "success" });
+    expect(mockStartThread).toHaveBeenCalledWith(
+      expect.objectContaining({ sandboxMode: "workspace-write", approvalPolicy: "never" }),
+    );
   });
 });

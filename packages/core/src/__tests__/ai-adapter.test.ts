@@ -1,51 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { ClaudeAdapter } from "@/supervisor/adapters/claude";
-import type { SessionHandle, SupervisorMessage } from "@/supervisor/ai-adapter";
+import type { SDKStreamMessage } from "@/sdk-types";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 
-describe("ClaudeAdapter", () => {
-  it("starts with no session handle", () => {
-    const adapter = new ClaudeAdapter();
-    expect(adapter.getSessionHandle()).toBeUndefined();
-  });
-
-  it("restores a claude session handle", () => {
-    const adapter = new ClaudeAdapter();
-    const handle = { provider: "claude" as const, sessionId: "ses_abc123" };
-    adapter.restoreSession(handle);
-    expect(adapter.getSessionHandle()).toEqual(handle);
-  });
-
-  it("rejects non-claude session handles", () => {
-    const adapter = new ClaudeAdapter();
-    expect(() =>
-      // @ts-expect-error intentional wrong type for testing
-      adapter.restoreSession({ provider: "openai", threadId: "t_1" }),
-    ).toThrow("ClaudeAdapter only accepts claude session handles");
-  });
-});
-
-describe("ai-adapter types", () => {
-  it("SessionHandle accepts claude provider", () => {
-    const handle: SessionHandle = { provider: "claude", sessionId: "abc" };
-    expect(handle.provider).toBe("claude");
-  });
-
-  it("SessionHandle accepts codex provider", () => {
-    const handle: SessionHandle = { provider: "codex", threadId: "thread_123" };
-    expect(handle.provider).toBe("codex");
-  });
-
-  it("SupervisorMessage supports metadata on end kind", () => {
-    const msg: SupervisorMessage = {
-      kind: "end",
-      metadata: { costUsd: 0.05, turnCount: 3 },
+describe("AgentRunner interface", () => {
+  it("can be implemented with a mock", async () => {
+    const mockRunner: AgentRunner = {
+      async *run(_options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
+        yield { type: "system", subtype: "init", session_id: "test" } as SDKStreamMessage;
+        yield { type: "result", subtype: "success" } as SDKStreamMessage;
+      },
     };
-    expect(msg.metadata?.costUsd).toBe(0.05);
-    expect(msg.metadata?.turnCount).toBe(3);
-  });
 
-  it("SupervisorMessage metadata is optional", () => {
-    const msg: SupervisorMessage = { kind: "end" };
-    expect(msg.metadata).toBeUndefined();
+    const messages: SDKStreamMessage[] = [];
+    for await (const msg of mockRunner.run({
+      prompt: "test",
+      cwd: "/tmp",
+      sandboxConfig: { writable: true, paths: { readable: [], writable: [] } },
+    })) {
+      messages.push(msg);
+    }
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0]).toMatchObject({ type: "system", subtype: "init" });
+    expect(messages[1]).toMatchObject({ type: "result", subtype: "success" });
   });
 });

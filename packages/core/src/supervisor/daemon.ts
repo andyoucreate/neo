@@ -5,8 +5,8 @@ import { homedir } from "node:os";
 import path from "node:path";
 import type { GlobalConfig } from "@/config";
 import { getSupervisorDecisionsPath, getSupervisorDir } from "@/paths";
+import { createAgentRunner } from "@/runner/adapters/index";
 import { isProcessAlive } from "@/shared/process";
-import { createSupervisorAdapter } from "@/supervisor/adapters/index";
 import { ActivityLog } from "./activity-log.js";
 import { DecisionStore } from "./decisions.js";
 import { EventQueue } from "./event-queue.js";
@@ -155,7 +155,9 @@ export class SupervisorDaemon {
     // Start heartbeat loop (blocks until stopped)
     const statePath = path.join(this.dir, "state.json");
     const directivesPath = path.join(this.dir, "directives.jsonl");
-    const adapter = createSupervisorAdapter(this.config.supervisor.provider);
+    const supervisorAdapter = this.config.supervisor.adapter ?? this.config.provider.adapter;
+    const providerConfig = { ...this.config.provider, adapter: supervisorAdapter };
+    const adapter = createAgentRunner(providerConfig);
     this.heartbeatLoop = new HeartbeatLoop({
       config: this.config,
       supervisorDir: this.dir,

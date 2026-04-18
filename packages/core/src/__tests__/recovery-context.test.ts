@@ -62,10 +62,8 @@ describe("runWithRecovery - failure context injection", () => {
       },
       prompt: "Do the task",
       sandboxConfig: {
-        allowedTools: ["Read"],
-        readablePaths: ["/tmp"],
-        writablePaths: [],
         writable: false,
+        paths: { readable: ["/tmp"], writable: [] },
       },
       initTimeoutMs: 5000,
       maxDurationMs: 60000,
@@ -113,10 +111,8 @@ describe("runWithRecovery - failure context injection", () => {
       },
       prompt: "Original task",
       sandboxConfig: {
-        allowedTools: ["Read"],
-        readablePaths: ["/tmp"],
-        writablePaths: [],
         writable: false,
+        paths: { readable: ["/tmp"], writable: [] },
       },
       initTimeoutMs: 5000,
       maxDurationMs: 60000,

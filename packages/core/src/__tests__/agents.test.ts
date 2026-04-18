@@ -5,6 +5,9 @@ import { loadAgentFile } from "@/agents/loader";
 import { AgentRegistry } from "@/agents/registry";
 import { resolveAgent } from "@/agents/resolver";
 import type { AgentConfig } from "@/agents/schema";
+import { validateAgentModels } from "@/agents/validation";
+import type { ProviderConfig } from "@/config/schema";
+import type { ResolvedAgent } from "@/types";
 
 const TMP_DIR = path.join(import.meta.dirname, "__tmp_agents_test__");
 const BUILT_IN_DIR = path.join(TMP_DIR, "built-in");
@@ -456,22 +459,76 @@ prompt: ${path.join(PROMPTS_DIR, "qa.md")}
     expect(registry.list()).toHaveLength(2);
   });
 
-  it.skip("loads real built-in agents from packages/agents", async () => {
-    // Skipped: real YAML files still use old schema (tools, model enum) — will be updated in a later task
+  it("loads real built-in agents from packages/agents", async () => {
     const realBuiltInDir = path.resolve(import.meta.dirname, "../../../agents/agents");
     const registry = new AgentRegistry(realBuiltInDir);
     await registry.load();
 
-    expect(registry.list().length).toBe(4);
+    expect(registry.list().length).toBe(7);
     expect(registry.has("architect")).toBe(true);
     expect(registry.has("developer")).toBe(true);
     expect(registry.has("reviewer")).toBe(true);
     expect(registry.has("scout")).toBe(true);
+    expect(registry.has("spec-reviewer")).toBe(true);
+    expect(registry.has("code-quality-reviewer")).toBe(true);
+    expect(registry.has("plan-reviewer")).toBe(true);
 
     const arch = registry.get("architect");
     expect(arch).toBeDefined();
     expect(arch?.definition.description).toBeTruthy();
     expect(arch?.definition.prompt).toBeTruthy();
     expect(arch?.sandbox).toBe("writable");
+  });
+});
+
+// ─── validateAgentModels ─────────────────────────────────
+
+describe("validateAgentModels", () => {
+  const provider: ProviderConfig = {
+    adapter: "claude",
+    models: {
+      default: "claude-sonnet-4-6",
+      available: ["claude-sonnet-4-6", "claude-opus-4-6"],
+    },
+    args: [],
+    env: {},
+  };
+
+  it("passes for agents with valid models", () => {
+    const agents: ResolvedAgent[] = [
+      {
+        name: "dev",
+        definition: { description: "Dev", prompt: "test", model: "claude-opus-4-6" },
+        sandbox: "writable",
+        source: "built-in",
+      },
+    ];
+    expect(() => validateAgentModels(agents, provider)).not.toThrow();
+  });
+
+  it("passes for agents without model (uses default)", () => {
+    const agents: ResolvedAgent[] = [
+      {
+        name: "dev",
+        definition: { description: "Dev", prompt: "test" },
+        sandbox: "writable",
+        source: "built-in",
+      },
+    ];
+    expect(() => validateAgentModels(agents, provider)).not.toThrow();
+  });
+
+  it("throws for agent with model not in available list", () => {
+    const agents: ResolvedAgent[] = [
+      {
+        name: "dev",
+        definition: { description: "Dev", prompt: "test", model: "gpt-4o" },
+        sandbox: "writable",
+        source: "built-in",
+      },
+    ];
+    expect(() => validateAgentModels(agents, provider)).toThrow(
+      'Agent "dev" specifies model "gpt-4o"',
+    );
   });
 });

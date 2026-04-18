@@ -630,45 +630,41 @@ describe("buildSandboxConfig", () => {
     };
   }
 
-  it("writable agent gets write paths (tools TBD in Task 4)", () => {
+  it("writable agent gets write paths", () => {
     const config = buildSandboxConfig(makeAgent("writable"), "/tmp/session");
 
     expect(config.writable).toBe(true);
-    // allowedTools is [] temporarily — full tool resolution is handled in Task 4
-    expect(config.allowedTools).toEqual([]);
-    expect(config.writablePaths).toEqual(["/tmp/session"]);
-    expect(config.readablePaths).toEqual(["/tmp/session"]);
+    expect(config.paths.writable).toEqual(["/tmp/session"]);
+    expect(config.paths.readable).toEqual(["/tmp/session"]);
   });
 
-  it("readonly agent has no write paths (tools TBD in Task 4)", () => {
+  it("readonly agent has no write paths", () => {
     const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/session");
 
     expect(config.writable).toBe(false);
-    // allowedTools is [] temporarily — full tool resolution is handled in Task 4
-    expect(config.allowedTools).toEqual([]);
-    expect(config.writablePaths).toEqual([]);
-    expect(config.readablePaths).toEqual(["/tmp/session"]);
+    expect(config.paths.writable).toEqual([]);
+    expect(config.paths.readable).toEqual(["/tmp/session"]);
   });
 
   it("works without sessionPath", () => {
     const config = buildSandboxConfig(makeAgent("writable"));
 
     expect(config.writable).toBe(true);
-    expect(config.readablePaths).toEqual([]);
-    expect(config.writablePaths).toEqual([]);
+    expect(config.paths.readable).toEqual([]);
+    expect(config.paths.writable).toEqual([]);
   });
 
   it("includes sessionPath in readable and writable paths for writable agent", () => {
     const config = buildSandboxConfig(makeAgent("writable"), "/tmp/session");
 
-    expect(config.readablePaths).toContain("/tmp/session");
-    expect(config.writablePaths).toContain("/tmp/session");
+    expect(config.paths.readable).toContain("/tmp/session");
+    expect(config.paths.writable).toContain("/tmp/session");
   });
 
   it("includes sessionPath only in readable paths for readonly agent", () => {
     const config = buildSandboxConfig(makeAgent("readonly"), "/tmp/session");
 
-    expect(config.readablePaths).toContain("/tmp/session");
-    expect(config.writablePaths).not.toContain("/tmp/session");
+    expect(config.paths.readable).toContain("/tmp/session");
+    expect(config.paths.writable).not.toContain("/tmp/session");
   });
 });

@@ -166,6 +166,13 @@ idempotency:
   enabled: true
   key: prompt
   ttlMs: 60000
+
+provider:
+  adapter: claude
+  models:
+    default: claude-sonnet-4-6
+    available:
+      - claude-sonnet-4-6
 `;
   await writeFile(path.join(TMP_DIR, "config.yml"), config);
 }

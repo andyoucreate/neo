@@ -1,69 +1,25 @@
-import type { McpServerConfig } from "@/config";
+import type { McpServerConfig, ProviderConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import type { SDKStreamMessage } from "@/sdk-types";
-import type { ToolDefinition } from "./supervisor-tools.js";
 
-// ─── Provider type ──────────────────────────────────────
+// ─── Session Handles ─────────────────────────────────────
 
-export type AIProvider = "claude" | "codex";
-
-// ─── Session handles ──────────────────────────────────────
-
-/**
- * Opaque session handle — each adapter stores what it needs.
- * Persisted via SupervisorStore so it survives process restart.
- */
-export type SessionHandle =
-  | { provider: "claude"; sessionId: string }
-  | { provider: "codex"; threadId: string };
-
-// ─── Messages ────────────────────────────────────────────
-
-export type SupervisorMessageKind = "text" | "tool_use" | "end";
-
-export interface SupervisorMessage {
-  kind: SupervisorMessageKind;
-  toolName?: string;
-  toolInput?: unknown;
-  text?: string;
-  metadata?: { costUsd?: number; turnCount?: number };
+export interface ClaudeSessionHandle {
+  adapter: "claude";
+  sessionId: string;
 }
 
-// ─── Query options ────────────────────────────────────────
-
-export interface AIQueryOptions {
-  prompt: string;
-  tools: ToolDefinition[];
-  sessionHandle?: SessionHandle;
-  systemPrompt?: string;
-  model?: string;
+export interface CodexSessionHandle {
+  adapter: "codex";
+  threadId: string;
 }
 
-// ─── Supervisor Adapter ──────────────────────────────────
+export type SessionHandle = ClaudeSessionHandle | CodexSessionHandle;
 
-/**
- * Adapter interface for AI providers.
- * ClaudeAdapter is the default implementation.
- * Future: CodexAdapter, OpenAIAdapter, GeminiAdapter.
- */
-export interface AIAdapter {
-  /**
-   * Execute one turn of the supervisor conversation.
-   * Returns an async iterable of structured messages.
-   */
-  query(options: AIQueryOptions): AsyncIterable<SupervisorMessage>;
+// ─── Agent Runner ───────────────────────────────────────
 
-  /** Returns the current session handle (undefined before first turn). */
-  getSessionHandle(): SessionHandle | undefined;
-
-  /** Restore a previously persisted session handle. */
-  restoreSession(handle: SessionHandle): void;
-}
-
-// ─── Session Adapter (Runner) ────────────────────────────
-
-/** Options passed to a session runner for each agent execution. */
-export interface SessionRunOptions {
+/** Options passed to an agent runner for each execution (runner or supervisor). */
+export interface AgentRunOptions {
   prompt: string;
   cwd: string;
   sandboxConfig: SandboxConfig;
@@ -72,10 +28,10 @@ export interface SessionRunOptions {
   maxTurns?: number;
   resumeSessionId?: string;
   model?: string;
-  adapterOptions?: Record<string, unknown>;
+  providerConfig?: ProviderConfig;
 }
 
-/** Low-level runner interface for provider-specific session execution. */
-export interface SessionAdapter {
-  runSession(options: SessionRunOptions): AsyncIterable<SDKStreamMessage>;
+/** Provider-specific agent runner. Spawns a CLI agent and streams results. */
+export interface AgentRunner {
+  run(options: AgentRunOptions): AsyncIterable<SDKStreamMessage>;
 }

@@ -12,6 +12,7 @@ export type {
   GlobalConfig,
   McpServerConfig,
   NeoConfig,
+  ProviderConfig,
   RepoConfig,
   RepoConfigInput,
   RepoOverrideConfig,
@@ -26,6 +27,7 @@ export {
   journalConfigSchema,
   mcpServerConfigSchema,
   neoConfigSchema,
+  providerConfigSchema,
   recoveryConfigSchema,
   repoConfigSchema,
   repoOverrideConfigSchema,
@@ -50,6 +52,12 @@ const DEFAULT_GLOBAL_CONFIG = {
   budget: {
     dailyCapUsd: 500,
     alertThresholdPct: 80,
+  },
+  provider: {
+    adapter: "claude",
+    models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+    args: [],
+    env: {},
   },
 };
 

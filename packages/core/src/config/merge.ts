@@ -33,10 +33,15 @@ export const defaultConfig: NeoConfig = {
     idleSkipMax: 20,
     activeWorkSkipMax: 3,
     autoDecide: false,
-    provider: "claude",
     model: "claude-sonnet-4-6",
   },
   memory: { embeddings: true },
+  provider: {
+    adapter: "claude",
+    models: { default: "claude-sonnet-4-6", available: ["claude-sonnet-4-6"] },
+    args: [],
+    env: {},
+  },
 };
 
 // ─── Deep merge utility ────────────────────────────────────

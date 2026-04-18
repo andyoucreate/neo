@@ -1,41 +1,43 @@
 import { describe, expect, it } from "vitest";
-import type {
-  AIAdapter,
-  AIQueryOptions,
-  SessionHandle,
-  SupervisorMessage,
-} from "@/supervisor/ai-adapter";
+import type { SDKStreamMessage } from "@/sdk-types";
+import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
 
-class MockAdapter implements AIAdapter {
+class MockAgentRunner implements AgentRunner {
   public lastPrompt = "";
   public callCount = 0;
-  private handle: SessionHandle | undefined;
 
-  getSessionHandle(): SessionHandle | undefined {
-    return this.handle;
-  }
-  restoreSession(handle: SessionHandle): void {
-    this.handle = handle;
-  }
-
-  async *query(options: AIQueryOptions): AsyncIterable<SupervisorMessage> {
+  async *run(options: AgentRunOptions): AsyncIterable<SDKStreamMessage> {
     this.lastPrompt = options.prompt;
     this.callCount++;
-    yield { kind: "text", text: "mock response" };
-    yield { kind: "end", metadata: { costUsd: 0.01, turnCount: 1 } };
+    yield {
+      type: "assistant",
+      message: { content: [{ type: "text", text: "mock response" }] },
+    } as SDKStreamMessage;
+    yield {
+      type: "result",
+      subtype: "success",
+      session_id: "mock",
+      result: "",
+      total_cost_usd: 0.01,
+      num_turns: 1,
+    } as SDKStreamMessage;
   }
 }
 
-describe("HeartbeatLoop adapter integration", () => {
-  it("MockAdapter yields structured messages", async () => {
-    const adapter = new MockAdapter();
-    const messages: SupervisorMessage[] = [];
-    for await (const msg of adapter.query({ prompt: "test", tools: [] })) {
+describe("HeartbeatLoop AgentRunner integration", () => {
+  it("MockAgentRunner yields SDKStreamMessages", async () => {
+    const runner = new MockAgentRunner();
+    const messages: SDKStreamMessage[] = [];
+    for await (const msg of runner.run({
+      prompt: "test",
+      cwd: "/tmp",
+      sandboxConfig: { writable: true, paths: { readable: [], writable: [] } },
+    })) {
       messages.push(msg);
     }
-    expect(adapter.callCount).toBe(1);
+    expect(runner.callCount).toBe(1);
     expect(messages).toHaveLength(2);
-    expect(messages[0]).toEqual({ kind: "text", text: "mock response" });
-    expect(messages[1]).toEqual({ kind: "end", metadata: { costUsd: 0.01, turnCount: 1 } });
+    expect(messages[0]).toMatchObject({ type: "assistant" });
+    expect(messages[1]).toMatchObject({ type: "result", subtype: "success" });
   });
 });

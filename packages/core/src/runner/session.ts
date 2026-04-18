@@ -1,4 +1,4 @@
-import type { McpServerConfig } from "@/config";
+import type { McpServerConfig, ProviderConfig } from "@/config";
 import type { SandboxConfig } from "@/isolation/sandbox";
 import { isInitMessage, isResultMessage, type SDKStreamMessage } from "@/sdk-types";
 import type { AgentRunner, AgentRunOptions } from "@/supervisor/ai-adapter";
@@ -13,7 +13,6 @@ export interface SessionOptions {
   repoPath?: string;
   sessionPath?: string;
   sandboxConfig: SandboxConfig;
-  hooks?: Record<string, unknown>;
   mcpServers?: Record<string, McpServerConfig>;
   env?: Record<string, string>;
   initTimeoutMs: number;
@@ -21,7 +20,7 @@ export interface SessionOptions {
   maxTurns?: number | undefined;
   resumeSessionId?: string | undefined;
   onEvent?: ((event: SessionEvent) => void) | undefined;
-  claudeCodePath?: string | undefined;
+  providerConfig?: ProviderConfig | undefined;
   adapter?: AgentRunner | undefined;
 }
 
@@ -58,16 +57,13 @@ function buildRunOptions(options: SessionOptions): AgentRunOptions {
     prompt: options.prompt,
     cwd: options.sessionPath ?? options.repoPath ?? process.cwd(),
     sandboxConfig: options.sandboxConfig,
-    adapterOptions: {
-      ...(options.claudeCodePath ? { claudeCodePath: options.claudeCodePath } : {}),
-      ...(options.hooks ? { hooks: options.hooks } : {}),
-    },
   };
 
   if (options.mcpServers) runOptions.mcpServers = options.mcpServers;
   if (options.env) runOptions.env = options.env;
   if (options.maxTurns !== undefined) runOptions.maxTurns = options.maxTurns;
   if (options.resumeSessionId !== undefined) runOptions.resumeSessionId = options.resumeSessionId;
+  if (options.providerConfig) runOptions.providerConfig = options.providerConfig;
 
   return runOptions;
 }

@@ -6,6 +6,7 @@ export { loadAgentFile } from "@/agents/loader";
 export { AgentRegistry } from "@/agents/registry";
 export { resolveAgent } from "@/agents/resolver";
 export { agentConfigSchema, agentSandboxSchema } from "@/agents/schema";
+export { validateAgentModels } from "@/agents/validation";
 export type {
   SemaphoreCallbacks,
   SemaphoreConfig,
@@ -116,7 +117,13 @@ export {
 // ─── Process utilities ─────────────────────────────────
 export { isProcessAlive } from "@/shared/process";
 // ─── AI Adapters ──────────────────────────────────────
-export type { AgentRunner, AgentRunOptions, AIProvider } from "@/supervisor/ai-adapter";
+export type {
+  AgentRunner,
+  AgentRunOptions,
+  ClaudeSessionHandle,
+  CodexSessionHandle,
+  SessionHandle,
+} from "@/supervisor/ai-adapter";
 // ─── Supervisor (types) ────────────────────────────────
 export type {
   ActivityEntry,

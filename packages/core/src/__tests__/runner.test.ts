@@ -54,10 +54,8 @@ function makeSessionOptions(overrides?: Partial<SessionOptions>): SessionOptions
     },
     prompt: "Do something",
     sandboxConfig: {
-      allowedTools: ["Read", "Write"],
-      readablePaths: ["/tmp/test"],
-      writablePaths: ["/tmp/test"],
       writable: true,
+      paths: { readable: ["/tmp/test"], writable: ["/tmp/test"] },
     },
     initTimeoutMs: 5_000,
     maxDurationMs: 60_000,
