@@ -1,7 +1,50 @@
+import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import type { PersistedRun } from "@neotx/core";
+import { getRunsDir } from "@neotx/core";
+import chokidar from "chokidar";
 import { defineCommand } from "citty";
 import { printError, printJson, printTable } from "../output.js";
 import { loadRunsFiltered, resolveRepoFilter } from "../repo-filter.js";
+
+type RunStatus = "running" | "paused" | "completed" | "failed" | "blocked";
+
+const TERMINAL_STATUSES: ReadonlySet<RunStatus> = new Set(["completed", "failed", "blocked"]);
+
+function isTerminal(status: string): boolean {
+  return TERMINAL_STATUSES.has(status as RunStatus);
+}
+
+/**
+ * Find the JSON file path for a given runId.
+ * Checks ~/.neo/runs/<slug>/<runId>.json first, then legacy ~/.neo/runs/<runId>.json.
+ * Returns null if not found.
+ */
+export async function findRunFilePath(runId: string): Promise<string | null> {
+  const runsDir = getRunsDir();
+  if (!existsSync(runsDir)) return null;
+
+  // Search in slug subdirectories
+  const { readdir } = await import("node:fs/promises");
+  try {
+    const entries = await readdir(runsDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        const candidate = path.join(runsDir, entry.name, `${runId}.json`);
+        if (existsSync(candidate)) return candidate;
+      }
+    }
+  } catch {
+    // ignore readdir errors
+  }
+
+  // Legacy: directly under runs dir
+  const legacy = path.join(runsDir, `${runId}.json`);
+  if (existsSync(legacy)) return legacy;
+
+  return null;
+}
 
 function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -25,10 +68,8 @@ function repoName(run: PersistedRun): string {
 }
 
 function agentName(run: PersistedRun): string {
-  // Use run.agent directly (new schema)
   if (run.agent) return run.agent;
 
-  // Fall back to step's agent field for older runs
   const stepAgent = Object.values(run.steps)[0]?.agent;
   return stepAgent ?? "unknown";
 }
@@ -96,6 +137,52 @@ function listRuns(runs: PersistedRun[], short: boolean): void {
   );
 }
 
+async function watchRun(runId: string, match: PersistedRun): Promise<void> {
+  // Initial render
+  process.stdout.write("\x1b[2J\x1b[H");
+  console.log(`Watching ${runId} \u2014 Ctrl+C to stop`);
+  showRunDetail(match, false);
+
+  // Already terminal — no need to watch
+  if (isTerminal(match.status)) return;
+
+  const filePath = await findRunFilePath(runId);
+  if (!filePath) {
+    printError(`Could not locate run file for "${runId}".`);
+    process.exitCode = 1;
+    return;
+  }
+
+  await new Promise<void>((resolve) => {
+    const watcher = chokidar.watch(filePath, { ignoreInitial: true });
+
+    function cleanup(): void {
+      watcher.close().catch(() => {});
+      resolve();
+    }
+
+    watcher.on("change", async () => {
+      try {
+        const content = await readFile(filePath, "utf-8");
+        const updated = JSON.parse(content) as PersistedRun;
+        process.stdout.write("\x1b[2J\x1b[H");
+        console.log(`Watching ${runId} \u2014 Ctrl+C to stop`);
+        showRunDetail(updated, false);
+        if (isTerminal(updated.status)) cleanup();
+      } catch {
+        // Ignore transient read errors during file writes
+      }
+    });
+
+    watcher.on("unlink", () => cleanup());
+    watcher.on("error", () => cleanup());
+
+    process.once("SIGINT", () => {
+      cleanup();
+    });
+  });
+}
+
 export default defineCommand({
   meta: {
     name: "runs",
@@ -128,9 +215,28 @@ export default defineCommand({
       type: "string",
       description: "Output format: json",
     },
+    watch: {
+      type: "boolean",
+      description: "Watch the run file for updates (requires a runId)",
+      default: false,
+    },
   },
   async run({ args }) {
     const jsonOutput = args.output === "json";
+
+    if (args.watch) {
+      if (!args.runId) {
+        printError("--watch requires a runId argument.");
+        process.exitCode = 1;
+        return;
+      }
+      if (jsonOutput) {
+        printError("--watch is not compatible with --output json.");
+        process.exitCode = 1;
+        return;
+      }
+    }
+
     const filter = await resolveRepoFilter({ repo: args.repo });
     let runs = await loadRunsFiltered(filter);
 
@@ -143,7 +249,6 @@ export default defineCommand({
       return;
     }
 
-    // If a runId is given (full or prefix), show details
     if (args.runId) {
       const match = runs.find(
         (r) => r.runId === args.runId || r.runId.startsWith(args.runId as string),
@@ -151,6 +256,11 @@ export default defineCommand({
       if (!match) {
         printError(`Run "${args.runId}" not found.`);
         process.exitCode = 1;
+        return;
+      }
+
+      if (args.watch) {
+        await watchRun(match.runId, match);
         return;
       }
 
@@ -163,7 +273,6 @@ export default defineCommand({
       return;
     }
 
-    // List mode
     if (args.status) {
       runs = runs.filter((r) => r.status === args.status);
     }
